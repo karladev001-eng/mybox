@@ -68,3 +68,5 @@ future adapters behind the same capability and resource contract.
   opaque image references.
 - `mybox-app/src/ChatView.jsx` provides the accessible tool picker and lazy image
   rendering.
+- ADR 0010 makes these explicit tools and skills discoverable from the same
+  composer through a keyboard-accessible slash-command palette.

@@ -83,6 +83,14 @@ the native host admits only the image tool for that turn, validates its output,
 and stores accepted media in the private `ai-chat` app namespace behind an opaque
 resource ID. Web search and image generation cannot run in the same request.
 
+The chat composer projects available tools and skills into a provider-neutral
+slash-command palette; applying a command changes only the same explicit turn
+state as its visible control. Model and reasoning choices are also provider
+capabilities. Codex choices come from the native `model/list` result and are
+revalidated before each turn. Subscription quota is displayed as the remaining
+percentage reported by Codex, while metered API responses store and total their
+exact token usage. These controls do not grant an operation or provider tool.
+
 The default authorization policy is:
 
 - reads may run after the user has granted the app/data scope;

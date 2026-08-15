@@ -8,6 +8,7 @@ import {
   createEmptyChatHistory,
   deleteChatSession,
   renameChatSession,
+  sumSessionTokenUsage,
 } from "./core/chat-history.js";
 import { getChatHistoryStore } from "./desktop/chat-history.js";
 import {
@@ -469,6 +470,10 @@ export function App() {
   const [availableSkills, setAvailableSkills] = useState([]);
   const [selectedSkillIds, setSelectedSkillIds] = useState([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
+  const [availableModels, setAvailableModels] = useState([]);
+  const [modelSelections, setModelSelections] = useState({});
+  const [reasoningSelections, setReasoningSelections] = useState({});
+  const [subscriptionUsage, setSubscriptionUsage] = useState(null);
   const aiInput = useRef(null);
   const chatStore = useRef(getChatHistoryStore()).current;
   const desktop = isDesktopRuntime();
@@ -485,6 +490,22 @@ export function App() {
     && activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID
     && agentStatus?.connected === true
     && agentStatus?.imageGeneration === true;
+  const providerReady = Boolean(activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID
+    ? agentStatus?.connected
+    : activeProviderId === OPENAI_API_PROVIDER_ID
+      ? providerSettings.openaiApi.configured
+      : activeProviderId === LOCAL_LLM_PROVIDER_ID && providerSettings.localLlm.configured);
+  const selectedModelId = modelSelections[activeProviderId] ?? "";
+  const selectedModel = availableModels.find((model) => model.id === selectedModelId) ?? null;
+  const reasoningEfforts = selectedModel?.supportedReasoningEfforts ?? [];
+  const selectedReasoningEffort = reasoningSelections[activeProviderId] ?? "";
+  const activeChatSession = chatHistory.sessions.find((session) => session.id === activeChatId) ?? null;
+  const apiTokenUsage = sumSessionTokenUsage(activeChatSession, OPENAI_API_PROVIDER_ID);
+  const providerUsage = activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID
+    ? subscriptionUsage && { kind: "subscription", ...subscriptionUsage }
+    : activeProviderId === OPENAI_API_PROVIDER_ID
+      ? { kind: "api", ...apiTokenUsage }
+      : null;
   const chatPersistenceReady = chatLoaded && (!desktop || Boolean(workspace));
 
   useEffect(() => {
@@ -587,6 +608,53 @@ export function App() {
   useEffect(() => {
     if (!imageGenerationSupported) setImageGenerationEnabled(false);
   }, [imageGenerationSupported]);
+
+  useEffect(() => {
+    let active = true;
+    setAvailableModels([]);
+    if (!providerReady || typeof activeProvider.listModels !== "function") return () => { active = false; };
+    activeProvider.listModels()
+      .then((models) => {
+        if (!active) return;
+        const safeModels = Array.isArray(models) ? models : [];
+        setAvailableModels(safeModels);
+        setModelSelections((current) => {
+          const currentId = current[activeProviderId];
+          const chosen = safeModels.find((model) => model.id === currentId)
+            ?? safeModels.find((model) => model.isDefault)
+            ?? safeModels[0];
+          if (!chosen) return { ...current, [activeProviderId]: "" };
+          return { ...current, [activeProviderId]: chosen.id };
+        });
+      })
+      .catch((error) => active && setToast(`モデルを読み込めません：${String(error)}`));
+    return () => { active = false; };
+  }, [activeProvider, activeProviderId, providerReady, agentStatus?.version, providerSettings.openaiApi.model, providerSettings.localLlm.model]);
+
+  useEffect(() => {
+    if (!selectedModel) return;
+    setReasoningSelections((current) => {
+      const supported = selectedModel.supportedReasoningEfforts ?? [];
+      const currentEffort = current[activeProviderId];
+      const nextEffort = supported.some((option) => option.id === currentEffort)
+        ? currentEffort
+        : selectedModel.defaultReasoningEffort || supported[0]?.id || "";
+      if (currentEffort === nextEffort) return current;
+      return { ...current, [activeProviderId]: nextEffort };
+    });
+  }, [activeProviderId, selectedModel]);
+
+  useEffect(() => {
+    let active = true;
+    if (activeProviderId !== CODEX_SUBSCRIPTION_PROVIDER_ID || !providerReady || typeof activeProvider.getUsage !== "function") {
+      setSubscriptionUsage(null);
+      return () => { active = false; };
+    }
+    activeProvider.getUsage()
+      .then((usage) => active && setSubscriptionUsage(usage))
+      .catch(() => active && setSubscriptionUsage(null));
+    return () => { active = false; };
+  }, [activeProvider, activeProviderId, providerReady, agentStatus?.version]);
 
   const selectWorkspace = async () => {
     setWorkspaceBusy(true);
@@ -705,12 +773,7 @@ export function App() {
   };
 
   const activeProviderReady = () => {
-    const activeReady = activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID
-      ? agentStatus?.connected
-      : activeProviderId === OPENAI_API_PROVIDER_ID
-        ? providerSettings.openaiApi.configured
-        : activeProviderId === LOCAL_LLM_PROVIDER_ID && providerSettings.localLlm.configured;
-    return Boolean(activeReady);
+    return providerReady;
   };
 
   const saveChatHistory = async (history) => {
@@ -766,12 +829,41 @@ export function App() {
       : current.length < 4 ? [...current, skillId] : current);
   };
 
+  const toggleWebSearch = () => {
+    setWebSearchEnabled((enabled) => {
+      const next = !enabled;
+      if (next) setImageGenerationEnabled(false);
+      return next;
+    });
+  };
+
   const toggleImageGeneration = () => {
     setImageGenerationEnabled((enabled) => {
       const next = !enabled;
       if (next) setWebSearchEnabled(false);
       return next;
     });
+  };
+
+  const selectChatModel = (modelId) => {
+    const model = availableModels.find((item) => item.id === modelId);
+    if (!model) return;
+    setModelSelections((current) => ({ ...current, [activeProviderId]: model.id }));
+    setReasoningSelections((current) => {
+      const supported = model.supportedReasoningEfforts ?? [];
+      const currentEffort = current[activeProviderId];
+      return {
+        ...current,
+        [activeProviderId]: supported.some((option) => option.id === currentEffort)
+          ? currentEffort
+          : model.defaultReasoningEffort || supported[0]?.id || "",
+      };
+    });
+  };
+
+  const selectChatReasoning = (effort) => {
+    if (!reasoningEfforts.some((option) => option.id === effort)) return;
+    setReasoningSelections((current) => ({ ...current, [activeProviderId]: effort }));
   };
 
   const sendChatMessage = async (text) => {
@@ -821,6 +913,8 @@ export function App() {
       const session = workingHistory.sessions.find((item) => item.id === sessionId);
       const result = await activeProvider.generate({
         prompt: buildConversationPrompt(session),
+        model: selectedModelId || undefined,
+        reasoningEffort: selectedReasoningEffort || undefined,
         webSearch: webSearchSupported && webSearchEnabled && !imageGenerationEnabled,
         imageGeneration: imageGenerationSupported && imageGenerationEnabled,
         skillIds: skillsSupported ? selectedSkillIds : [],
@@ -832,8 +926,14 @@ export function App() {
         sources: result.sources,
         webSearchUsed: result.webSearchUsed,
         image: result.image,
+        model: selectedModelId || null,
+        reasoningEffort: selectedReasoningEffort || null,
+        tokenUsage: result.usage,
       }).history;
       await saveChatHistory(workingHistory);
+      if (activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID && typeof activeProvider.getUsage === "function") {
+        activeProvider.getUsage().then(setSubscriptionUsage).catch(() => {});
+      }
       setSelectedSkillIds([]);
       setImageGenerationEnabled(false);
     } catch (error) {
@@ -899,10 +999,17 @@ export function App() {
           providerName={activeProviderName}
           providerReady={activeProviderReady()}
           providerLabels={providerLabels}
+          models={availableModels}
+          selectedModelId={selectedModelId}
+          onSelectModel={selectChatModel}
+          reasoningEfforts={reasoningEfforts}
+          selectedReasoningEffort={selectedReasoningEffort}
+          onSelectReasoningEffort={selectChatReasoning}
+          usage={providerUsage}
           persistenceReady={chatPersistenceReady}
           webSearchEnabled={webSearchEnabled}
-          webSearchSupported={webSearchSupported && !imageGenerationEnabled}
-          onToggleWebSearch={() => setWebSearchEnabled((enabled) => !enabled)}
+          webSearchSupported={webSearchSupported}
+          onToggleWebSearch={toggleWebSearch}
           skills={availableSkills}
           skillsSupported={skillsSupported}
           skillsLoading={skillsLoading}

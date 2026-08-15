@@ -79,3 +79,5 @@ embedding path; browser cookies and unofficial token extraction are prohibited.
   hosted Web search; all mutation-capable tools remain blocked.
 - ADR 0009 adds explicitly selected skills and a turn-scoped image-generation
   tool without granting skills independent tool or storage authority.
+- ADR 0010 adds provider model/Thinking discovery and provider-specific usage
+  reporting without conflating subscription quota with metered API tokens.

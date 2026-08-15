@@ -1,5 +1,5 @@
 const HISTORY_KEY = "sessions/index";
-const VERSION = 1;
+const VERSION = 2;
 const MAX_SESSIONS = 100;
 const MAX_MESSAGES = 200;
 const MAX_MESSAGE_CHARS = 64 * 1024;
@@ -77,6 +77,32 @@ function cleanImage(value) {
   };
 }
 
+function cleanModel(value) {
+  const model = cleanText(value, 160);
+  return /^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/.test(model) ? model : null;
+}
+
+function cleanReasoningEffort(value) {
+  const effort = cleanText(value, 24);
+  return /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(effort) ? effort : null;
+}
+
+function cleanTokenCount(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function cleanTokenUsage(value) {
+  if (!value || typeof value !== "object") return null;
+  const usage = {
+    inputTokens: cleanTokenCount(value.inputTokens),
+    cachedInputTokens: cleanTokenCount(value.cachedInputTokens),
+    outputTokens: cleanTokenCount(value.outputTokens),
+    reasoningOutputTokens: cleanTokenCount(value.reasoningOutputTokens),
+    totalTokens: cleanTokenCount(value.totalTokens),
+  };
+  return Object.values(usage).some((count) => count > 0) ? usage : null;
+}
+
 function cleanMessage(message, fallbackTime) {
   const content = cleanText(message?.content);
   const role = message?.role === "assistant" ? "assistant" : message?.role === "user" ? "user" : null;
@@ -92,6 +118,9 @@ function cleanMessage(message, fallbackTime) {
     skills: role === "user" ? cleanSkills(message.skills) : [],
     imageRequested: role === "user" && message.imageRequested === true,
     image: role === "assistant" ? cleanImage(message.image) : null,
+    model: role === "assistant" ? cleanModel(message.model) : null,
+    reasoningEffort: role === "assistant" ? cleanReasoningEffort(message.reasoningEffort) : null,
+    tokenUsage: role === "assistant" ? cleanTokenUsage(message.tokenUsage) : null,
     createdAt: cleanIso(message.createdAt, fallbackTime),
   };
 }
@@ -166,6 +195,9 @@ export function appendChatMessage(history, sessionId, message, { id = makeId("me
       skills: role === "user" ? cleanSkills(message.skills) : [],
       imageRequested: role === "user" && message.imageRequested === true,
       image: role === "assistant" ? cleanImage(message.image) : null,
+      model: role === "assistant" ? cleanModel(message.model) : null,
+      reasoningEffort: role === "assistant" ? cleanReasoningEffort(message.reasoningEffort) : null,
+      tokenUsage: role === "assistant" ? cleanTokenUsage(message.tokenUsage) : null,
       createdAt: now,
     };
     const firstUserMessage = role === "user" && !session.messages.some((item) => item.role === "user");
@@ -222,6 +254,23 @@ export function buildConversationPrompt(session, maxChars = DEFAULT_CONTEXT_CHAR
     "",
     ...lines,
   ].join("\n");
+}
+
+export function sumSessionTokenUsage(session, providerId) {
+  const totals = {
+    inputTokens: 0,
+    cachedInputTokens: 0,
+    outputTokens: 0,
+    reasoningOutputTokens: 0,
+    totalTokens: 0,
+  };
+  for (const message of session?.messages ?? []) {
+    if (message.role !== "assistant" || message.providerId !== providerId || !message.tokenUsage) continue;
+    for (const key of Object.keys(totals)) {
+      totals[key] += cleanTokenCount(message.tokenUsage[key]);
+    }
+  }
+  return totals;
 }
 
 export function createChatHistoryStore(storage) {

@@ -61,3 +61,5 @@ defined by ADR 0003 and ADR 0005.
 - ADR 0008 defines how Web-search provenance enters this provider-neutral state.
 - ADR 0009 adds bounded skill labels and opaque generated-image references to
   the local transcript without storing image bytes in chat JSON.
+- ADR 0010 records the effective model, reasoning effort, and validated API token
+  breakdown on completed assistant messages.

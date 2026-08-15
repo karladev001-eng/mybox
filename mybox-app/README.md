@@ -52,13 +52,21 @@ opaque resource ID rather than a filesystem path. Image generation is mutually
 exclusive with Web search for a turn and may consume subscription allowance or
 credits.
 
+Type `/` in the composer to search the currently available tools and skills.
+Use the arrow keys to move and Tab or Enter to apply a candidate. The composer
+also discovers the signed-in Codex model catalog and each model's supported
+Thinking levels. Subscription usage is shown as the remaining percentage in the
+reported quota windows because Codex does not expose a remaining-token count.
+
 OpenAI API is a separate setting. Its key is stored in the operating system
 credential store and is never returned to the WebView or written to the workspace.
 Requests use the Responses API, opt out of response storage, and do not enable
 provider-hosted tools except the user-controlled Web-search capability. ChatGPT
 and OpenAI API can search when the Web toggle is active; results keep visible,
 clickable sources in local chat history. Commands, file changes, MCP, and other
-provider tools remain blocked.
+provider tools remain blocked. API responses store their exact input, cached,
+output, reasoning, and total token usage in local chat history; the composer shows
+the current session total. Supported API models expose their Thinking selector.
 
 Local LLM connects to an OpenAI-compatible Chat Completions server on loopback.
 For example, configure `http://127.0.0.1:11434/v1` plus the exact local model name.

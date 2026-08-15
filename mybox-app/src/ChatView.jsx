@@ -5,7 +5,9 @@ import { readChatImage } from "./desktop/agent-providers.js";
 import {
   ArrowSquareOut,
   ArrowLeft,
+  Brain,
   ChatCircleDots,
+  CheckCircle,
   DownloadSimple,
   GearSix,
   GlobeHemisphereWest,
@@ -52,6 +54,61 @@ function shortTime(value) {
 
 function messageTime(value) {
   return new Intl.DateTimeFormat("ja-JP", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+}
+
+const reasoningLabels = {
+  none: "なし",
+  low: "低",
+  medium: "中",
+  high: "高",
+  xhigh: "最高",
+  max: "最大",
+};
+
+function reasoningLabel(value) {
+  return reasoningLabels[value] ?? value;
+}
+
+function compactNumber(value) {
+  return new Intl.NumberFormat("ja-JP", { notation: "compact", maximumFractionDigits: 1 }).format(value || 0);
+}
+
+function tokenUsageTitle(usage) {
+  if (!usage) return "";
+  return `入力 ${usage.inputTokens.toLocaleString("ja-JP")}・キャッシュ ${usage.cachedInputTokens.toLocaleString("ja-JP")}・出力 ${usage.outputTokens.toLocaleString("ja-JP")}・推論 ${usage.reasoningOutputTokens.toLocaleString("ja-JP")}`;
+}
+
+function quotaWindowTitle(window, label) {
+  if (!window) return null;
+  const reset = window.resetsAt
+    ? new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(window.resetsAt * 1000))
+    : "不明";
+  return `${label}：残り${window.remainingPercent}%（${reset}リセット）`;
+}
+
+function UsageBadge({ usage }) {
+  if (!usage) return null;
+  if (usage.kind === "subscription") {
+    const windows = [usage.primary, usage.secondary].filter(Boolean);
+    if (!windows.length) return null;
+    const remaining = Math.min(...windows.map((window) => window.remainingPercent));
+    const title = [quotaWindowTitle(usage.primary, "短期枠"), quotaWindowTitle(usage.secondary, "長期枠")].filter(Boolean).join("\n");
+    return <span className="usage-badge quota" title={title} aria-label={title}>残り {remaining}%</span>;
+  }
+  if (usage.kind === "api") {
+    return <span className="usage-badge" title={tokenUsageTitle(usage)} aria-label={`このチャットで${usage.totalTokens.toLocaleString("ja-JP")}トークン使用`}>使用 {compactNumber(usage.totalTokens)}</span>;
+  }
+  return null;
+}
+
+function slashContext(value) {
+  const match = value.match(/(^|\s)\/([^\s/]*)$/);
+  if (!match) return null;
+  return {
+    query: match[2].toLocaleLowerCase("ja-JP"),
+    start: match.index + match[1].length,
+    end: value.length,
+  };
 }
 
 function ChatIconButton({ label, children, ...props }) {
@@ -108,6 +165,13 @@ export function ChatView({
   providerName,
   providerReady,
   providerLabels,
+  models,
+  selectedModelId,
+  onSelectModel,
+  reasoningEfforts,
+  selectedReasoningEffort,
+  onSelectReasoningEffort,
+  usage,
   persistenceReady,
   webSearchEnabled,
   webSearchSupported,
@@ -135,6 +199,8 @@ export function ChatView({
   const [draftTitle, setDraftTitle] = useState("");
   const [toolPickerOpen, setToolPickerOpen] = useState(false);
   const [skillQuery, setSkillQuery] = useState("");
+  const [slashIndex, setSlashIndex] = useState(0);
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const messageListRef = useRef(null);
   const composerRef = useRef(null);
   const cancelRenameRef = useRef(false);
@@ -146,6 +212,30 @@ export function ChatView({
     if (!needle) return skills;
     return skills.filter((skill) => `${skill.displayName} ${skill.description}`.toLocaleLowerCase("ja-JP").includes(needle));
   }, [skillQuery, skills]);
+  const commandCandidates = useMemo(() => [
+    ...(webSearchSupported ? [{ id: "tool:web", command: "/web", name: "Web検索", description: "最新情報と出典を検索", icon: GlobeHemisphereWest, selected: webSearchEnabled, action: onToggleWebSearch }] : []),
+    ...(imageGenerationSupported ? [{ id: "tool:image", command: "/image", name: "画像生成", description: "会話内に画像を生成", icon: ImageSquare, selected: imageGenerationEnabled, action: onToggleImageGeneration }] : []),
+    ...(skillsSupported ? skills.map((skill) => ({
+      id: `skill:${skill.id}`,
+      command: `/${skill.name}`,
+      name: skill.displayName,
+      description: skill.description || skill.scope,
+      icon: MagicWand,
+      selected: selectedSkillIds.includes(skill.id),
+      disabled: selectedSkillIds.length >= 4 && !selectedSkillIds.includes(skill.id),
+      action: () => onToggleSkill(skill.id),
+    })) : []),
+  ], [webSearchSupported, webSearchEnabled, onToggleWebSearch, imageGenerationSupported, imageGenerationEnabled, onToggleImageGeneration, skillsSupported, skills, selectedSkillIds, onToggleSkill]);
+  const activeSlash = slashContext(value);
+  const slashCandidates = useMemo(() => {
+    if (!activeSlash) return [];
+    const needle = activeSlash.query;
+    return commandCandidates
+      .filter((candidate) => !candidate.disabled)
+      .filter((candidate) => !needle || `${candidate.command.slice(1)} ${candidate.name} ${candidate.description}`.toLocaleLowerCase("ja-JP").includes(needle))
+      .slice(0, 9);
+  }, [activeSlash?.query, commandCandidates]);
+  const slashOpen = !slashDismissed && Boolean(activeSlash) && (slashCandidates.length > 0 || skillsLoading);
 
   const groupedSessions = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("ja-JP");
@@ -175,6 +265,23 @@ export function ChatView({
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [toolPickerOpen]);
+
+  useEffect(() => {
+    setSlashIndex(0);
+    if (slashOpen) setToolPickerOpen(false);
+  }, [activeSlash?.query, slashOpen]);
+
+  const applySlashCommand = (candidate) => {
+    if (!candidate || candidate.disabled || !activeSlash) return;
+    candidate.action();
+    const nextValue = `${value.slice(0, activeSlash.start)}${value.slice(activeSlash.end)}`;
+    onChange(nextValue);
+    setSlashDismissed(false);
+    window.setTimeout(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(activeSlash.start, activeSlash.start);
+    }, 0);
+  };
 
   const submit = (event) => {
     event.preventDefault();
@@ -305,6 +412,8 @@ export function ChatView({
                     <header>
                       <strong>{message.role === "user" ? "あなた" : "MyBox AI"}</strong>
                       {message.role === "assistant" && message.providerId && <span>{providerLabels[message.providerId] ?? message.providerId}</span>}
+                      {message.role === "assistant" && message.model && <span title={`モデル ${message.model}${message.reasoningEffort ? `、Thinking ${reasoningLabel(message.reasoningEffort)}` : ""}`}>{message.model}{message.reasoningEffort ? `・${reasoningLabel(message.reasoningEffort)}` : ""}</span>}
+                      {message.role === "assistant" && message.tokenUsage && <span title={tokenUsageTitle(message.tokenUsage)}>{compactNumber(message.tokenUsage.totalTokens)} tokens</span>}
                       <time dateTime={message.createdAt}>{messageTime(message.createdAt)}</time>
                     </header>
                     <p>{message.content}</p>
@@ -346,6 +455,34 @@ export function ChatView({
         </div>
 
         <form className="chat-composer" onSubmit={submit} aria-busy={busy}>
+          {slashOpen && (
+            <section className="slash-menu" aria-label="コマンド候補">
+              <header><span><strong>/</strong> コマンド</span><small>↑↓ 移動　Tab 選択</small></header>
+              <div id="slash-command-listbox" role="listbox" aria-label="ツールとスキルの候補">
+                {skillsLoading && !slashCandidates.length ? <p>スキルを読み込み中…</p> : slashCandidates.map((candidate, index) => {
+                  const Icon = candidate.icon;
+                  return (
+                    <button
+                      type="button"
+                      role="option"
+                      id={`slash-option-${index}`}
+                      key={candidate.id}
+                      aria-selected={index === slashIndex}
+                      disabled={candidate.disabled}
+                      className={index === slashIndex ? "active" : ""}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setSlashIndex(index)}
+                      onClick={() => applySlashCommand(candidate)}
+                    >
+                      <span><Icon size={18} weight={candidate.selected ? "fill" : "regular"} aria-hidden="true" /></span>
+                      <span><strong>{candidate.command}</strong><small>{candidate.name}・{candidate.description}</small></span>
+                      {candidate.selected && <CheckCircle size={17} weight="fill" aria-label="選択中" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          )}
           {toolPickerOpen && (
             <section className="tool-picker" id="chat-tool-picker" aria-label="チャットツール">
               <header>
@@ -406,8 +543,39 @@ export function ChatView({
             maxLength={64 * 1024}
             disabled={busy || !persistenceReady}
             placeholder={persistenceReady ? "メッセージを入力…" : "設定から保存場所を選択してください"}
-            onChange={(event) => onChange(event.target.value)}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={slashOpen}
+            aria-controls={slashOpen ? "slash-command-listbox" : undefined}
+            aria-activedescendant={slashOpen && slashCandidates[slashIndex] ? `slash-option-${slashIndex}` : undefined}
+            onChange={(event) => { setSlashDismissed(false); onChange(event.target.value); }}
             onKeyDown={(event) => {
+              if (slashOpen && !event.shiftKey) {
+                if ((event.key === "ArrowDown" || event.key === "ArrowUp") && slashCandidates.length) {
+                  event.preventDefault();
+                  const direction = event.key === "ArrowDown" ? 1 : -1;
+                  setSlashIndex((current) => (current + direction + slashCandidates.length) % slashCandidates.length);
+                  return;
+                }
+                if ((event.key === "Tab" || event.key === "Enter") && slashCandidates[slashIndex]) {
+                  event.preventDefault();
+                  applySlashCommand(slashCandidates[slashIndex]);
+                  return;
+                }
+                if (event.key === " ") {
+                  const exact = slashCandidates.find((candidate) => candidate.command.slice(1).toLocaleLowerCase("ja-JP") === activeSlash?.query);
+                  if (exact) {
+                    event.preventDefault();
+                    applySlashCommand(exact);
+                    return;
+                  }
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSlashDismissed(true);
+                  return;
+                }
+              }
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
                 event.currentTarget.form?.requestSubmit();
@@ -415,7 +583,27 @@ export function ChatView({
             }}
           />
           <div className="chat-composer-footer">
-            <span>{providerName}</span>
+            <div className="composer-context-controls">
+              <span>{providerName}</span>
+              {models.length > 0 && (
+                <label className="composer-select model-select" title="使用するモデル">
+                  <span className="sr-only">使用するモデル</span>
+                  <select value={selectedModelId} disabled={busy} onChange={(event) => onSelectModel(event.target.value)}>
+                    {models.map((model) => <option value={model.id} key={model.id}>{model.displayName}</option>)}
+                  </select>
+                </label>
+              )}
+              {reasoningEfforts.length > 0 && (
+                <label className="composer-select reasoning-select" title="Thinkingレベル">
+                  <Brain size={15} aria-hidden="true" />
+                  <span className="sr-only">Thinkingレベル</span>
+                  <select value={selectedReasoningEffort} disabled={busy} onChange={(event) => onSelectReasoningEffort(event.target.value)}>
+                    {reasoningEfforts.map((effort) => <option value={effort.id} key={effort.id}>{reasoningLabel(effort.id)}</option>)}
+                  </select>
+                </label>
+              )}
+              <UsageBadge usage={usage} />
+            </div>
             <button
               type="button"
               className={`tool-picker-toggle${selectedToolCount ? " active" : ""}`}

@@ -84,6 +84,8 @@ pub struct CodexGenerateRequest {
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
+    reasoning_effort: Option<String>,
+    #[serde(default)]
     web_search: bool,
     #[serde(default)]
     image_generation: bool,
@@ -100,6 +102,40 @@ pub struct CodexSkill {
     description: String,
     scope: String,
     requires_tools: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexReasoningEffort {
+    id: String,
+    description: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexModel {
+    id: String,
+    display_name: String,
+    description: String,
+    default_reasoning_effort: String,
+    supported_reasoning_efforts: Vec<CodexReasoningEffort>,
+    is_default: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QuotaWindow {
+    used_percent: u8,
+    remaining_percent: u8,
+    window_duration_mins: Option<u64>,
+    resets_at: Option<i64>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubscriptionUsage {
+    primary: Option<QuotaWindow>,
+    secondary: Option<QuotaWindow>,
 }
 
 #[derive(Clone, Debug)]
@@ -359,6 +395,149 @@ async fn read_provider_capabilities(server: &mut AppServer) -> ProviderCapabilit
     }
 }
 
+fn is_valid_model_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 80
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || ".-_".contains(character))
+}
+
+fn is_valid_reasoning_effort(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 24
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+}
+
+fn parse_models(result: &Value) -> Vec<CodexModel> {
+    result
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            if entry
+                .get("hidden")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                return None;
+            }
+            let id = entry
+                .get("id")
+                .or_else(|| entry.get("model"))
+                .and_then(Value::as_str)?;
+            if !is_valid_model_id(id) {
+                return None;
+            }
+            let efforts = entry
+                .get("supportedReasoningEfforts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|option| {
+                    let id = option.get("reasoningEffort").and_then(Value::as_str)?;
+                    is_valid_reasoning_effort(id).then(|| CodexReasoningEffort {
+                        id: id.to_string(),
+                        description: option
+                            .get("description")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .chars()
+                            .take(240)
+                            .collect(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            let default_effort = entry
+                .get("defaultReasoningEffort")
+                .and_then(Value::as_str)
+                .filter(|value| efforts.iter().any(|effort| effort.id == *value))
+                .or_else(|| efforts.first().map(|effort| effort.id.as_str()))
+                .unwrap_or("")
+                .to_string();
+            Some(CodexModel {
+                id: id.to_string(),
+                display_name: entry
+                    .get("displayName")
+                    .and_then(Value::as_str)
+                    .unwrap_or(id)
+                    .chars()
+                    .take(120)
+                    .collect(),
+                description: entry
+                    .get("description")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .chars()
+                    .take(320)
+                    .collect(),
+                default_reasoning_effort: default_effort,
+                supported_reasoning_efforts: efforts,
+                is_default: entry
+                    .get("isDefault")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+            })
+        })
+        .collect()
+}
+
+async fn list_models_for(
+    server: &mut AppServer,
+    request_id: i64,
+) -> Result<Vec<CodexModel>, String> {
+    server
+        .send(&json!({
+            "method": "model/list",
+            "id": request_id,
+            "params": { "limit": 100, "includeHidden": false }
+        }))
+        .await?;
+    let models = parse_models(&server.response(request_id, SHORT_TIMEOUT).await?);
+    if models.is_empty() {
+        return Err("Codexが利用可能なモデルを返しませんでした".to_string());
+    }
+    Ok(models)
+}
+
+fn parse_quota_window(value: Option<&Value>) -> Option<QuotaWindow> {
+    let value = value?;
+    let used = value.get("usedPercent")?.as_u64()?.min(100) as u8;
+    Some(QuotaWindow {
+        used_percent: used,
+        remaining_percent: 100 - used,
+        window_duration_mins: value.get("windowDurationMins").and_then(Value::as_u64),
+        resets_at: value.get("resetsAt").and_then(Value::as_i64),
+    })
+}
+
+fn parse_subscription_usage(result: &Value) -> SubscriptionUsage {
+    let limits = result.get("rateLimits");
+    SubscriptionUsage {
+        primary: parse_quota_window(limits.and_then(|value| value.get("primary"))),
+        secondary: parse_quota_window(limits.and_then(|value| value.get("secondary"))),
+    }
+}
+
+async fn read_subscription_usage_for(
+    server: &mut AppServer,
+    request_id: i64,
+) -> Result<SubscriptionUsage, String> {
+    server
+        .send(&json!({
+            "method": "account/rateLimits/read",
+            "id": request_id,
+            "params": {}
+        }))
+        .await?;
+    Ok(parse_subscription_usage(
+        &server.response(request_id, SHORT_TIMEOUT).await?,
+    ))
+}
+
 async fn status_for(launcher: CodexLauncher) -> CodexSubscriptionStatus {
     let version = codex_version(&launcher).await;
     let account = match AppServer::start(&launcher).await {
@@ -548,6 +727,34 @@ pub async fn codex_subscription_skills() -> Result<Vec<CodexSkill>, String> {
     Ok(skills)
 }
 
+#[tauri::command]
+pub async fn codex_subscription_models() -> Result<Vec<CodexModel>, String> {
+    let launcher = find_codex().ok_or_else(|| "Codex CLIをインストールしてください".to_string())?;
+    let mut server = AppServer::start(&launcher).await?;
+    let account = read_account(&mut server).await?;
+    if account.auth_mode.as_deref() != Some("chatgpt") {
+        server.stop().await;
+        return Err("ChatGPTサブスクリプションでCodexに接続してください".to_string());
+    }
+    let result = list_models_for(&mut server, 2).await;
+    server.stop().await;
+    result
+}
+
+#[tauri::command]
+pub async fn codex_subscription_usage() -> Result<SubscriptionUsage, String> {
+    let launcher = find_codex().ok_or_else(|| "Codex CLIをインストールしてください".to_string())?;
+    let mut server = AppServer::start(&launcher).await?;
+    let account = read_account(&mut server).await?;
+    if account.auth_mode.as_deref() != Some("chatgpt") {
+        server.stop().await;
+        return Err("ChatGPTサブスクリプションでCodexに接続してください".to_string());
+    }
+    let result = read_subscription_usage_for(&mut server, 2).await;
+    server.stop().await;
+    result
+}
+
 fn validate_generate_request(request: &CodexGenerateRequest) -> Result<(), String> {
     if request.prompt.trim().is_empty() {
         return Err("AIへの依頼を入力してください".to_string());
@@ -556,14 +763,16 @@ fn validate_generate_request(request: &CodexGenerateRequest) -> Result<(), Strin
         return Err("AIへの依頼が長すぎます".to_string());
     }
     if let Some(model) = &request.model {
-        let valid = !model.is_empty()
-            && model.len() <= 80
-            && model
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || ".-_".contains(character));
-        if !valid {
+        if !is_valid_model_id(model) {
             return Err("モデルIDが不正です".to_string());
         }
+    }
+    if request
+        .reasoning_effort
+        .as_deref()
+        .is_some_and(|value| !is_valid_reasoning_effort(value))
+    {
+        return Err("Thinkingレベルが不正です".to_string());
     }
     if request.skill_ids.len() > MAX_SKILLS_PER_TURN
         || request
@@ -757,10 +966,35 @@ async fn generate_with_server(
         }
     }
 
+    let effective_model = if request.model.is_some() || request.reasoning_effort.is_some() {
+        let models = list_models_for(&mut server, 3).await?;
+        let selected = if let Some(model_id) = request.model.as_deref() {
+            models.iter().find(|model| model.id == model_id)
+        } else {
+            models
+                .iter()
+                .find(|model| model.is_default)
+                .or_else(|| models.first())
+        }
+        .ok_or_else(|| "選択したモデルは現在のChatGPT接続で利用できません".to_string())?;
+        if let Some(effort) = request.reasoning_effort.as_deref() {
+            if !selected
+                .supported_reasoning_efforts
+                .iter()
+                .any(|option| option.id == effort)
+            {
+                return Err("選択したThinkingレベルはこのモデルで利用できません".to_string());
+            }
+        }
+        Some(selected.id.clone())
+    } else {
+        None
+    };
+
     let all_skills = if request.skill_ids.is_empty() {
         Vec::new()
     } else {
-        list_skills_for(&mut server, isolated.path(), 3).await?
+        list_skills_for(&mut server, isolated.path(), 4).await?
     };
     let selected_skills: Vec<_> = request
         .skill_ids
@@ -796,17 +1030,17 @@ async fn generate_with_server(
             "tools": { "web_search": { "context_size": "medium" } }
         });
     }
-    if let Some(model) = &request.model {
+    if let Some(model) = &effective_model {
         thread_params["model"] = Value::String(model.clone());
     }
     server
         .send(&json!({
             "method": "thread/start",
-            "id": 4,
+            "id": 5,
             "params": thread_params
         }))
         .await?;
-    let thread = server.response(4, SHORT_TIMEOUT).await?;
+    let thread = server.response(5, SHORT_TIMEOUT).await?;
     let thread_id = thread
         .pointer("/thread/id")
         .and_then(Value::as_str)
@@ -840,10 +1074,13 @@ async fn generate_with_server(
     if let Some(schema) = request.response_schema {
         turn_params["outputSchema"] = schema;
     }
+    if let Some(effort) = &request.reasoning_effort {
+        turn_params["effort"] = Value::String(effort.clone());
+    }
     server
         .send(&json!({
             "method": "turn/start",
-            "id": 5,
+            "id": 6,
             "params": turn_params
         }))
         .await?;
@@ -856,7 +1093,7 @@ async fn generate_with_server(
         let mut image_data = None;
         loop {
             let message = server.next_message().await?;
-            if message.get("id").and_then(Value::as_i64) == Some(5) {
+            if message.get("id").and_then(Value::as_i64) == Some(6) {
                 if let Some(error) = message.get("error") {
                     return Err(rpc_error(error));
                 }
@@ -1059,6 +1296,22 @@ mod tests {
 
     #[test]
     #[ignore = "requires a locally installed and authenticated Codex CLI"]
+    fn live_codex_lists_models_and_subscription_usage() {
+        tauri::async_runtime::block_on(async {
+            let launcher = find_codex().expect("Codex CLI");
+            let mut server = AppServer::start(&launcher).await.expect("App Server");
+            let models = list_models_for(&mut server, 2).await.expect("model/list");
+            let usage = read_subscription_usage_for(&mut server, 3)
+                .await
+                .expect("account/rateLimits/read");
+            server.stop().await;
+            assert!(!models.is_empty());
+            assert!(usage.primary.is_some() || usage.secondary.is_some());
+        });
+    }
+
+    #[test]
+    #[ignore = "requires a locally installed and authenticated Codex CLI"]
     fn live_codex_subscription_generates_text() {
         tauri::async_runtime::block_on(async {
             let launcher = find_codex().expect("Codex CLI");
@@ -1068,6 +1321,7 @@ mod tests {
                     prompt: "Reply with exactly: OK".to_string(),
                     response_schema: None,
                     model: None,
+                    reasoning_effort: None,
                     web_search: false,
                     image_generation: false,
                     skill_ids: Vec::new(),
@@ -1091,6 +1345,7 @@ mod tests {
                         .to_string(),
                     response_schema: None,
                     model: None,
+                    reasoning_effort: None,
                     web_search: true,
                     image_generation: false,
                     skill_ids: Vec::new(),
@@ -1114,6 +1369,7 @@ mod tests {
                     prompt: "白い背景に、笑顔で座るかわいい子犬のシンプルな絵本風イラストを1枚生成してください。文字は入れないでください。".to_string(),
                     response_schema: None,
                     model: None,
+                    reasoning_effort: None,
                     web_search: false,
                     image_generation: true,
                     skill_ids: Vec::new(),
@@ -1139,6 +1395,37 @@ mod tests {
         }));
         assert_eq!(account.auth_mode.as_deref(), Some("chatgpt"));
         assert_eq!(account.plan_type.as_deref(), Some("plus"));
+    }
+
+    #[test]
+    fn parses_picker_models_and_subscription_quota_without_fabricating_tokens() {
+        let models = parse_models(&json!({
+            "data": [{
+                "id": "gpt-5.6-terra",
+                "displayName": "GPT-5.6 Terra",
+                "description": "Balanced",
+                "hidden": false,
+                "isDefault": true,
+                "defaultReasoningEffort": "medium",
+                "supportedReasoningEfforts": [
+                    { "reasoningEffort": "low", "description": "Fast" },
+                    { "reasoningEffort": "medium", "description": "Balanced" }
+                ]
+            }]
+        }));
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].id, "gpt-5.6-terra");
+        assert_eq!(models[0].default_reasoning_effort, "medium");
+
+        let usage = parse_subscription_usage(&json!({
+            "rateLimits": {
+                "primary": { "usedPercent": 27, "windowDurationMins": 300, "resetsAt": 1_800_000_000 },
+                "secondary": null
+            }
+        }));
+        let primary = usage.primary.expect("primary quota");
+        assert_eq!(primary.used_percent, 27);
+        assert_eq!(primary.remaining_percent, 73);
     }
 
     #[test]

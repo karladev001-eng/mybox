@@ -95,6 +95,8 @@ pub struct NativeGenerateRequest {
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
+    reasoning_effort: Option<String>,
+    #[serde(default)]
     web_search: bool,
 }
 
@@ -112,6 +114,17 @@ pub struct NativeGenerateResponse {
     data: Option<Value>,
     sources: Vec<WebSource>,
     web_search_used: bool,
+    usage: Option<TokenUsage>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsage {
+    input_tokens: u64,
+    cached_input_tokens: u64,
+    output_tokens: u64,
+    reasoning_output_tokens: u64,
+    total_tokens: u64,
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -208,6 +221,14 @@ fn validate_model(model: &str) -> Result<String, String> {
     Ok(trimmed.to_string())
 }
 
+fn validate_reasoning_effort(effort: &str) -> Result<String, String> {
+    let effort = effort.trim();
+    if !matches!(effort, "none" | "low" | "medium" | "high" | "xhigh" | "max") {
+        return Err("Thinkingレベルを確認してください".to_string());
+    }
+    Ok(effort.to_string())
+}
+
 fn validate_local_base_url(base_url: &str) -> Result<Url, String> {
     let mut url = Url::parse(base_url.trim())
         .map_err(|_| "ローカルLLMのURLを確認してください".to_string())?;
@@ -246,6 +267,9 @@ fn validate_request(request: &NativeGenerateRequest) -> Result<(), String> {
     }
     if let Some(model) = &request.model {
         validate_model(model)?;
+    }
+    if let Some(effort) = &request.reasoning_effort {
+        validate_reasoning_effort(effort)?;
     }
     Ok(())
 }
@@ -323,6 +347,7 @@ fn structured_result(
     schema: &Option<Value>,
     sources: Vec<WebSource>,
     web_search_used: bool,
+    usage: Option<TokenUsage>,
 ) -> Result<NativeGenerateResponse, String> {
     let data = if schema.is_some() {
         Some(
@@ -337,6 +362,50 @@ fn structured_result(
         data,
         sources,
         web_search_used,
+        usage,
+    })
+}
+
+fn usage_value(value: &Value, primary: &str, fallback: &str) -> u64 {
+    value
+        .get(primary)
+        .or_else(|| value.get(fallback))
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+}
+
+fn extract_token_usage(value: &Value) -> Option<TokenUsage> {
+    let usage = value.get("usage")?;
+    let input_tokens = usage_value(usage, "input_tokens", "prompt_tokens");
+    let output_tokens = usage_value(usage, "output_tokens", "completion_tokens");
+    let cached_input_tokens = usage
+        .get("input_tokens_details")
+        .and_then(|details| details.get("cached_tokens"))
+        .or_else(|| {
+            usage
+                .get("prompt_tokens_details")
+                .and_then(|details| details.get("cached_tokens"))
+        })
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let reasoning_output_tokens = usage
+        .get("output_tokens_details")
+        .and_then(|details| details.get("reasoning_tokens"))
+        .or_else(|| {
+            usage
+                .get("completion_tokens_details")
+                .and_then(|details| details.get("reasoning_tokens"))
+        })
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
+    let total_tokens = usage_value(usage, "total_tokens", "total_tokens")
+        .max(input_tokens.saturating_add(output_tokens));
+    Some(TokenUsage {
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+        reasoning_output_tokens,
+        total_tokens,
     })
 }
 
@@ -608,6 +677,9 @@ pub async fn openai_api_generate(
         "input": request.prompt,
         "store": false
     });
+    if let Some(effort) = request.reasoning_effort.as_deref() {
+        body["reasoning"] = json!({ "effort": validate_reasoning_effort(effort)? });
+    }
     if request.web_search {
         body["tools"] = json!([{ "type": "web_search", "search_context_size": "medium" }]);
         body["tool_choice"] = Value::String("auto".to_string());
@@ -637,11 +709,13 @@ pub async fn openai_api_generate(
     let value = response_json(response).await?;
     let sources = extract_responses_sources(&value);
     let web_search_used = responses_used_web_search(&value);
+    let usage = extract_token_usage(&value);
     structured_result(
         extract_responses_text(&value)?,
         &request.response_schema,
         sources,
         web_search_used,
+        usage,
     )
 }
 
@@ -654,6 +728,12 @@ pub async fn local_llm_generate(
     if request.web_search {
         return Err(
             "Local LLMはWeb検索に対応していません。ChatGPTまたはOpenAI APIを選択してください"
+                .to_string(),
+        );
+    }
+    if request.reasoning_effort.is_some() {
+        return Err(
+            "Local LLMのThinkingレベルは接続先ごとに形式が異なるため、まだ指定できません"
                 .to_string(),
         );
     }
@@ -700,15 +780,16 @@ pub async fn local_llm_generate(
         &request.response_schema,
         Vec::new(),
         false,
+        extract_token_usage(&value),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_chat_text, extract_responses_sources, extract_responses_text,
+        extract_chat_text, extract_responses_sources, extract_responses_text, extract_token_usage,
         responses_used_web_search, settings_view, validate_local_base_url, validate_model,
-        OpenAiApiConfig, ProviderSettingsFile, SETTINGS_VERSION,
+        validate_reasoning_effort, OpenAiApiConfig, ProviderSettingsFile, SETTINGS_VERSION,
     };
     use serde_json::json;
 
@@ -720,6 +801,25 @@ mod tests {
         assert!(validate_local_base_url("https://localhost:1234/v1").is_err());
         assert!(validate_local_base_url("http://192.168.1.10:11434/v1").is_err());
         assert!(validate_local_base_url("http://localhost:1234/v1?token=secret").is_err());
+    }
+
+    #[test]
+    fn extracts_api_token_usage_and_validates_reasoning_effort() {
+        let usage = extract_token_usage(&json!({
+            "usage": {
+                "input_tokens": 120,
+                "input_tokens_details": { "cached_tokens": 40 },
+                "output_tokens": 30,
+                "output_tokens_details": { "reasoning_tokens": 12 },
+                "total_tokens": 150
+            }
+        }))
+        .expect("token usage");
+        assert_eq!(usage.input_tokens, 120);
+        assert_eq!(usage.cached_input_tokens, 40);
+        assert_eq!(usage.reasoning_output_tokens, 12);
+        assert!(validate_reasoning_effort("max").is_ok());
+        assert!(validate_reasoning_effort("unbounded").is_err());
     }
 
     #[test]

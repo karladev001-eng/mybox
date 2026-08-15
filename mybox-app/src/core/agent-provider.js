@@ -24,11 +24,13 @@ function validateDescriptor(descriptor) {
   return Object.freeze(structuredClone(descriptor));
 }
 
-export function defineAgentProvider({ descriptor, getStatus, generate }) {
+export function defineAgentProvider({ descriptor, getStatus, generate, listModels, getUsage }) {
   const stableDescriptor = validateDescriptor(descriptor);
   assert(typeof getStatus === "function", "Provider getStatus must be a function");
   assert(typeof generate === "function", "Provider generate must be a function");
-  return Object.freeze({ descriptor: stableDescriptor, getStatus, generate });
+  assert(listModels === undefined || typeof listModels === "function", "Provider listModels must be a function");
+  assert(getUsage === undefined || typeof getUsage === "function", "Provider getUsage must be a function");
+  return Object.freeze({ descriptor: stableDescriptor, getStatus, generate, listModels, getUsage });
 }
 
 export class AgentProviderRegistry {

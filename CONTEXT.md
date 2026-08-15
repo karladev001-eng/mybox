@@ -48,6 +48,18 @@ authorized for that turn.
 into the owning app's private workspace storage. Conversation state stores an
 opaque resource reference rather than provider bytes or a filesystem path.
 
+**Slash command** — A composer shortcut that discovers and toggles an existing
+tool or skill selection. It changes explicit per-turn intent but grants no new
+provider, operation, storage, or network authority.
+
+**Reasoning effort** — A provider-advertised level controlling how much model work
+is requested for a turn. Available values belong to the selected model and must
+not be assumed across providers.
+
+**Usage snapshot** — Provider usage metadata kept in its native meaning: a live
+remaining quota percentage for subscriptions or actual token counts for metered
+API responses.
+
 **Workspace** — The user-selected local directory that is the authoritative store
 for app data and MyBox metadata.
 

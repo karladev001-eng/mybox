@@ -9,6 +9,7 @@ import {
   deleteChatSession,
   normalizeChatHistory,
   renameChatSession,
+  sumSessionTokenUsage,
 } from "../src/core/chat-history.js";
 import { createAppStorage, MemoryStorageDriver } from "../src/core/storage.js";
 
@@ -107,4 +108,47 @@ test("keeps selected skills and an opaque generated-image reference", () => {
     sessions: [{ ...history.sessions[0], messages: [{ ...response, image: { resourceId: "../secret.png", mediaType: "image/png" } }] }],
   }, secondTime);
   assert.equal(unsafe.sessions[0].messages[0].image, null);
+});
+
+test("keeps model metadata and sums validated API token usage", () => {
+  let history = createChatSession(createEmptyChatHistory(), { id: "session-one", now: firstTime }).history;
+  history = appendChatMessage(history, "session-one", {
+    role: "assistant",
+    content: "回答です",
+    providerId: "openai-api",
+    model: "gpt-5.6-terra",
+    reasoningEffort: "high",
+    tokenUsage: {
+      inputTokens: 120,
+      cachedInputTokens: 40,
+      outputTokens: 30,
+      reasoningOutputTokens: 12,
+      totalTokens: 150,
+    },
+  }, { id: "usage-one", now: firstTime }).history;
+  history = appendChatMessage(history, "session-one", {
+    role: "assistant",
+    content: "続きです",
+    providerId: "openai-api",
+    model: "gpt-5.6-terra",
+    reasoningEffort: "medium",
+    tokenUsage: { inputTokens: 80, outputTokens: 20, totalTokens: 100 },
+  }, { id: "usage-two", now: secondTime }).history;
+
+  const [first] = history.sessions[0].messages;
+  assert.equal(first.model, "gpt-5.6-terra");
+  assert.equal(first.reasoningEffort, "high");
+  assert.deepEqual(sumSessionTokenUsage(history.sessions[0], "openai-api"), {
+    inputTokens: 200,
+    cachedInputTokens: 40,
+    outputTokens: 50,
+    reasoningOutputTokens: 12,
+    totalTokens: 250,
+  });
+
+  const unsafe = normalizeChatHistory({
+    sessions: [{ ...history.sessions[0], messages: [{ ...first, tokenUsage: { totalTokens: -1 }, model: "../bad model" }] }],
+  }, secondTime);
+  assert.equal(unsafe.sessions[0].messages[0].model, null);
+  assert.equal(unsafe.sessions[0].messages[0].tokenUsage, null);
 });

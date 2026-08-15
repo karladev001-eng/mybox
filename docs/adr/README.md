@@ -15,3 +15,4 @@ notes of the ADR it realizes.
 - [0007 — Own provider-neutral chat history locally](0007-own-provider-neutral-chat-history-locally.md)
 - [0008 — Expose Web search as a constrained provider capability](0008-expose-web-search-as-a-constrained-provider-capability.md)
 - [0009 — Expose explicit skills and generated media](0009-expose-explicit-skills-and-generated-media.md)
+- [0010 — Discover chat commands, models, and usage](0010-discover-chat-commands-models-and-usage.md)

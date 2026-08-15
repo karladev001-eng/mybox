@@ -19,6 +19,8 @@ pub fn run() {
             codex::codex_subscription_status,
             codex::codex_subscription_login,
             codex::codex_subscription_skills,
+            codex::codex_subscription_models,
+            codex::codex_subscription_usage,
             codex::codex_subscription_generate,
             codex::read_chat_image,
             workspace::current_workspace,
