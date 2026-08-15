@@ -6,6 +6,8 @@ must only be called when `isDesktopRuntime()` returns true.
 
 - `workspace.js`: workspace selection and persisted workspace lookup.
 - `tauri-storage.js`: app-scoped storage driver backed by Rust commands.
+- `agent-providers.js`: ChatGPT subscription, OpenAI API, and local-LLM adapters
+  whose credentials, processes, and network calls stay in the native host.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

@@ -26,6 +26,11 @@ Flows are optional and use no privileged integration path.
 **Agent** — An AI-controlled caller that can discover and invoke only operations
 exposed to it. Reads and writes remain subject to host authorization and auditing.
 
+**Agent provider** — A replaceable inference adapter used by an agent. Providers
+declare their authentication kind and capabilities but never receive direct app
+storage access. ChatGPT subscriptions, metered APIs, and local models are separate
+provider configurations.
+
 **Workspace** — The user-selected local directory that is the authoritative store
 for app data and MyBox metadata.
 

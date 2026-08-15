@@ -6,6 +6,10 @@ contract described in `../../../docs/app-framework.md`.
 - `app-contract.js`: manifest constants, validation, and app definition helper.
 - `app-host.js`: registration, removal, operation routing, events, authorization,
   schema validation, and audit metadata.
+- `agent-provider.js`: provider descriptor validation and replaceable provider
+  registry.
+- `agent-runtime.js`: structured agent loop that invokes apps only through the
+  host operation boundary.
 - `storage.js`: app-scoped storage port and in-memory test/Web driver.
 
 Production filesystem, secrets, network, and cloud adapters belong behind these

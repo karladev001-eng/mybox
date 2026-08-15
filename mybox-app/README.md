@@ -27,3 +27,23 @@ npm run test:sites
 npm run dev:desktop
 npm run build:desktop
 ```
+
+## AI providers
+
+The desktop app discovers a locally installed Codex CLI and uses its official
+ChatGPT sign-in through Codex App Server. Run `codex login` once, or use the
+ChatGPT row in MyBox settings. The detected plan name is display-only; MyBox does
+not restrict the adapter to Plus or any other tier.
+
+This adapter refuses API-key authentication so subscription use cannot silently
+become metered API use.
+
+OpenAI API is a separate setting. Its key is stored in the operating system
+credential store and is never returned to the WebView or written to the workspace.
+Requests use the Responses API, opt out of response storage, and do not enable
+provider-hosted tools.
+
+Local LLM connects to an OpenAI-compatible Chat Completions server on loopback.
+For example, configure `http://127.0.0.1:11434/v1` plus the exact local model name.
+Remote endpoints, redirects, embedded credentials, and system proxies are rejected
+by this initial adapter.

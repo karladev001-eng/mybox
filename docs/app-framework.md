@@ -51,13 +51,30 @@ The target desktop layout is:
 
 The JavaScript memory driver is for tests and the Web prototype. The Tauri driver
 implements app-scoped JSON reads and atomic replacement in the selected workspace;
-OS-backed secret storage remains a future host adapter. Google Cloud and other providers are opt-in adapters
+the native provider adapter stores API secrets in the OS credential store. Google
+Cloud and other providers are opt-in adapters
 for import, export, backup, or synchronization. They do not become direct shared
 state between apps.
 
 ## Agent and flow access
 
 Agents and flows discover only manifest operations that list their caller type.
+An agent's model is supplied through a replaceable agent provider. The provider
+receives prompt/context data and returns text or a structured decision; it never
+receives an app storage port or raw workspace path. Subscription authentication,
+API credentials, and local inference are distinct provider modes and must not be
+silently substituted for one another.
+
+The initial ChatGPT subscription adapter uses the native Codex App Server and
+accepts Codex-managed ChatGPT authentication without hardcoding a plan tier.
+Codex owns credentials and refresh. MyBox treats provider output as untrusted
+input and converts requested actions into normal host operation calls.
+
+The OpenAI API adapter uses the Responses API with `store: false`; its API key is
+write-only from the WebView and is read only by the native host. The local adapter
+uses OpenAI-compatible Chat Completions and initially accepts loopback endpoints
+only. Either adapter can be selected without changing agent operation grants.
+
 The default authorization policy is:
 
 - reads may run after the user has granted the app/data scope;
@@ -83,7 +100,8 @@ or no longer authorized.
 ## Implementation boundary
 
 `mybox-app/src/core/` is the host-independent reference implementation. React is a
-client of that layer. `mybox-app/src/desktop/` bridges core storage to Tauri, while
-`mybox-app/src-tauri/` owns native dialogs and filesystem commands. Future secret
+client of that layer. `mybox-app/src/desktop/` bridges core storage and agent
+providers to Tauri, while `mybox-app/src-tauri/` owns native dialogs, filesystem
+commands, credential-owning provider clients, and process isolation. Future secret
 and cloud adapters stay behind the same host boundary; app handlers must not call
 Tauri APIs directly.

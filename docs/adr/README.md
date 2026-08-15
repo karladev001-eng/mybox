@@ -10,3 +10,5 @@ notes of the ADR it realizes.
 - [0002 — Use a local-first Tauri workspace](0002-local-first-tauri-workspace.md)
 - [0003 — Require scoped authorization and audit for non-user callers](0003-agent-authorization-and-audit.md)
 - [0004 — Keep the initial GitHub repository private](0004-private-github-repository.md)
+- [0005 — Isolate agent providers behind a capability contract](0005-agent-provider-boundary.md)
+- [0006 — Keep provider secrets in native credential storage](0006-store-provider-secrets-in-the-native-host.md)

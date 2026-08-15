@@ -27,5 +27,8 @@ workspaces are deliberately deferred and require later ADRs.
 The Web build remains operational and uses the in-memory driver for tests. The
 Tauri 2 host now provides directory selection, remembered workspace configuration,
 and app-scoped JSON storage with traversal and symlink rejection, a 10 MB state
-limit, and atomic replacement. Resource files, secret storage, and synchronization
-adapters remain future work.
+limit, and atomic replacement. Desktop bundle icons are declared explicitly so
+platform installers do not depend on implicit icon discovery. Desktop release
+versions are kept aligned across npm, Cargo, and Tauri metadata so Windows can
+recognize replacement installers as upgrades. Resource files and synchronization
+adapters remain future work; native secret storage is implemented by ADR 0006.
