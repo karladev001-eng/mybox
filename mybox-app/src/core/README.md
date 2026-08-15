@@ -10,6 +10,8 @@ contract described in `../../../docs/app-framework.md`.
   registry.
 - `agent-runtime.js`: structured agent loop that invokes apps only through the
   host operation boundary.
+- `chat-history.js`: provider-neutral AI chat sessions, bounded context building,
+  and the app-scoped persistence contract.
 - `storage.js`: app-scoped storage port and in-memory test/Web driver.
 
 Production filesystem, secrets, network, and cloud adapters belong behind these

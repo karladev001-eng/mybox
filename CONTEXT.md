@@ -31,6 +31,10 @@ declare their authentication kind and capabilities but never receive direct app
 storage access. ChatGPT subscriptions, metered APIs, and local models are separate
 provider configurations.
 
+**Chat session** — A provider-neutral, locally stored conversation owned by the
+`ai-chat` app. It contains ordered user and assistant messages and may continue
+through a different provider without exposing another app's state.
+
 **Workspace** — The user-selected local directory that is the authoritative store
 for app data and MyBox metadata.
 

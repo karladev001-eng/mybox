@@ -8,6 +8,8 @@ must only be called when `isDesktopRuntime()` returns true.
 - `tauri-storage.js`: app-scoped storage driver backed by Rust commands.
 - `agent-providers.js`: ChatGPT subscription, OpenAI API, and local-LLM adapters
   whose credentials, processes, and network calls stay in the native host.
+- `chat-history.js`: binds the independent AI chat app to native app-scoped
+  workspace storage, with an in-memory Web preview fallback.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

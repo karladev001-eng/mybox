@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { chooseWorkspace, getCurrentWorkspace, isDesktopRuntime } from "./desktop/workspace.js";
+import { ChatView } from "./ChatView.jsx";
+import {
+  appendChatMessage,
+  buildConversationPrompt,
+  createChatSession,
+  createEmptyChatHistory,
+  deleteChatSession,
+  renameChatSession,
+} from "./core/chat-history.js";
+import { getChatHistoryStore } from "./desktop/chat-history.js";
 import {
   CODEX_SUBSCRIPTION_PROVIDER_ID,
   LOCAL_LLM_PROVIDER_ID,
@@ -39,7 +49,6 @@ import {
   Plus,
   Robot,
   SlidersHorizontal,
-  Sparkle,
   Star,
   Trash,
   X,
@@ -75,6 +84,10 @@ const initialProviderSettings = {
   openaiApi: { configured: false, model: "gpt-5.6" },
   localLlm: { configured: false, baseUrl: null, model: null },
 };
+
+const providerLabels = Object.fromEntries(
+  Object.entries(nativeAgentProviders).map(([id, provider]) => [id, provider.descriptor.name]),
+);
 
 function AppGlyph({ icon, color, size = 108 }) {
   const Icon = iconMap[icon] ?? Cube;
@@ -431,17 +444,6 @@ function LocalLlmConfigModal({ settings, busy, onClose, onSave, onDisconnect }) 
   );
 }
 
-function AgentResultModal({ request, response, onClose }) {
-  return (
-    <Modal title="AI" onClose={onClose} className="agent-result-modal">
-      <div className="agent-result">
-        <p className="agent-request">{request}</p>
-        <div><Sparkle size={22} weight="fill" aria-hidden="true" /><p>{response}</p></div>
-      </div>
-    </Modal>
-  );
-}
-
 export function App() {
   const [apps, setApps] = useState(initialApps);
   const [view, setView] = useState("apps");
@@ -458,11 +460,18 @@ export function App() {
   const [providerSettings, setProviderSettings] = useState(initialProviderSettings);
   const [providerModal, setProviderModal] = useState(null);
   const [agentBusy, setAgentBusy] = useState(false);
-  const [agentResult, setAgentResult] = useState(null);
+  const [chatHistory, setChatHistory] = useState(createEmptyChatHistory);
+  const [activeChatId, setActiveChatId] = useState(null);
+  const [chatLoaded, setChatLoaded] = useState(false);
   const aiInput = useRef(null);
+  const chatStore = useRef(getChatHistoryStore()).current;
   const desktop = isDesktopRuntime();
 
-  const pageTitle = useMemo(() => view === "apps" ? "アプリ" : navItems.find((item) => item.id === view)?.label, [view]);
+  const pageTitle = useMemo(() => view === "apps" ? "アプリ" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
+  const activeProviderId = providerSettings.activeProviderId;
+  const activeProvider = nativeAgentProviders[activeProviderId] ?? codexSubscriptionProvider;
+  const activeProviderName = activeProvider.descriptor.name;
+  const chatPersistenceReady = chatLoaded && (!desktop || Boolean(workspace));
 
   useEffect(() => {
     const onKey = (event) => {
@@ -492,6 +501,26 @@ export function App() {
       .finally(() => active && setWorkspaceBusy(false));
     return () => { active = false; };
   }, [desktop]);
+
+  useEffect(() => {
+    if (desktop && !workspace) {
+      setChatLoaded(false);
+      return;
+    }
+    let active = true;
+    setChatLoaded(false);
+    chatStore.load()
+      .then((history) => {
+        if (!active) return;
+        setChatHistory(history);
+        setActiveChatId((current) => history.sessions.some((session) => session.id === current)
+          ? current
+          : history.sessions[0]?.id ?? null);
+      })
+      .catch((error) => active && setToast(`チャット履歴を読み込めません：${String(error)}`))
+      .finally(() => active && setChatLoaded(true));
+    return () => { active = false; };
+  }, [chatStore, desktop, workspace]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -632,37 +661,134 @@ export function App() {
     }
   };
 
-  const runAi = async (event) => {
-    event.preventDefault();
-    if (!aiText.trim()) return;
-    const activeProviderId = providerSettings.activeProviderId;
+  const activeProviderReady = () => {
     const activeReady = activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID
       ? agentStatus?.connected
       : activeProviderId === OPENAI_API_PROVIDER_ID
         ? providerSettings.openaiApi.configured
         : activeProviderId === LOCAL_LLM_PROVIDER_ID && providerSettings.localLlm.configured;
-    if (!activeReady) {
+    return Boolean(activeReady);
+  };
+
+  const saveChatHistory = async (history) => {
+    setChatHistory(history);
+    const saved = await chatStore.save(history);
+    setChatHistory(saved);
+    return saved;
+  };
+
+  const createNewChat = async () => {
+    if (!chatPersistenceReady) {
       setView("settings");
-      setToast("先にAIプロバイダーを設定してください");
+      setToast("先にチャットの保存場所を設定してください");
       return;
     }
-    const request = aiText.trim();
-    setAgentBusy(true);
+    const created = createChatSession(chatHistory);
+    setActiveChatId(created.session.id);
+    setView("chat");
     try {
-      const provider = nativeAgentProviders[activeProviderId] ?? codexSubscriptionProvider;
-      const result = await provider.generate({ prompt: request });
-      setAgentResult({ request, response: result.text });
-      setAiText("");
-      setAiOpen(false);
+      await saveChatHistory(created.history);
     } catch (error) {
-      setToast(`AIを実行できません：${String(error)}`);
+      setToast(`新しいチャットを保存できません：${String(error)}`);
+    }
+  };
+
+  const selectChatSession = (sessionId) => {
+    setActiveChatId(sessionId);
+    setView("chat");
+  };
+
+  const updateChatTitle = async (sessionId, title) => {
+    try {
+      await saveChatHistory(renameChatSession(chatHistory, sessionId, title));
+    } catch (error) {
+      setToast(`チャット名を変更できません：${String(error)}`);
+    }
+  };
+
+  const removeChatSession = async (sessionId) => {
+    const next = deleteChatSession(chatHistory, sessionId);
+    setActiveChatId((current) => current === sessionId ? next.sessions[0]?.id ?? null : current);
+    try {
+      await saveChatHistory(next);
+      setToast("チャットを削除しました");
+    } catch (error) {
+      setToast(`チャットを削除できません：${String(error)}`);
+    }
+  };
+
+  const sendChatMessage = async (text) => {
+    const request = text.trim();
+    if (!request || agentBusy) return;
+    if (!chatPersistenceReady) {
+      setView("settings");
+      setToast("先にチャットの保存場所を設定してください");
+      return;
+    }
+    let sessionId = activeChatId;
+    let workingHistory = chatHistory;
+    if (!sessionId || !workingHistory.sessions.some((session) => session.id === sessionId)) {
+      const created = createChatSession(workingHistory);
+      sessionId = created.session.id;
+      workingHistory = created.history;
+      setActiveChatId(sessionId);
+    }
+    workingHistory = appendChatMessage(workingHistory, sessionId, { role: "user", content: request }).history;
+    setView("chat");
+    setAiText("");
+    setAiOpen(false);
+    const providerReady = activeProviderReady();
+    setAgentBusy(providerReady);
+    try {
+      workingHistory = await saveChatHistory(workingHistory);
+      if (!providerReady) {
+        const message = "AIプロバイダーが接続されていません。右下の接続ボタンから設定してください。";
+        workingHistory = appendChatMessage(workingHistory, sessionId, {
+          role: "assistant",
+          content: message,
+          providerId: activeProviderId,
+          status: "error",
+        }).history;
+        await saveChatHistory(workingHistory);
+        setToast("AIプロバイダーを設定してください");
+        return;
+      }
+      const session = workingHistory.sessions.find((item) => item.id === sessionId);
+      const result = await activeProvider.generate({ prompt: buildConversationPrompt(session) });
+      workingHistory = appendChatMessage(workingHistory, sessionId, {
+        role: "assistant",
+        content: result.text,
+        providerId: activeProviderId,
+      }).history;
+      await saveChatHistory(workingHistory);
+    } catch (error) {
+      const message = `AIを実行できません：${String(error)}`;
+      if (sessionId && workingHistory.sessions.some((session) => session.id === sessionId)) {
+        try {
+          workingHistory = appendChatMessage(workingHistory, sessionId, {
+            role: "assistant",
+            content: message,
+            providerId: activeProviderId,
+            status: "error",
+          }).history;
+          await saveChatHistory(workingHistory);
+        } catch {
+          // The toast below remains the recovery path if history persistence also fails.
+        }
+      }
+      setToast(message);
     } finally {
       setAgentBusy(false);
     }
   };
 
+  const runAi = (event) => {
+    event.preventDefault();
+    sendChatMessage(aiText);
+  };
+
   return (
-    <div className="app-shell" onClick={(e) => !e.target.closest(".context-menu, .tile-actions") && setMenuOpen(null)}>
+    <div className={`app-shell${view === "chat" ? " chat-mode" : ""}`} onClick={(e) => !e.target.closest(".context-menu, .tile-actions") && setMenuOpen(null)}>
       <header className="topbar">
         <button className="brand" aria-label="アプリ一覧へ" onClick={() => setView("apps")}><Cube size={34} weight="duotone" /><span>MyBox</span></button>
         <div className="topbar-actions">
@@ -671,12 +797,12 @@ export function App() {
         </div>
       </header>
 
-      <main className="main-content">
-        <form className={aiOpen ? "ai-command open" : "ai-command"} onSubmit={runAi} aria-busy={agentBusy}>
-          <button type="button" className="ai-trigger" aria-label="AIに頼む" onClick={() => { setAiOpen(true); window.setTimeout(() => aiInput.current?.focus(), 0); }}><Robot size={30} weight="duotone" /></button>
+      <main className={`main-content${view === "chat" ? " chat-content" : ""}`}>
+        {view !== "chat" && <form className={aiOpen ? "ai-command open" : "ai-command"} onSubmit={runAi} aria-busy={agentBusy}>
+          <button type="button" className="ai-trigger" aria-label="AIチャットを開く" onClick={() => setView("chat")}><Robot size={30} weight="duotone" /></button>
           <input ref={aiInput} aria-label="AIへの依頼" value={aiText} onChange={(e) => setAiText(e.target.value)} onFocus={() => setAiOpen(true)} placeholder={agentBusy ? "考えています…" : "AIに頼む"} disabled={agentBusy} />
           {agentBusy ? <span className="ai-busy spinner" aria-label="AIが処理中" /> : aiOpen ? <button className="ai-send" type="submit" aria-label="依頼を送信"><PaperPlaneTilt size={21} /></button> : <kbd>⌘ K</kbd>}
-        </form>
+        </form>}
 
         {view === "apps" && (
           <section className="apps-view" aria-labelledby="apps-heading">
@@ -690,17 +816,17 @@ export function App() {
         {view === "connections" && <ConnectionsView apps={apps} onToast={setToast} />}
         {view === "history" && <HistoryView />}
         {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} />}
+        {view === "chat" && <ChatView history={chatHistory} activeSessionId={activeChatId} value={aiText} busy={agentBusy} providerName={activeProviderName} providerReady={activeProviderReady()} providerLabels={providerLabels} persistenceReady={chatPersistenceReady} onBack={() => setView("apps")} onOpenSettings={() => setView("settings")} onNewSession={createNewChat} onSelectSession={selectChatSession} onRenameSession={updateChatTitle} onDeleteSession={removeChatSession} onChange={setAiText} onSend={sendChatMessage} />}
       </main>
 
-      <nav className="bottom-nav" aria-label="メインナビゲーション">
+      {view !== "chat" && <nav className="bottom-nav" aria-label="メインナビゲーション">
         {view !== "apps" && <button className="back-to-apps" onClick={() => setView("apps")} aria-label="アプリに戻る"><ArrowLeft size={22} /><span>アプリ</span></button>}
         {navItems.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}><Icon size={32} weight={view === id ? "fill" : "regular"} /><span>{label}</span></button>)}
-      </nav>
+      </nav>}
 
       {addOpen && <AddAppModal onClose={() => setAddOpen(false)} onAdd={addApp} />}
       {selectedApp && <AppWorkspace app={selectedApp} onClose={() => setSelectedApp(null)} onDone={setToast} />}
       {pendingDelete && <Modal title="アプリを削除" onClose={() => setPendingDelete(null)} className="confirm-modal"><div className="confirm-body"><AppGlyph icon={pendingDelete.icon} color={pendingDelete.color} size={52} /><p><strong>{pendingDelete.name}</strong>をMyBoxから削除しますか？</p><div className="confirm-actions"><button onClick={() => setPendingDelete(null)}>キャンセル</button><button className="danger-button" onClick={deleteApp}><Trash size={19} />削除</button></div></div></Modal>}
-      {agentResult && <AgentResultModal request={agentResult.request} response={agentResult.response} onClose={() => setAgentResult(null)} />}
       {providerModal === "openai" && <OpenAiConfigModal settings={providerSettings.openaiApi} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveOpenAi} onDisconnect={removeOpenAi} />}
       {providerModal === "local" && <LocalLlmConfigModal settings={providerSettings.localLlm} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveLocalLlm} onDisconnect={removeLocalLlm} />}
       {toast && <div className="toast" role="status"><Check size={19} weight="bold" />{toast}</div>}

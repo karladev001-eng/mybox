@@ -12,3 +12,4 @@ notes of the ADR it realizes.
 - [0004 — Keep the initial GitHub repository private](0004-private-github-repository.md)
 - [0005 — Isolate agent providers behind a capability contract](0005-agent-provider-boundary.md)
 - [0006 — Keep provider secrets in native credential storage](0006-store-provider-secrets-in-the-native-host.md)
+- [0007 — Own provider-neutral chat history locally](0007-own-provider-neutral-chat-history-locally.md)

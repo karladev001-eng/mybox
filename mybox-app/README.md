@@ -30,6 +30,12 @@ npm run build:desktop
 
 ## AI providers
 
+AI chat owns provider-neutral conversation history inside the selected local
+workspace. The history sidebar supports search, rename, delete, and session
+switching. Requests send a bounded window of completed local messages to the
+selected provider; failed responses stay visible but are excluded from later
+model context. The Web preview keeps this history only in memory.
+
 The desktop app discovers a locally installed Codex CLI and uses its official
 ChatGPT sign-in through Codex App Server. Run `codex login` once, or use the
 ChatGPT row in MyBox settings. The detected plan name is display-only; MyBox does
