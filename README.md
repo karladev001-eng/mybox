@@ -1,0 +1,15 @@
+# MyBox
+
+MyBox is a local-first desktop toolbox for independently usable, removable apps.
+Apps can be composed through public operations and events, and the same contracts
+are available to flows and authorized AI agents.
+
+## Start here
+
+- `CONTEXT.md`: shared product vocabulary and boundaries.
+- `docs/README.md`: architecture documentation and ADR index.
+- `mybox-app/README.md`: current React prototype and framework package.
+- `AGENTS.md`: mandatory repository workflow.
+
+The `.agents/` directory is tool-managed reference material and is not part of the
+product source.

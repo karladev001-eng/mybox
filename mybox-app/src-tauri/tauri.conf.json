@@ -1,0 +1,37 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "MyBox",
+  "version": "0.1.0",
+  "identifier": "dev.mybox.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build:web",
+    "frontendDist": "../dist/client"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "MyBox",
+        "width": 1180,
+        "height": 760,
+        "minWidth": 720,
+        "minHeight": 560,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Local-first app toolbox",
+    "longDescription": "A local-first desktop toolbox for independent, removable apps."
+  }
+}

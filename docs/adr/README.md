@@ -1,0 +1,12 @@
+# Architecture Decision Records
+
+ADRs are numbered sequentially and remain in this directory after supersession.
+Each change set creates a new ADR for a new decision or updates the implementation
+notes of the ADR it realizes.
+
+## Index
+
+- [0001 — Use operations and events for app collaboration](0001-operations-and-events.md)
+- [0002 — Use a local-first Tauri workspace](0002-local-first-tauri-workspace.md)
+- [0003 — Require scoped authorization and audit for non-user callers](0003-agent-authorization-and-audit.md)
+- [0004 — Keep the initial GitHub repository private](0004-private-github-repository.md)

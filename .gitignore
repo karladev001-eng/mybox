@@ -1,0 +1,18 @@
+.agents/
+**/node_modules/
+**/dist/
+**/target/
+**/src-tauri/gen/
+**/.vite/
+**/coverage/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+
+# User-selected workspaces and local secrets must never be committed.
+.mybox/
+workspace/
+workspaces/
