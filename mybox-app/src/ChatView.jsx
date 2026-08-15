@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import {
+  ArrowSquareOut,
   ArrowLeft,
   ChatCircleDots,
   GearSix,
+  GlobeHemisphereWest,
   MagnifyingGlass,
   NotePencil,
   PaperPlaneTilt,
@@ -49,6 +53,14 @@ function ChatIconButton({ label, children, ...props }) {
   return <button type="button" className="chat-icon-button" aria-label={label} title={label} {...props}>{children}</button>;
 }
 
+async function openSource(url) {
+  if (isTauri()) {
+    await openUrl(url);
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 export function ChatView({
   history,
   activeSessionId,
@@ -58,6 +70,9 @@ export function ChatView({
   providerReady,
   providerLabels,
   persistenceReady,
+  webSearchEnabled,
+  webSearchSupported,
+  onToggleWebSearch,
   onBack,
   onOpenSettings,
   onNewSession,
@@ -226,6 +241,23 @@ export function ChatView({
                       <time dateTime={message.createdAt}>{messageTime(message.createdAt)}</time>
                     </header>
                     <p>{message.content}</p>
+                    {message.sources?.length > 0 && (
+                      <nav className="message-sources" aria-label="回答の出典">
+                        <span><GlobeHemisphereWest size={15} aria-hidden="true" />出典</span>
+                        <div>
+                          {message.sources.map((source, index) => (
+                            <button
+                              type="button"
+                              key={source.url}
+                              title={source.url}
+                              onClick={() => openSource(source.url)}
+                            >
+                              <span>{index + 1}</span>{source.title}<ArrowSquareOut size={14} aria-hidden="true" />
+                            </button>
+                          ))}
+                        </div>
+                      </nav>
+                    )}
                   </div>
                 </article>
               ))}
@@ -259,6 +291,18 @@ export function ChatView({
           />
           <div className="chat-composer-footer">
             <span>{providerName}</span>
+            <button
+              type="button"
+              className={`web-search-toggle${webSearchEnabled && webSearchSupported ? " active" : ""}`}
+              aria-label={webSearchSupported ? `Web検索を${webSearchEnabled ? "無効" : "有効"}にする` : "このAIプロバイダーはWeb検索に未対応です"}
+              aria-pressed={webSearchSupported ? webSearchEnabled : false}
+              title={webSearchSupported ? `Web検索：${webSearchEnabled ? "オン" : "オフ"}` : "このAIプロバイダーはWeb検索に未対応です"}
+              disabled={busy || !webSearchSupported}
+              onClick={onToggleWebSearch}
+            >
+              <GlobeHemisphereWest size={18} weight={webSearchEnabled && webSearchSupported ? "fill" : "regular"} aria-hidden="true" />
+              <span>Web</span>
+            </button>
             <span className="composer-hint">Shift + Enterで改行</span>
             {!providerReady && <button type="button" className="chat-provider-settings" aria-label="AIプロバイダーを設定" title="AIプロバイダーを設定" onClick={onOpenSettings}><GearSix size={19} /><span>接続</span></button>}
             <button type="submit" aria-label="メッセージを送信" disabled={busy || !value.trim() || !persistenceReady}>

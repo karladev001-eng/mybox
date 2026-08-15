@@ -94,6 +94,15 @@ pub struct NativeGenerateRequest {
     response_schema: Option<Value>,
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    web_search: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSource {
+    title: String,
+    url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -101,6 +110,8 @@ pub struct NativeGenerateRequest {
 pub struct NativeGenerateResponse {
     text: String,
     data: Option<Value>,
+    sources: Vec<WebSource>,
+    web_search_used: bool,
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -310,6 +321,8 @@ fn truncate(value: &str, max_chars: usize) -> String {
 fn structured_result(
     text: String,
     schema: &Option<Value>,
+    sources: Vec<WebSource>,
+    web_search_used: bool,
 ) -> Result<NativeGenerateResponse, String> {
     let data = if schema.is_some() {
         Some(
@@ -319,7 +332,12 @@ fn structured_result(
     } else {
         None
     };
-    Ok(NativeGenerateResponse { text, data })
+    Ok(NativeGenerateResponse {
+        text,
+        data,
+        sources,
+        web_search_used,
+    })
 }
 
 fn extract_responses_text(value: &Value) -> Result<String, String> {
@@ -338,6 +356,92 @@ fn extract_responses_text(value: &Value) -> Result<String, String> {
         })
         .map(str::to_string)
         .ok_or_else(|| "OpenAI応答にテキストがありません".to_string())
+}
+
+fn push_source(sources: &mut Vec<WebSource>, url: &str, title: Option<&str>) {
+    let Ok(parsed) = Url::parse(url) else {
+        return;
+    };
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return;
+    }
+    let normalized = parsed.to_string();
+    if sources.len() >= 20 || sources.iter().any(|source| source.url == normalized) {
+        return;
+    }
+    let fallback = parsed
+        .host_str()
+        .unwrap_or("Web")
+        .trim_start_matches("www.");
+    sources.push(WebSource {
+        title: title
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or(fallback)
+            .chars()
+            .take(200)
+            .collect(),
+        url: normalized,
+    });
+}
+
+fn extract_responses_sources(value: &Value) -> Vec<WebSource> {
+    let mut sources = Vec::new();
+    for item in value
+        .get("output")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if let Some(action_sources) = item.pointer("/action/sources").and_then(Value::as_array) {
+            for source in action_sources {
+                if let Some(url) = source.get("url").and_then(Value::as_str) {
+                    push_source(
+                        &mut sources,
+                        url,
+                        source.get("title").and_then(Value::as_str),
+                    );
+                }
+            }
+        }
+        for content in item
+            .get("content")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            for annotation in content
+                .get("annotations")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                if annotation.get("type").and_then(Value::as_str) == Some("url_citation") {
+                    if let Some(url) = annotation.get("url").and_then(Value::as_str) {
+                        push_source(
+                            &mut sources,
+                            url,
+                            annotation.get("title").and_then(Value::as_str),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    sources
+}
+
+fn responses_used_web_search(value: &Value) -> bool {
+    value
+        .get("output")
+        .and_then(Value::as_array)
+        .is_some_and(|items| {
+            items
+                .iter()
+                .any(|item| item.get("type").and_then(Value::as_str) == Some("web_search_call"))
+        })
 }
 
 fn extract_chat_text(value: &Value) -> Result<String, String> {
@@ -504,6 +608,15 @@ pub async fn openai_api_generate(
         "input": request.prompt,
         "store": false
     });
+    if request.web_search {
+        body["tools"] = json!([{ "type": "web_search", "search_context_size": "medium" }]);
+        body["tool_choice"] = Value::String("auto".to_string());
+        body["include"] = json!(["web_search_call.action.sources"]);
+        body["instructions"] = Value::String(
+            "Return the requested answer. Use web search when current information is useful, cite web-supported claims, and never claim to have changed MyBox unless the prompt includes an observed result."
+                .to_string(),
+        );
+    }
     if let Some(schema) = request.response_schema.clone() {
         body["text"] = json!({
             "format": {
@@ -522,7 +635,14 @@ pub async fn openai_api_generate(
         .await
         .map_err(|error| format!("OpenAI APIへ接続できません：{error}"))?;
     let value = response_json(response).await?;
-    structured_result(extract_responses_text(&value)?, &request.response_schema)
+    let sources = extract_responses_sources(&value);
+    let web_search_used = responses_used_web_search(&value);
+    structured_result(
+        extract_responses_text(&value)?,
+        &request.response_schema,
+        sources,
+        web_search_used,
+    )
 }
 
 #[tauri::command]
@@ -531,6 +651,12 @@ pub async fn local_llm_generate(
     request: NativeGenerateRequest,
 ) -> Result<NativeGenerateResponse, String> {
     validate_request(&request)?;
+    if request.web_search {
+        return Err(
+            "Local LLMはWeb検索に対応していません。ChatGPTまたはOpenAI APIを選択してください"
+                .to_string(),
+        );
+    }
     let settings = load_settings(&app)?;
     let local = settings
         .local_llm
@@ -569,14 +695,20 @@ pub async fn local_llm_generate(
         .await
         .map_err(|error| format!("ローカルLLMへ接続できません：{error}"))?;
     let value = response_json(response).await?;
-    structured_result(extract_chat_text(&value)?, &request.response_schema)
+    structured_result(
+        extract_chat_text(&value)?,
+        &request.response_schema,
+        Vec::new(),
+        false,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_chat_text, extract_responses_text, settings_view, validate_local_base_url,
-        validate_model, OpenAiApiConfig, ProviderSettingsFile, SETTINGS_VERSION,
+        extract_chat_text, extract_responses_sources, extract_responses_text,
+        responses_used_web_search, settings_view, validate_local_base_url, validate_model,
+        OpenAiApiConfig, ProviderSettingsFile, SETTINGS_VERSION,
     };
     use serde_json::json;
 
@@ -599,9 +731,16 @@ mod tests {
 
     #[test]
     fn extracts_supported_provider_response_shapes() {
-        let responses = json!({"output": [{"type": "message", "content": [{"type": "output_text", "text": "hello"}]}]});
+        let responses = json!({"output": [
+            {"type": "web_search_call", "action": {"sources": [{"url": "https://example.com/news", "title": "Example News"}]}},
+            {"type": "message", "content": [{"type": "output_text", "text": "hello", "annotations": [{"type": "url_citation", "url": "https://example.com/news", "title": "Example News"}]}]}
+        ]});
         let chat = json!({"choices": [{"message": {"content": "local"}}]});
         assert_eq!(extract_responses_text(&responses).unwrap(), "hello");
+        assert!(responses_used_web_search(&responses));
+        let sources = extract_responses_sources(&responses);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].title, "Example News");
         assert_eq!(extract_chat_text(&chat).unwrap(), "local");
     }
 

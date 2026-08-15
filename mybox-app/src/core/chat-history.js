@@ -3,6 +3,7 @@ const VERSION = 1;
 const MAX_SESSIONS = 100;
 const MAX_MESSAGES = 200;
 const MAX_MESSAGE_CHARS = 64 * 1024;
+const MAX_SOURCES = 20;
 const DEFAULT_CONTEXT_CHARS = 48 * 1024;
 
 function clone(value) {
@@ -23,6 +24,28 @@ function cleanIso(value, fallback) {
   return typeof value === "string" && !Number.isNaN(Date.parse(value)) ? value : fallback;
 }
 
+function cleanSource(source) {
+  if (!source || typeof source !== "object" || typeof source.url !== "string") return null;
+  try {
+    const url = new URL(source.url);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
+    const title = cleanText(source.title, 200) || url.hostname.replace(/^www\./, "");
+    return { title, url: url.toString() };
+  } catch {
+    return null;
+  }
+}
+
+function cleanSources(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.map(cleanSource).filter((source) => {
+    if (!source || seen.has(source.url)) return false;
+    seen.add(source.url);
+    return true;
+  }).slice(0, MAX_SOURCES);
+}
+
 function cleanMessage(message, fallbackTime) {
   const content = cleanText(message?.content);
   const role = message?.role === "assistant" ? "assistant" : message?.role === "user" ? "user" : null;
@@ -33,6 +56,8 @@ function cleanMessage(message, fallbackTime) {
     content,
     status: message.status === "error" ? "error" : "complete",
     providerId: role === "assistant" && typeof message.providerId === "string" ? message.providerId : null,
+    sources: role === "assistant" ? cleanSources(message.sources) : [],
+    webSearchUsed: role === "assistant" && message.webSearchUsed === true,
     createdAt: cleanIso(message.createdAt, fallbackTime),
   };
 }
@@ -102,6 +127,8 @@ export function appendChatMessage(history, sessionId, message, { id = makeId("me
       content,
       status: message.status === "error" ? "error" : "complete",
       providerId: role === "assistant" && typeof message.providerId === "string" ? message.providerId : null,
+      sources: role === "assistant" ? cleanSources(message.sources) : [],
+      webSearchUsed: role === "assistant" && message.webSearchUsed === true,
       createdAt: now,
     };
     const firstUserMessage = role === "user" && !session.messages.some((item) => item.role === "user");

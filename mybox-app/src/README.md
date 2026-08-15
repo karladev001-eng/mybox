@@ -5,7 +5,7 @@ Contains the React interface and the host-independent app framework.
 - `main.jsx`: browser entry point.
 - `App.jsx`: current prototype screens and interactions.
 - `ChatView.jsx`: session navigation, conversation transcript, and composer for
-  the independent AI chat app.
+  the independent AI chat app, including Web-search consent and source links.
 - `styles.css`: prototype visual system and responsive styles.
 - `core/`: app contracts, operation/event routing, authorization hooks, audit, and
   app-scoped storage.

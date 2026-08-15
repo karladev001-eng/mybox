@@ -30,9 +30,10 @@ rejected by this adapter so a request cannot silently incur API charges.
 
 Each inference turn uses an ephemeral thread, an isolated temporary working
 directory, read-only/no-network sandbox settings, and no approvals. The adapter
-fails the turn if Codex attempts a command, file change, web search, MCP call, or
-other tool. Model output is data for MyBox's agent runtime, not authority to touch
-the machine.
+fails the turn if Codex attempts a command, file change, MCP call, or other tool.
+Web search is prohibited by default and may be admitted only through the narrow,
+user-visible provider capability defined by ADR 0008. Model output is data for
+MyBox's agent runtime, not authority to touch the machine.
 
 The agent runtime discovers only operations exposed to the `agent` caller and
 invokes them through `AppHost`. Existing grants, effect checks, approval rules,
@@ -72,3 +73,5 @@ embedding path; browser cookies and unofficial token extraction are prohibited.
   Server remains available for the complete JSON-RPC handshake.
 - ADR 0006 implements the separate OpenAI API and local-LLM adapters without
   changing this provider contract.
+- ADR 0008 amends the blanket tool prohibition only for explicitly enabled,
+  hosted Web search; all mutation-capable tools remain blocked.

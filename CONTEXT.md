@@ -35,6 +35,10 @@ provider configurations.
 `ai-chat` app. It contains ordered user and assistant messages and may continue
 through a different provider without exposing another app's state.
 
+**Web search capability** — A user-visible, read-only provider capability for
+retrieving current public information. It returns validated source metadata but
+does not grant commands, file access, MCP access, or another app's operations.
+
 **Workspace** — The user-selected local directory that is the authoritative store
 for app data and MyBox metadata.
 

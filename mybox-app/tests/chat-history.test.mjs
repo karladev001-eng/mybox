@@ -59,3 +59,22 @@ test("round-trips normalized chat history through app-scoped storage", async () 
   await store.save(created.history);
   assert.deepEqual(await store.load(), normalizeChatHistory(created.history));
 });
+
+test("keeps safe deduplicated web sources on assistant messages", () => {
+  let history = createChatSession(createEmptyChatHistory(), { id: "session-one", now: firstTime }).history;
+  history = appendChatMessage(history, "session-one", {
+    role: "assistant",
+    content: "検索結果です",
+    providerId: "openai-api",
+    webSearchUsed: true,
+    sources: [
+      { title: "公式情報", url: "https://example.com/news" },
+      { title: "重複", url: "https://example.com/news" },
+      { title: "危険", url: "javascript:alert(1)" },
+    ],
+  }, { id: "source-message", now: secondTime }).history;
+
+  const [message] = history.sessions[0].messages;
+  assert.equal(message.webSearchUsed, true);
+  assert.deepEqual(message.sources, [{ title: "公式情報", url: "https://example.com/news" }]);
+});

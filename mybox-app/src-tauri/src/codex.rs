@@ -67,6 +67,15 @@ pub struct CodexGenerateRequest {
     response_schema: Option<Value>,
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    web_search: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebSource {
+    title: String,
+    url: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -74,6 +83,8 @@ pub struct CodexGenerateRequest {
 pub struct CodexGenerateResponse {
     text: String,
     data: Option<Value>,
+    sources: Vec<WebSource>,
+    web_search_used: bool,
 }
 
 #[derive(Default, Debug)]
@@ -359,21 +370,17 @@ fn validate_generate_request(request: &CodexGenerateRequest) -> Result<(), Strin
     Ok(())
 }
 
-fn is_blocked_tool(message: &Value) -> bool {
+fn is_blocked_tool(message: &Value, allow_web_search: bool) -> bool {
     if message.get("method").and_then(Value::as_str) != Some("item/started") {
         return false;
     }
-    matches!(
-        message.pointer("/params/item/type").and_then(Value::as_str),
+    match message.pointer("/params/item/type").and_then(Value::as_str) {
+        Some("webSearch") => !allow_web_search,
         Some(
-            "commandExecution"
-                | "fileChange"
-                | "mcpToolCall"
-                | "dynamicToolCall"
-                | "webSearch"
-                | "imageView"
-        )
-    )
+            "commandExecution" | "fileChange" | "mcpToolCall" | "dynamicToolCall" | "imageView",
+        ) => true,
+        _ => false,
+    }
 }
 
 fn completed_agent_text(message: &Value) -> Option<String> {
@@ -384,6 +391,61 @@ fn completed_agent_text(message: &Value) -> Option<String> {
     (item.get("type").and_then(Value::as_str) == Some("agentMessage"))
         .then(|| item.get("text").and_then(Value::as_str).map(str::to_string))
         .flatten()
+}
+
+fn completed_web_search(message: &Value) -> Option<&Value> {
+    if message.get("method").and_then(Value::as_str) != Some("item/completed") {
+        return None;
+    }
+    let item = message.pointer("/params/item")?;
+    (item.get("type").and_then(Value::as_str) == Some("webSearch")).then_some(item)
+}
+
+fn web_source(url: &str) -> Option<WebSource> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https")
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+    {
+        return None;
+    }
+    let host = parsed.host_str()?.trim_start_matches("www.");
+    Some(WebSource {
+        title: host.to_string(),
+        url: parsed.to_string(),
+    })
+}
+
+fn push_source(sources: &mut Vec<WebSource>, source: WebSource) {
+    if sources.len() < 20 && !sources.iter().any(|item| item.url == source.url) {
+        sources.push(source);
+    }
+}
+
+fn collect_web_search_source(item: &Value, sources: &mut Vec<WebSource>) {
+    if let Some(url) = item.pointer("/action/url").and_then(Value::as_str) {
+        if let Some(source) = web_source(url) {
+            push_source(sources, source);
+        }
+    }
+}
+
+fn collect_text_sources(text: &str, sources: &mut Vec<WebSource>) {
+    for prefix in ["https://", "http://"] {
+        for (start, _) in text.match_indices(prefix) {
+            let candidate: String = text[start..]
+                .chars()
+                .take_while(|character| {
+                    !character.is_whitespace()
+                        && !matches!(character, ')' | ']' | '>' | '"' | '\'' | '。' | '、')
+                })
+                .collect();
+            let candidate = candidate.trim_end_matches(['.', ',', ';', ':']);
+            if let Some(source) = web_source(candidate) {
+                push_source(sources, source);
+            }
+        }
+    }
 }
 
 async fn generate_with_server(
@@ -407,8 +469,18 @@ async fn generate_with_server(
         "sandbox": "read-only",
         "ephemeral": true,
         "serviceName": "mybox",
-        "baseInstructions": "You are an inference adapter for MyBox. Never use tools, commands, files, network access, MCP, or external resources. Work only from the text in the user message and return the requested answer or structured JSON."
+        "baseInstructions": if request.web_search {
+            "You are an inference adapter for MyBox. You may use only the hosted web search tool when current information is useful. Never use commands, files, MCP, image tools, or any other external capability. Cite web-supported claims and include the source URLs in the answer."
+        } else {
+            "You are an inference adapter for MyBox. Never use tools, commands, files, network access, MCP, or external resources. Work only from the text in the user message and return the requested answer or structured JSON."
+        }
     });
+    if request.web_search {
+        thread_params["config"] = json!({
+            "web_search": "live",
+            "tools": { "web_search": { "context_size": "medium" } }
+        });
+    }
     if let Some(model) = &request.model {
         thread_params["model"] = Value::String(model.clone());
     }
@@ -446,6 +518,8 @@ async fn generate_with_server(
     let outcome = timeout(GENERATION_TIMEOUT, async {
         let mut accepted = false;
         let mut answer = None;
+        let mut sources = Vec::new();
+        let mut web_search_used = false;
         loop {
             let message = server.next_message().await?;
             if message.get("id").and_then(Value::as_i64) == Some(3) {
@@ -455,13 +529,17 @@ async fn generate_with_server(
                 accepted = true;
                 continue;
             }
-            if is_blocked_tool(&message) {
+            if is_blocked_tool(&message, request.web_search) {
                 return Err(
                     "AIプロバイダーが禁止されたツールを要求したため停止しました".to_string()
                 );
             }
             if let Some(text) = completed_agent_text(&message) {
                 answer = Some(text);
+            }
+            if let Some(item) = completed_web_search(&message) {
+                web_search_used = true;
+                collect_web_search_source(item, &mut sources);
             }
             if message.get("method").and_then(Value::as_str) == Some("error") {
                 let detail = message
@@ -485,7 +563,9 @@ async fn generate_with_server(
                 if !accepted {
                     return Err("Codexがターン開始を確認しませんでした".to_string());
                 }
-                return answer.ok_or_else(|| "Codexが回答を返しませんでした".to_string());
+                let answer = answer.ok_or_else(|| "Codexが回答を返しませんでした".to_string())?;
+                collect_text_sources(&answer, &mut sources);
+                return Ok((answer, sources, web_search_used));
             }
         }
     })
@@ -493,11 +573,16 @@ async fn generate_with_server(
     .map_err(|_| "AIの応答がタイムアウトしました".to_string())?;
 
     server.stop().await;
-    let text = outcome?;
+    let (text, sources, web_search_used) = outcome?;
     let data = expects_data
         .then(|| serde_json::from_str(&text).ok())
         .flatten();
-    Ok(CodexGenerateResponse { text, data })
+    Ok(CodexGenerateResponse {
+        text,
+        data,
+        sources,
+        web_search_used,
+    })
 }
 
 #[tauri::command]
@@ -548,11 +633,34 @@ mod tests {
                     prompt: "Reply with exactly: OK".to_string(),
                     response_schema: None,
                     model: None,
+                    web_search: false,
                 },
             )
             .await
             .expect("ChatGPT subscription response");
             assert_eq!(response.text.trim(), "OK");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires a locally installed and authenticated Codex CLI plus Web access"]
+    fn live_codex_subscription_searches_web() {
+        tauri::async_runtime::block_on(async {
+            let launcher = find_codex().expect("Codex CLI");
+            let response = generate_with_server(
+                &launcher,
+                CodexGenerateRequest {
+                    prompt: "Search the web for the current official OpenAI Web search API guide. Reply with one short sentence and include the exact source URL."
+                        .to_string(),
+                    response_schema: None,
+                    model: None,
+                    web_search: true,
+                },
+            )
+            .await
+            .expect("ChatGPT subscription Web search response");
+            assert!(response.web_search_used, "{response:?}");
+            assert!(!response.sources.is_empty(), "{response:?}");
         });
     }
 
@@ -572,14 +680,26 @@ mod tests {
 
     #[test]
     fn detects_provider_tool_attempts() {
-        assert!(is_blocked_tool(&json!({
+        assert!(is_blocked_tool(
+            &json!({
+                "method": "item/started",
+                "params": { "item": { "type": "commandExecution" } }
+            }),
+            false
+        ));
+        assert!(!is_blocked_tool(
+            &json!({
+                "method": "item/started",
+                "params": { "item": { "type": "agentMessage" } }
+            }),
+            false
+        ));
+        let web_search = json!({
             "method": "item/started",
-            "params": { "item": { "type": "commandExecution" } }
-        })));
-        assert!(!is_blocked_tool(&json!({
-            "method": "item/started",
-            "params": { "item": { "type": "agentMessage" } }
-        })));
+            "params": { "item": { "type": "webSearch" } }
+        });
+        assert!(is_blocked_tool(&web_search, false));
+        assert!(!is_blocked_tool(&web_search, true));
     }
 
     #[test]
@@ -597,5 +717,22 @@ mod tests {
             "params": { "item": { "type": "reasoning", "text": "hidden" } }
         }))
         .is_none());
+    }
+
+    #[test]
+    fn collects_only_http_sources_from_search_items_and_text() {
+        let mut sources = Vec::new();
+        collect_web_search_source(
+            &json!({ "action": { "type": "openPage", "url": "https://example.com/news" } }),
+            &mut sources,
+        );
+        collect_text_sources(
+            "See [guide](https://developers.openai.com/api/docs/guides/tools-web-search). Ignore javascript:alert(1)",
+            &mut sources,
+        );
+        assert_eq!(sources.len(), 2);
+        assert!(sources
+            .iter()
+            .all(|source| source.url.starts_with("https://")));
     }
 }

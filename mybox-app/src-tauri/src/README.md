@@ -4,7 +4,7 @@
 - `lib.rs`: Tauri builder, plugins, and command registration.
 - `workspace.rs`: workspace selection plus app-scoped JSON persistence.
 - `codex.rs`: constrained Codex App Server client for ChatGPT subscription status,
-  sign-in, and inference.
+  sign-in, inference, and explicitly enabled hosted Web search.
 - `agent_providers.rs`: OS-backed API secrets, non-secret provider settings, and
   constrained OpenAI API/local-LLM HTTP adapters.
 
@@ -16,3 +16,7 @@ Provider processes receive no workspace path. Keep prompts on stdin/protocol
 messages, reject provider tool use, and never read or return credential files.
 Provider HTTP adapters must use fixed or validated endpoints, finite timeouts,
 bounded responses, and native-only credential access.
+
+Web search is a separate read-only provider capability. Accept validated HTTP(S)
+source metadata only, and never relax command, file, MCP, or workspace boundaries
+when it is enabled.

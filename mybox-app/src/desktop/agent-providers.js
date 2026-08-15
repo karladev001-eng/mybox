@@ -71,14 +71,15 @@ export const codexSubscriptionProvider = defineAgentProvider({
       structuredOutput: true,
       streaming: false,
       tools: false,
+      webSearch: true,
       localExecution: false,
     },
   },
   getStatus: getCodexSubscriptionStatus,
-  async generate({ prompt, responseSchema, model } = {}) {
+  async generate({ prompt, responseSchema, model, webSearch = false } = {}) {
     if (!isTauri()) throw new Error(unavailableStatus.error);
     return invoke("codex_subscription_generate", {
-      request: { prompt, responseSchema, model },
+      request: { prompt, responseSchema, model, webSearch },
     });
   },
 });
@@ -94,6 +95,7 @@ export const openAiApiProvider = defineAgentProvider({
       structuredOutput: true,
       streaming: false,
       tools: false,
+      webSearch: true,
       localExecution: false,
     },
   },
@@ -101,10 +103,10 @@ export const openAiApiProvider = defineAgentProvider({
     const settings = await getAgentProviderSettings();
     return { connected: settings.openaiApi.configured, model: settings.openaiApi.model };
   },
-  async generate({ prompt, responseSchema, model } = {}) {
+  async generate({ prompt, responseSchema, model, webSearch = false } = {}) {
     if (!isTauri()) throw new Error(unavailableStatus.error);
     return invoke("openai_api_generate", {
-      request: { prompt, responseSchema, model },
+      request: { prompt, responseSchema, model, webSearch },
     });
   },
 });
@@ -120,6 +122,7 @@ export const localLlmProvider = defineAgentProvider({
       structuredOutput: true,
       streaming: false,
       tools: false,
+      webSearch: false,
       localExecution: true,
     },
   },
@@ -131,10 +134,10 @@ export const localLlmProvider = defineAgentProvider({
       baseUrl: settings.localLlm.baseUrl,
     };
   },
-  async generate({ prompt, responseSchema, model } = {}) {
+  async generate({ prompt, responseSchema, model, webSearch = false } = {}) {
     if (!isTauri()) throw new Error(unavailableStatus.error);
     return invoke("local_llm_generate", {
-      request: { prompt, responseSchema, model },
+      request: { prompt, responseSchema, model, webSearch },
     });
   },
 });

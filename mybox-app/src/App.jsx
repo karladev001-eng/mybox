@@ -463,6 +463,7 @@ export function App() {
   const [chatHistory, setChatHistory] = useState(createEmptyChatHistory);
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatLoaded, setChatLoaded] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const aiInput = useRef(null);
   const chatStore = useRef(getChatHistoryStore()).current;
   const desktop = isDesktopRuntime();
@@ -471,6 +472,7 @@ export function App() {
   const activeProviderId = providerSettings.activeProviderId;
   const activeProvider = nativeAgentProviders[activeProviderId] ?? codexSubscriptionProvider;
   const activeProviderName = activeProvider.descriptor.name;
+  const webSearchSupported = activeProvider.descriptor.capabilities.webSearch === true;
   const chatPersistenceReady = chatLoaded && (!desktop || Boolean(workspace));
 
   useEffect(() => {
@@ -754,11 +756,16 @@ export function App() {
         return;
       }
       const session = workingHistory.sessions.find((item) => item.id === sessionId);
-      const result = await activeProvider.generate({ prompt: buildConversationPrompt(session) });
+      const result = await activeProvider.generate({
+        prompt: buildConversationPrompt(session),
+        webSearch: webSearchSupported && webSearchEnabled,
+      });
       workingHistory = appendChatMessage(workingHistory, sessionId, {
         role: "assistant",
         content: result.text,
         providerId: activeProviderId,
+        sources: result.sources,
+        webSearchUsed: result.webSearchUsed,
       }).history;
       await saveChatHistory(workingHistory);
     } catch (error) {
@@ -816,7 +823,7 @@ export function App() {
         {view === "connections" && <ConnectionsView apps={apps} onToast={setToast} />}
         {view === "history" && <HistoryView />}
         {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} />}
-        {view === "chat" && <ChatView history={chatHistory} activeSessionId={activeChatId} value={aiText} busy={agentBusy} providerName={activeProviderName} providerReady={activeProviderReady()} providerLabels={providerLabels} persistenceReady={chatPersistenceReady} onBack={() => setView("apps")} onOpenSettings={() => setView("settings")} onNewSession={createNewChat} onSelectSession={selectChatSession} onRenameSession={updateChatTitle} onDeleteSession={removeChatSession} onChange={setAiText} onSend={sendChatMessage} />}
+        {view === "chat" && <ChatView history={chatHistory} activeSessionId={activeChatId} value={aiText} busy={agentBusy} providerName={activeProviderName} providerReady={activeProviderReady()} providerLabels={providerLabels} persistenceReady={chatPersistenceReady} webSearchEnabled={webSearchEnabled} webSearchSupported={webSearchSupported} onToggleWebSearch={() => setWebSearchEnabled((enabled) => !enabled)} onBack={() => setView("apps")} onOpenSettings={() => setView("settings")} onNewSession={createNewChat} onSelectSession={selectChatSession} onRenameSession={updateChatTitle} onDeleteSession={removeChatSession} onChange={setAiText} onSend={sendChatMessage} />}
       </main>
 
       {view !== "chat" && <nav className="bottom-nav" aria-label="メインナビゲーション">

@@ -47,9 +47,12 @@ become metered API use.
 OpenAI API is a separate setting. Its key is stored in the operating system
 credential store and is never returned to the WebView or written to the workspace.
 Requests use the Responses API, opt out of response storage, and do not enable
-provider-hosted tools.
+provider-hosted tools except the user-controlled Web-search capability. ChatGPT
+and OpenAI API can search when the Web toggle is active; results keep visible,
+clickable sources in local chat history. Commands, file changes, MCP, and other
+provider tools remain blocked.
 
 Local LLM connects to an OpenAI-compatible Chat Completions server on loopback.
 For example, configure `http://127.0.0.1:11434/v1` plus the exact local model name.
 Remote endpoints, redirects, embedded credentials, and system proxies are rejected
-by this initial adapter.
+by this initial adapter. Local LLM does not yet provide Web search.

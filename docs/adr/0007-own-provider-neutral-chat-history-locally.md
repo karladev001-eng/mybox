@@ -16,7 +16,9 @@ MyBox includes an independent `ai-chat` app that owns its versioned session and
 message history in its private workspace storage. A session stores a local title,
 creation and update times, and ordered user and assistant messages. Assistant
 messages record the provider that produced them; secrets and provider tokens are
-never part of chat state.
+never part of chat state. When a provider performs Web search, the assistant
+message also stores the bounded, validated source titles and URLs plus a search-
+used flag so provenance survives a restart.
 
 The local session is the conversation source of truth. Each provider request is
 built from a bounded window of completed local messages, so ChatGPT subscription,
@@ -56,3 +58,4 @@ defined by ADR 0003 and ADR 0005.
 - `mybox-app/src/desktop/chat-history.js` binds the chat app to native app-scoped
   storage or the Web preview's in-memory driver.
 - `mybox-app/src/ChatView.jsx` owns the desktop and narrow-screen chat interface.
+- ADR 0008 defines how Web-search provenance enters this provider-neutral state.
