@@ -75,6 +75,13 @@ Use a 4/8 px spacing rhythm and responsive grids with shrinkable text columns.
 Avoid unexplained fixed widths and heights. At 125–200% Windows scaling, text may
 wrap or truncate with a tooltip, but controls must remain operable.
 
+Before arranging multiple items, choose and document their alignment on both
+axes: top, bottom, left, right, or center. Repeated rows must reuse the same grid
+tracks so icons, primary text, status, and trailing actions form uninterrupted
+vertical columns. Within a track, use one deliberate alignment (`start`, `end`,
+`center`, or `stretch`) instead of relying on content width or inherited browser
+defaults. Prefer CSS Grid for repeated rows with three or more visual columns.
+
 App collections are launchers, not poster galleries. Prefer compact horizontal
 items that show icon, name, purpose, and explicit actions. Keep one primary open
 surface and a separate overflow menu. Items may use the app color as a small

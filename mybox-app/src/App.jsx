@@ -305,10 +305,13 @@ function ProviderRow({ icon: Icon, title, detail, badge, active, disabled, onSel
   return (
     <div className={active ? "provider-row active" : "provider-row"}>
       <button className="provider-select" onClick={onSelect} disabled={disabled}>
-        <span><Icon size={24} weight="duotone" aria-hidden="true" /><span><strong>{title}</strong><small>{detail}</small></span></span>
-        <span className={active ? "workspace-badge connected" : "workspace-badge"}>{badge}</span>
+        <span className="settings-row-icon"><Icon size={24} weight="duotone" aria-hidden="true" /></span>
+        <span className="settings-row-copy"><strong>{title}</strong><small>{detail}</small></span>
       </button>
-      {onConfigure && <IconButton label={`${title}を設定`} className="provider-config" onClick={onConfigure} disabled={disabled}><GearSix size={20} /></IconButton>}
+      <span className={active ? "settings-row-status active" : "settings-row-status"}>{badge}</span>
+      {onConfigure
+        ? <IconButton label={`${title}を設定`} className="provider-config" onClick={onConfigure} disabled={disabled}><GearSix size={20} /></IconButton>
+        : <span className="provider-config-spacer" aria-hidden="true" />}
     </div>
   );
 }
@@ -350,7 +353,7 @@ function SettingsView({
           icon={Database}
           title="OpenAI API"
           detail={providerSettings.openaiApi.configured ? providerSettings.openaiApi.model : "APIキーをOSへ安全に保存"}
-          badge={providerSettings.activeProviderId === OPENAI_API_PROVIDER_ID ? "使用中" : providerSettings.openaiApi.configured ? "選択" : "設定"}
+          badge={providerSettings.activeProviderId === OPENAI_API_PROVIDER_ID ? "使用中" : providerSettings.openaiApi.configured ? "選択" : ""}
           active={providerSettings.activeProviderId === OPENAI_API_PROVIDER_ID}
           disabled={!desktop || agentBusy}
           onSelect={providerSettings.openaiApi.configured ? () => onSelectProvider(OPENAI_API_PROVIDER_ID) : onConfigureOpenAi}
@@ -360,18 +363,19 @@ function SettingsView({
           icon={Cube}
           title="Local LLM"
           detail={providerSettings.localLlm.configured ? `${providerSettings.localLlm.model} · このPC` : "OpenAI互換のローカルサーバー"}
-          badge={providerSettings.activeProviderId === LOCAL_LLM_PROVIDER_ID ? "使用中" : providerSettings.localLlm.configured ? "選択" : "設定"}
+          badge={providerSettings.activeProviderId === LOCAL_LLM_PROVIDER_ID ? "使用中" : providerSettings.localLlm.configured ? "選択" : ""}
           active={providerSettings.activeProviderId === LOCAL_LLM_PROVIDER_ID}
           disabled={!desktop || agentBusy}
           onSelect={providerSettings.localLlm.configured ? () => onSelectProvider(LOCAL_LLM_PROVIDER_ID) : onConfigureLocal}
           onConfigure={onConfigureLocal}
         />
         <button className="workspace-action" onClick={onChooseWorkspace} disabled={!desktop || workspaceBusy} title={workspace?.path ?? ""}>
-          <span><FolderSimple size={22} /><span><strong>保存場所</strong><small>{workspace?.name ?? (desktop ? "未選択" : "Webプレビュー")}</small></span></span>
-          <span className="workspace-badge">{workspaceBusy ? "確認中…" : workspace ? "変更" : desktop ? "選択" : "Desktop"}</span>
+          <span className="settings-row-icon"><FolderSimple size={22} aria-hidden="true" /></span>
+          <span className="settings-row-copy"><strong>保存場所</strong><small>{workspace?.name ?? (desktop ? "未選択" : "Webプレビュー")}</small></span>
+          <span className="settings-row-control">{workspaceBusy ? "確認中…" : workspace ? "変更" : desktop ? "選択" : "Desktop"}</span>
         </button>
-        <button role="switch" aria-checked={confirmDelete} onClick={() => setConfirmDelete(!confirmDelete)}><span><Trash size={22} /><span><strong>削除前に確認</strong><small>誤操作を防ぎます</small></span></span><span className={confirmDelete ? "switch on" : "switch"}><span /></span></button>
-        <button role="switch" aria-checked={reduceMotion} onClick={() => setReduceMotion(!reduceMotion)}><span><SlidersHorizontal size={22} /><span><strong>動きを抑える</strong><small>画面のアニメーションを最小化</small></span></span><span className={reduceMotion ? "switch on" : "switch"}><span /></span></button>
+        <button role="switch" aria-checked={confirmDelete} onClick={() => setConfirmDelete(!confirmDelete)}><span className="settings-row-icon"><Trash size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>削除前に確認</strong><small>誤操作を防ぎます</small></span><span className="settings-row-control"><span className={confirmDelete ? "switch on" : "switch"}><span /></span></span></button>
+        <button role="switch" aria-checked={reduceMotion} onClick={() => setReduceMotion(!reduceMotion)}><span className="settings-row-icon"><SlidersHorizontal size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>動きを抑える</strong><small>画面のアニメーションを最小化</small></span><span className="settings-row-control"><span className={reduceMotion ? "switch on" : "switch"}><span /></span></span></button>
       </div>
       <div className="provider-roadmap" aria-label="AIプロバイダーの説明">
         <span><Check size={18} /><small>いつでも切替</small></span>

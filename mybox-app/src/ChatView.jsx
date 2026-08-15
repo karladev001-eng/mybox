@@ -389,10 +389,7 @@ export function ChatView({
               <span><span className={`provider-dot${providerReady ? "" : " disconnected"}`} aria-hidden="true" />{providerName}{providerReady ? "" : "・未接続"}</span>
             </div>
           </div>
-          <div className="chat-header-actions">
-            <UsageBadge usage={usage} />
-            <button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button>
-          </div>
+          <div className="chat-header-actions"><button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button></div>
         </header>
 
         <div ref={messageListRef} className="chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
@@ -459,6 +456,7 @@ export function ChatView({
         </div>
 
         <form className="chat-composer" onSubmit={submit} aria-busy={busy}>
+          <UsageBadge usage={usage} />
           {slashOpen && (
             <section className="slash-menu" aria-label="コマンド候補">
               <header><span><strong>/</strong> コマンド</span><small>↑↓ 移動　Tab 選択</small></header>
