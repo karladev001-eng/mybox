@@ -69,8 +69,10 @@ embedding path; browser cookies and unofficial token extraction are prohibited.
 - On Windows, Codex discovery preserves `PATH` directory precedence across native
   executables and command shims. This prevents a later IDE-bundled binary from
   shadowing an earlier authenticated CLI installation.
-- Windows command shims are launched with an attached stdio stream so the App
-  Server remains available for the complete JSON-RPC handshake.
+- Windows command shims are launched without creating a visible console window,
+  while retaining the attached stdio stream required for the complete App Server
+  JSON-RPC handshake. The same no-console flag applies to direct Codex processes
+  so status checks, sign-in, and chat do not flash a terminal.
 - ADR 0006 implements the separate OpenAI API and local-LLM adapters without
   changing this provider contract.
 - ADR 0008 amends the blanket tool prohibition only for explicitly enabled,

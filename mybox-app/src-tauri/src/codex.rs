@@ -13,6 +13,8 @@ const SHORT_TIMEOUT: Duration = Duration::from_secs(12);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(600);
 const GENERATION_TIMEOUT: Duration = Duration::from_secs(240);
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Clone, Debug)]
 enum CodexLauncher {
@@ -23,7 +25,7 @@ enum CodexLauncher {
 
 impl CodexLauncher {
     fn command(&self, args: &[&str]) -> Command {
-        match self {
+        let mut command = match self {
             Self::Direct(path) => {
                 let mut command = Command::new(path);
                 command.args(args);
@@ -44,7 +46,10 @@ impl CodexLauncher {
                 command.as_std_mut().raw_arg(command_line);
                 command
             }
-        }
+        };
+        #[cfg(windows)]
+        command.as_std_mut().creation_flags(CREATE_NO_WINDOW);
+        command
     }
 }
 
