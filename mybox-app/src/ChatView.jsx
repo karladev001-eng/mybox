@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { readChatImage } from "./desktop/agent-providers.js";
+import { ThemedSelect } from "./ThemedSelect.jsx";
 import {
   ArrowSquareOut,
   ArrowLeft,
@@ -388,7 +389,10 @@ export function ChatView({
               <span><span className={`provider-dot${providerReady ? "" : " disconnected"}`} aria-hidden="true" />{providerName}{providerReady ? "" : "・未接続"}</span>
             </div>
           </div>
-          <button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button>
+          <div className="chat-header-actions">
+            <UsageBadge usage={usage} />
+            <button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button>
+          </div>
         </header>
 
         <div ref={messageListRef} className="chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
@@ -586,23 +590,27 @@ export function ChatView({
             <div className="composer-context-controls">
               <span>{providerName}</span>
               {models.length > 0 && (
-                <label className="composer-select model-select" title="使用するモデル">
-                  <span className="sr-only">使用するモデル</span>
-                  <select value={selectedModelId} disabled={busy} onChange={(event) => onSelectModel(event.target.value)}>
-                    {models.map((model) => <option value={model.id} key={model.id}>{model.displayName}</option>)}
-                  </select>
-                </label>
+                <ThemedSelect
+                  id="chat-model-picker"
+                  label="使用するモデル"
+                  options={models.map((model) => ({ id: model.id, label: model.displayName, description: model.description }))}
+                  value={selectedModelId}
+                  disabled={busy}
+                  onChange={onSelectModel}
+                />
               )}
               {reasoningEfforts.length > 0 && (
-                <label className="composer-select reasoning-select" title="Thinkingレベル">
-                  <Brain size={15} aria-hidden="true" />
-                  <span className="sr-only">Thinkingレベル</span>
-                  <select value={selectedReasoningEffort} disabled={busy} onChange={(event) => onSelectReasoningEffort(event.target.value)}>
-                    {reasoningEfforts.map((effort) => <option value={effort.id} key={effort.id}>{reasoningLabel(effort.id)}</option>)}
-                  </select>
-                </label>
+                <ThemedSelect
+                  id="chat-reasoning-picker"
+                  label="Thinkingレベル"
+                  icon={Brain}
+                  compact
+                  options={reasoningEfforts.map((effort) => ({ id: effort.id, label: reasoningLabel(effort.id), description: effort.description }))}
+                  value={selectedReasoningEffort}
+                  disabled={busy}
+                  onChange={onSelectReasoningEffort}
+                />
               )}
-              <UsageBadge usage={usage} />
             </div>
             <button
               type="button"

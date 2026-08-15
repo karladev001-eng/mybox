@@ -60,6 +60,10 @@ not be assumed across providers.
 remaining quota percentage for subscriptions or actual token counts for metered
 API responses.
 
+**Design token** — A semantic name for a reusable surface, text, boundary, intent,
+shape, spacing, motion, or elevation value. Components consume the role rather
+than inventing visually similar one-off values.
+
 **Workspace** — The user-selected local directory that is the authoritative store
 for app data and MyBox metadata.
 

@@ -13,7 +13,8 @@ framework. The Web build stays usable while the desktop Tauri adapter is develop
 - `scripts/`: packaging helpers.
 - `.openai/`: Sites hosting configuration.
 
-For UI work, normally read `src/README.md`, `src/App.jsx`, and the relevant styles.
+For UI work, first read `../FRONTEND.md`, then `src/README.md`, `src/App.jsx`, and
+only the relevant component and style files.
 For app framework work, read `src/core/README.md`, `../docs/app-framework.md`,
 and the ADR being implemented. Avoid build artifacts and screenshots unless visual
 comparison is explicitly required.

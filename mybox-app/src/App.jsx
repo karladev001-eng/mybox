@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { chooseWorkspace, getCurrentWorkspace, isDesktopRuntime } from "./desktop/workspace.js";
 import { ChatView } from "./ChatView.jsx";
+import { ThemedSelect } from "./ThemedSelect.jsx";
 import {
   appendChatMessage,
   buildConversationPrompt,
@@ -94,7 +95,7 @@ const providerLabels = Object.fromEntries(
 function AppGlyph({ icon, color, size = 108 }) {
   const Icon = iconMap[icon] ?? Cube;
   return (
-    <span className="app-glyph" style={{ "--app-color": color }} aria-hidden="true">
+    <span className="app-glyph" style={{ "--app-color": color, "--glyph-box": `${size + 4}px` }} aria-hidden="true">
       <Icon size={size} weight="duotone" />
     </span>
   );
@@ -110,30 +111,27 @@ function IconButton({ label, children, className = "", ...props }) {
 
 function EmptyTile({ onClick }) {
   return (
-    <button className="app-tile add-tile" onClick={onClick} aria-label="アプリを追加">
-      <span className="add-icon" aria-hidden="true"><Plus size={46} /></span>
-      <span>追加</span>
+    <button className="app-launcher add-launcher" onClick={onClick} aria-label="アプリを追加">
+      <span className="add-icon" aria-hidden="true"><Plus size={24} /></span>
+      <span><strong>アプリを追加</strong><small>新しいツールをMyBoxに追加</small></span>
     </button>
   );
 }
 
 function AppTile({ app, onOpen, onMenu, menuOpen, onDelete, onFavorite }) {
   return (
-    <article className="app-tile" style={{ "--app-color": app.color }}>
-      <button className="tile-open-area" onClick={() => onOpen(app)} aria-label={`${app.name}を開く`}>
-        <AppGlyph icon={app.icon} color={app.color} />
+    <article className="app-launcher" style={{ "--app-color": app.color }}>
+      <button className="launcher-open-area" onClick={() => onOpen(app)} aria-label={`${app.name}を開く`}>
+        <AppGlyph icon={app.icon} color={app.color} size={58} />
+        <span className="launcher-copy">
+          <strong>{app.name}</strong>
+          <small>{app.hint}</small>
+        </span>
+        <span className="launcher-open-icon" aria-hidden="true"><ArrowSquareOut size={21} /></span>
       </button>
-      <div className="tile-footer">
-        <h2>{app.name}</h2>
-        <div className="tile-actions">
-          <IconButton label={`${app.name}を開く`} onClick={() => onOpen(app)}>
-            <ArrowSquareOut size={25} />
-          </IconButton>
-          <IconButton label={`${app.name}のメニュー`} aria-expanded={menuOpen} onClick={() => onMenu(app.id)}>
-            <DotsThree size={28} weight="bold" />
-          </IconButton>
-        </div>
-      </div>
+      <IconButton className="launcher-menu-button" label={`${app.name}のメニュー`} aria-expanded={menuOpen} onClick={() => onMenu(app.id)}>
+        <DotsThree size={24} weight="bold" />
+      </IconButton>
       {menuOpen && (
         <div className="context-menu" role="menu">
           <button role="menuitem" onClick={() => onFavorite(app)}><Star size={19} />固定</button>
@@ -259,13 +257,20 @@ function AppWorkspace({ app, onClose, onDone }) {
 function ConnectionsView({ apps, onToast }) {
   const [source, setSource] = useState(apps[0]?.id ?? "");
   const [target, setTarget] = useState(apps[1]?.id ?? "");
+  const appOptions = apps.map((app) => ({ id: app.id, label: app.name, description: app.hint }));
   return (
     <section className="secondary-view" aria-labelledby="connections-heading">
       <div className="view-title"><span><LinkSimple size={27} /></span><div><h1 id="connections-heading">連携</h1><p>アプリ同士の受け渡しを設定</p></div></div>
       <div className="connection-builder">
-        <label>入力<select value={source} onChange={(e) => setSource(e.target.value)}>{apps.map((app) => <option value={app.id} key={app.id}>{app.name}</option>)}</select></label>
+        <div className="connection-field">
+          <span>入力</span>
+          <ThemedSelect id="connection-source" label="入力アプリ" options={appOptions} value={source} onChange={setSource} placement="bottom" className="connection-select" />
+        </div>
         <FlowArrow size={34} aria-hidden="true" />
-        <label>出力<select value={target} onChange={(e) => setTarget(e.target.value)}>{apps.map((app) => <option value={app.id} key={app.id}>{app.name}</option>)}</select></label>
+        <div className="connection-field">
+          <span>出力</span>
+          <ThemedSelect id="connection-target" label="出力アプリ" options={appOptions} value={target} onChange={setTarget} placement="bottom" className="connection-select" />
+        </div>
         <button className="primary-button compact" onClick={() => onToast("連携を保存しました")}><Check size={20} />保存</button>
       </div>
       <div className="saved-flow"><div><ImageIcon size={25} /><span>画像</span></div><FlowArrow size={24} /><div><GlobeHemisphereWest size={25} /><span>公開</span></div><span className="status"><Check size={15} />有効</span></div>

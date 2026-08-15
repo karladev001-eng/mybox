@@ -8,6 +8,8 @@ Contains the React interface and the host-independent app framework.
   the independent AI chat app, including Web-search consent, explicit skill
   selection, slash-command discovery, model/Thinking controls, provider-specific
   usage, generated-image display, and source links.
+- `ThemedSelect.jsx`: reusable, keyboard-operable listbox used instead of native
+  desktop dropdown rendering.
 - `styles.css`: prototype visual system and responsive styles.
 - `core/`: app contracts, operation/event routing, authorization hooks, audit, and
   app-scoped storage.

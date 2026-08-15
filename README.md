@@ -7,6 +7,7 @@ are available to flows and authorized AI agents.
 ## Start here
 
 - `CONTEXT.md`: shared product vocabulary and boundaries.
+- `FRONTEND.md`: mandatory visual, interaction, control, and UI review rules.
 - `docs/README.md`: architecture documentation and ADR index.
 - `mybox-app/README.md`: current React prototype and framework package.
 - `AGENTS.md`: mandatory repository workflow.

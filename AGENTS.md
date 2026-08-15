@@ -14,6 +14,16 @@ area-specific rules, but it must not weaken these rules.
    task specifically concerns it. This includes `.agents/`, `node_modules/`,
    `dist/`, coverage output, screenshots, and media assets.
 
+## Design work
+
+- Before creating, changing, or reviewing any user-visible interface, read the
+  repository-root `FRONTEND.md` and follow it as the design source of truth.
+- Preserve semantic controls, keyboard behavior, focus visibility, and accessible
+  names while applying MyBox appearance. Exposed OS or framework default drawing
+  is a UI bug, including native square popups that cannot be fully themed.
+- Verify every affected popup and Normal, Hover, Pressed, Selected, Focused, and
+  Disabled state in the actual dark desktop surface before handoff.
+
 ## Document every change
 
 - Every change set must leave an ADR trail in `docs/adr/`. Create a new ADR when
