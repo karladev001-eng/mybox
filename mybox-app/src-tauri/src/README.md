@@ -4,7 +4,8 @@
 - `lib.rs`: Tauri builder, plugins, and command registration.
 - `workspace.rs`: workspace selection plus app-scoped JSON persistence.
 - `codex.rs`: constrained Codex App Server client for ChatGPT subscription status,
-  sign-in, inference, and explicitly enabled hosted Web search.
+  sign-in, inference, explicitly selected skills, hosted Web search, and
+  generated-image ingestion.
 - `agent_providers.rs`: OS-backed API secrets, non-secret provider settings, and
   constrained OpenAI API/local-LLM HTTP adapters.
 
@@ -20,3 +21,9 @@ bounded responses, and native-only credential access.
 Web search is a separate read-only provider capability. Accept validated HTTP(S)
 source metadata only, and never relax command, file, MCP, or workspace boundaries
 when it is enabled.
+
+Resolve skill IDs to native paths inside this module and never accept a skill path
+from the WebView. Skills add instructions only; they do not relax tool policy.
+For image-generation turns, admit only the image tool, validate bounded PNG/JPEG/
+WebP output, persist it under the private `ai-chat` namespace, and return only an
+opaque resource ID.

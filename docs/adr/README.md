@@ -14,3 +14,4 @@ notes of the ADR it realizes.
 - [0006 — Keep provider secrets in native credential storage](0006-store-provider-secrets-in-the-native-host.md)
 - [0007 — Own provider-neutral chat history locally](0007-own-provider-neutral-chat-history-locally.md)
 - [0008 — Expose Web search as a constrained provider capability](0008-expose-web-search-as-a-constrained-provider-capability.md)
+- [0009 — Expose explicit skills and generated media](0009-expose-explicit-skills-and-generated-media.md)

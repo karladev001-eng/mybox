@@ -59,3 +59,5 @@ defined by ADR 0003 and ADR 0005.
   storage or the Web preview's in-memory driver.
 - `mybox-app/src/ChatView.jsx` owns the desktop and narrow-screen chat interface.
 - ADR 0008 defines how Web-search provenance enters this provider-neutral state.
+- ADR 0009 adds bounded skill labels and opaque generated-image references to
+  the local transcript without storing image bytes in chat JSON.

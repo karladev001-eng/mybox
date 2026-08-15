@@ -11,6 +11,7 @@ const unavailableStatus = Object.freeze({
   version: null,
   authMode: null,
   planType: null,
+  imageGeneration: false,
   error: "デスクトップ版で利用できます",
 });
 
@@ -22,6 +23,16 @@ export async function getCodexSubscriptionStatus() {
 export async function connectCodexSubscription() {
   if (!isTauri()) throw new Error(unavailableStatus.error);
   return invoke("codex_subscription_login");
+}
+
+export async function listCodexSkills() {
+  if (!isTauri()) return [];
+  return invoke("codex_subscription_skills");
+}
+
+export async function readChatImage(resourceId) {
+  if (!isTauri()) throw new Error(unavailableStatus.error);
+  return invoke("read_chat_image", { resourceId });
 }
 
 export async function getAgentProviderSettings() {
@@ -72,14 +83,16 @@ export const codexSubscriptionProvider = defineAgentProvider({
       streaming: false,
       tools: false,
       webSearch: true,
+      skills: true,
+      imageGeneration: true,
       localExecution: false,
     },
   },
   getStatus: getCodexSubscriptionStatus,
-  async generate({ prompt, responseSchema, model, webSearch = false } = {}) {
+  async generate({ prompt, responseSchema, model, webSearch = false, imageGeneration = false, skillIds = [] } = {}) {
     if (!isTauri()) throw new Error(unavailableStatus.error);
     return invoke("codex_subscription_generate", {
-      request: { prompt, responseSchema, model, webSearch },
+      request: { prompt, responseSchema, model, webSearch, imageGeneration, skillIds },
     });
   },
 });
@@ -96,6 +109,8 @@ export const openAiApiProvider = defineAgentProvider({
       streaming: false,
       tools: false,
       webSearch: true,
+      skills: false,
+      imageGeneration: false,
       localExecution: false,
     },
   },
@@ -123,6 +138,8 @@ export const localLlmProvider = defineAgentProvider({
       streaming: false,
       tools: false,
       webSearch: false,
+      skills: false,
+      imageGeneration: false,
       localExecution: true,
     },
   },

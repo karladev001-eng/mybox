@@ -39,6 +39,15 @@ through a different provider without exposing another app's state.
 retrieving current public information. It returns validated source metadata but
 does not grant commands, file access, MCP access, or another app's operations.
 
+**Skill** — A reusable workflow discovered through a provider's supported skill
+protocol. A user may select it for one agent turn, but the skill does not grant
+operations, tools, storage, or network access beyond the capabilities separately
+authorized for that turn.
+
+**Generated media** — A provider-created image or future media artifact copied
+into the owning app's private workspace storage. Conversation state stores an
+opaque resource reference rather than provider bytes or a filesystem path.
+
 **Workspace** — The user-selected local directory that is the authoritative store
 for app data and MyBox metadata.
 

@@ -4,6 +4,7 @@ const MAX_SESSIONS = 100;
 const MAX_MESSAGES = 200;
 const MAX_MESSAGE_CHARS = 64 * 1024;
 const MAX_SOURCES = 20;
+const MAX_SKILLS = 4;
 const DEFAULT_CONTEXT_CHARS = 48 * 1024;
 
 function clone(value) {
@@ -46,6 +47,36 @@ function cleanSources(value) {
   }).slice(0, MAX_SOURCES);
 }
 
+function cleanSkill(skill) {
+  if (!skill || typeof skill !== "object") return null;
+  const id = cleanText(skill.id, 200);
+  const name = cleanText(skill.name, 120);
+  return id && name ? { id, name } : null;
+}
+
+function cleanSkills(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  return value.map(cleanSkill).filter((skill) => {
+    if (!skill || seen.has(skill.id)) return false;
+    seen.add(skill.id);
+    return true;
+  }).slice(0, MAX_SKILLS);
+}
+
+function cleanImage(value) {
+  if (!value || typeof value !== "object") return null;
+  const resourceId = cleanText(value.resourceId, 64);
+  const mediaType = cleanText(value.mediaType, 80);
+  if (!/^[a-zA-Z0-9.-]+\.(png|jpg|webp)$/.test(resourceId)
+    || !["image/png", "image/jpeg", "image/webp"].includes(mediaType)) return null;
+  return {
+    resourceId,
+    mediaType,
+    revisedPrompt: cleanText(value.revisedPrompt, 16_000) || null,
+  };
+}
+
 function cleanMessage(message, fallbackTime) {
   const content = cleanText(message?.content);
   const role = message?.role === "assistant" ? "assistant" : message?.role === "user" ? "user" : null;
@@ -58,6 +89,9 @@ function cleanMessage(message, fallbackTime) {
     providerId: role === "assistant" && typeof message.providerId === "string" ? message.providerId : null,
     sources: role === "assistant" ? cleanSources(message.sources) : [],
     webSearchUsed: role === "assistant" && message.webSearchUsed === true,
+    skills: role === "user" ? cleanSkills(message.skills) : [],
+    imageRequested: role === "user" && message.imageRequested === true,
+    image: role === "assistant" ? cleanImage(message.image) : null,
     createdAt: cleanIso(message.createdAt, fallbackTime),
   };
 }
@@ -129,6 +163,9 @@ export function appendChatMessage(history, sessionId, message, { id = makeId("me
       providerId: role === "assistant" && typeof message.providerId === "string" ? message.providerId : null,
       sources: role === "assistant" ? cleanSources(message.sources) : [],
       webSearchUsed: role === "assistant" && message.webSearchUsed === true,
+      skills: role === "user" ? cleanSkills(message.skills) : [],
+      imageRequested: role === "user" && message.imageRequested === true,
+      image: role === "assistant" ? cleanImage(message.image) : null,
       createdAt: now,
     };
     const firstUserMessage = role === "user" && !session.messages.some((item) => item.role === "user");

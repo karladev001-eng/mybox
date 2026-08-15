@@ -77,3 +77,5 @@ embedding path; browser cookies and unofficial token extraction are prohibited.
   changing this provider contract.
 - ADR 0008 amends the blanket tool prohibition only for explicitly enabled,
   hosted Web search; all mutation-capable tools remain blocked.
+- ADR 0009 adds explicitly selected skills and a turn-scoped image-generation
+  tool without granting skills independent tool or storage authority.

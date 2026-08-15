@@ -75,6 +75,14 @@ write-only from the WebView and is read only by the native host. The local adapt
 uses OpenAI-compatible Chat Completions and initially accepts loopback endpoints
 only. Either adapter can be selected without changing agent operation grants.
 
+Provider capabilities are explicit and independently gated. The ChatGPT/Codex
+adapter may list installed skills and accept up to four explicit skill choices
+for one turn. A skill contributes instructions but never grants operations,
+storage, or provider tools. Image generation is a separate external-effect mode:
+the native host admits only the image tool for that turn, validates its output,
+and stores accepted media in the private `ai-chat` app namespace behind an opaque
+resource ID. Web search and image generation cannot run in the same request.
+
 The default authorization policy is:
 
 - reads may run after the user has granted the app/data scope;

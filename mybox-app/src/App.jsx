@@ -22,6 +22,7 @@ import {
   disconnectOpenAiApi,
   getAgentProviderSettings,
   getCodexSubscriptionStatus,
+  listCodexSkills,
   nativeAgentProviders,
   selectAgentProvider,
 } from "./desktop/agent-providers.js";
@@ -464,6 +465,10 @@ export function App() {
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatLoaded, setChatLoaded] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(true);
+  const [imageGenerationEnabled, setImageGenerationEnabled] = useState(false);
+  const [availableSkills, setAvailableSkills] = useState([]);
+  const [selectedSkillIds, setSelectedSkillIds] = useState([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
   const aiInput = useRef(null);
   const chatStore = useRef(getChatHistoryStore()).current;
   const desktop = isDesktopRuntime();
@@ -473,6 +478,13 @@ export function App() {
   const activeProvider = nativeAgentProviders[activeProviderId] ?? codexSubscriptionProvider;
   const activeProviderName = activeProvider.descriptor.name;
   const webSearchSupported = activeProvider.descriptor.capabilities.webSearch === true;
+  const skillsSupported = activeProvider.descriptor.capabilities.skills === true
+    && activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID
+    && agentStatus?.connected === true;
+  const imageGenerationSupported = activeProvider.descriptor.capabilities.imageGeneration === true
+    && activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID
+    && agentStatus?.connected === true
+    && agentStatus?.imageGeneration === true;
   const chatPersistenceReady = chatLoaded && (!desktop || Boolean(workspace));
 
   useEffect(() => {
@@ -535,7 +547,7 @@ export function App() {
 
   useEffect(() => {
     if (!desktop) {
-      setAgentStatus({ available: false, connected: false, planType: null, authMode: null, error: "デスクトップ版で利用できます" });
+      setAgentStatus({ available: false, connected: false, planType: null, authMode: null, imageGeneration: false, error: "デスクトップ版で利用できます" });
       return;
     }
     let active = true;
@@ -546,6 +558,35 @@ export function App() {
       .finally(() => active && setAgentBusy(false));
     return () => { active = false; };
   }, [desktop]);
+
+  useEffect(() => {
+    if (!skillsSupported) {
+      setAvailableSkills([]);
+      setSelectedSkillIds([]);
+      setSkillsLoading(false);
+      return;
+    }
+    let active = true;
+    setSkillsLoading(true);
+    listCodexSkills()
+      .then((skills) => {
+        if (!active) return;
+        setAvailableSkills(skills);
+        setSelectedSkillIds((current) => current.filter((id) => skills.some((skill) => skill.id === id)));
+      })
+      .catch((error) => {
+        if (!active) return;
+        setAvailableSkills([]);
+        setSelectedSkillIds([]);
+        setToast(`スキルを読み込めません：${String(error)}`);
+      })
+      .finally(() => active && setSkillsLoading(false));
+    return () => { active = false; };
+  }, [skillsSupported]);
+
+  useEffect(() => {
+    if (!imageGenerationSupported) setImageGenerationEnabled(false);
+  }, [imageGenerationSupported]);
 
   const selectWorkspace = async () => {
     setWorkspaceBusy(true);
@@ -719,6 +760,20 @@ export function App() {
     }
   };
 
+  const toggleChatSkill = (skillId) => {
+    setSelectedSkillIds((current) => current.includes(skillId)
+      ? current.filter((id) => id !== skillId)
+      : current.length < 4 ? [...current, skillId] : current);
+  };
+
+  const toggleImageGeneration = () => {
+    setImageGenerationEnabled((enabled) => {
+      const next = !enabled;
+      if (next) setWebSearchEnabled(false);
+      return next;
+    });
+  };
+
   const sendChatMessage = async (text) => {
     const request = text.trim();
     if (!request || agentBusy) return;
@@ -735,7 +790,15 @@ export function App() {
       workingHistory = created.history;
       setActiveChatId(sessionId);
     }
-    workingHistory = appendChatMessage(workingHistory, sessionId, { role: "user", content: request }).history;
+    const selectedSkills = availableSkills
+      .filter((skill) => selectedSkillIds.includes(skill.id))
+      .map((skill) => ({ id: skill.id, name: skill.displayName }));
+    workingHistory = appendChatMessage(workingHistory, sessionId, {
+      role: "user",
+      content: request,
+      skills: selectedSkills,
+      imageRequested: imageGenerationSupported && imageGenerationEnabled,
+    }).history;
     setView("chat");
     setAiText("");
     setAiOpen(false);
@@ -758,7 +821,9 @@ export function App() {
       const session = workingHistory.sessions.find((item) => item.id === sessionId);
       const result = await activeProvider.generate({
         prompt: buildConversationPrompt(session),
-        webSearch: webSearchSupported && webSearchEnabled,
+        webSearch: webSearchSupported && webSearchEnabled && !imageGenerationEnabled,
+        imageGeneration: imageGenerationSupported && imageGenerationEnabled,
+        skillIds: skillsSupported ? selectedSkillIds : [],
       });
       workingHistory = appendChatMessage(workingHistory, sessionId, {
         role: "assistant",
@@ -766,8 +831,11 @@ export function App() {
         providerId: activeProviderId,
         sources: result.sources,
         webSearchUsed: result.webSearchUsed,
+        image: result.image,
       }).history;
       await saveChatHistory(workingHistory);
+      setSelectedSkillIds([]);
+      setImageGenerationEnabled(false);
     } catch (error) {
       const message = `AIを実行できません：${String(error)}`;
       if (sessionId && workingHistory.sessions.some((session) => session.id === sessionId)) {
@@ -823,7 +891,35 @@ export function App() {
         {view === "connections" && <ConnectionsView apps={apps} onToast={setToast} />}
         {view === "history" && <HistoryView />}
         {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} />}
-        {view === "chat" && <ChatView history={chatHistory} activeSessionId={activeChatId} value={aiText} busy={agentBusy} providerName={activeProviderName} providerReady={activeProviderReady()} providerLabels={providerLabels} persistenceReady={chatPersistenceReady} webSearchEnabled={webSearchEnabled} webSearchSupported={webSearchSupported} onToggleWebSearch={() => setWebSearchEnabled((enabled) => !enabled)} onBack={() => setView("apps")} onOpenSettings={() => setView("settings")} onNewSession={createNewChat} onSelectSession={selectChatSession} onRenameSession={updateChatTitle} onDeleteSession={removeChatSession} onChange={setAiText} onSend={sendChatMessage} />}
+        {view === "chat" && <ChatView
+          history={chatHistory}
+          activeSessionId={activeChatId}
+          value={aiText}
+          busy={agentBusy}
+          providerName={activeProviderName}
+          providerReady={activeProviderReady()}
+          providerLabels={providerLabels}
+          persistenceReady={chatPersistenceReady}
+          webSearchEnabled={webSearchEnabled}
+          webSearchSupported={webSearchSupported && !imageGenerationEnabled}
+          onToggleWebSearch={() => setWebSearchEnabled((enabled) => !enabled)}
+          skills={availableSkills}
+          skillsSupported={skillsSupported}
+          skillsLoading={skillsLoading}
+          selectedSkillIds={selectedSkillIds}
+          onToggleSkill={toggleChatSkill}
+          imageGenerationEnabled={imageGenerationEnabled}
+          imageGenerationSupported={imageGenerationSupported}
+          onToggleImageGeneration={toggleImageGeneration}
+          onBack={() => setView("apps")}
+          onOpenSettings={() => setView("settings")}
+          onNewSession={createNewChat}
+          onSelectSession={selectChatSession}
+          onRenameSession={updateChatTitle}
+          onDeleteSession={removeChatSession}
+          onChange={setAiText}
+          onSend={sendChatMessage}
+        />}
       </main>
 
       {view !== "chat" && <nav className="bottom-nav" aria-label="メインナビゲーション">

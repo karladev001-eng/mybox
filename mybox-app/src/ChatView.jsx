@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { readChatImage } from "./desktop/agent-providers.js";
 import {
   ArrowSquareOut,
   ArrowLeft,
   ChatCircleDots,
+  DownloadSimple,
   GearSix,
   GlobeHemisphereWest,
+  ImageSquare,
+  MagicWand,
   MagnifyingGlass,
   NotePencil,
   PaperPlaneTilt,
@@ -15,6 +19,7 @@ import {
   SidebarSimple,
   Sparkle,
   Trash,
+  Wrench,
   UserCircle,
   X,
 } from "@phosphor-icons/react";
@@ -61,6 +66,40 @@ async function openSource(url) {
   window.open(url, "_blank", "noopener,noreferrer");
 }
 
+function ChatGeneratedImage({ image, fallbackAlt }) {
+  const [dataUrl, setDataUrl] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    setDataUrl("");
+    setError("");
+    readChatImage(image.resourceId)
+      .then((value) => active && setDataUrl(value))
+      .catch((reason) => active && setError(String(reason)));
+    return () => { active = false; };
+  }, [image.resourceId]);
+
+  const alt = image.revisedPrompt || fallbackAlt || "AIが生成した画像";
+  return (
+    <figure className="generated-image" aria-busy={!dataUrl && !error}>
+      {dataUrl ? (
+        <>
+          <img src={dataUrl} alt={alt} />
+          <a href={dataUrl} download={`mybox-${image.resourceId}`} aria-label="生成画像を保存" title="生成画像を保存">
+            <DownloadSimple size={18} aria-hidden="true" />
+          </a>
+        </>
+      ) : error ? (
+        <p role="alert">画像を読み込めませんでした。</p>
+      ) : (
+        <span className="generated-image-placeholder"><ImageSquare size={28} aria-hidden="true" /></span>
+      )}
+      {image.revisedPrompt && <figcaption>{image.revisedPrompt}</figcaption>}
+    </figure>
+  );
+}
+
 export function ChatView({
   history,
   activeSessionId,
@@ -73,6 +112,14 @@ export function ChatView({
   webSearchEnabled,
   webSearchSupported,
   onToggleWebSearch,
+  skills,
+  skillsSupported,
+  skillsLoading,
+  selectedSkillIds,
+  onToggleSkill,
+  imageGenerationEnabled,
+  imageGenerationSupported,
+  onToggleImageGeneration,
   onBack,
   onOpenSettings,
   onNewSession,
@@ -86,11 +133,19 @@ export function ChatView({
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [editingId, setEditingId] = useState(null);
   const [draftTitle, setDraftTitle] = useState("");
+  const [toolPickerOpen, setToolPickerOpen] = useState(false);
+  const [skillQuery, setSkillQuery] = useState("");
   const messageListRef = useRef(null);
   const composerRef = useRef(null);
   const cancelRenameRef = useRef(false);
   const sessions = history.sessions;
   const activeSession = sessions.find((session) => session.id === activeSessionId) ?? null;
+  const selectedToolCount = selectedSkillIds.length + (imageGenerationEnabled ? 1 : 0);
+  const visibleSkills = useMemo(() => {
+    const needle = skillQuery.trim().toLocaleLowerCase("ja-JP");
+    if (!needle) return skills;
+    return skills.filter((skill) => `${skill.displayName} ${skill.description}`.toLocaleLowerCase("ja-JP").includes(needle));
+  }, [skillQuery, skills]);
 
   const groupedSessions = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase("ja-JP");
@@ -112,9 +167,21 @@ export function ChatView({
     if (activeSession && activeSession.messages.length === 0) composerRef.current?.focus();
   }, [activeSession]);
 
+  useEffect(() => {
+    if (!toolPickerOpen) return undefined;
+    const closeOnEscape = (event) => {
+      if (event.key === "Escape") setToolPickerOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [toolPickerOpen]);
+
   const submit = (event) => {
     event.preventDefault();
-    if (!busy && value.trim()) onSend(value.trim());
+    if (!busy && value.trim()) {
+      setToolPickerOpen(false);
+      onSend(value.trim());
+    }
   };
 
   const startRename = (session) => {
@@ -241,6 +308,13 @@ export function ChatView({
                       <time dateTime={message.createdAt}>{messageTime(message.createdAt)}</time>
                     </header>
                     <p>{message.content}</p>
+                    {(message.imageRequested || message.skills?.length > 0) && (
+                      <div className="message-tools" aria-label="使用したツール">
+                        {message.imageRequested && <span><ImageSquare size={14} aria-hidden="true" />画像生成</span>}
+                        {message.skills?.map((skill) => <span key={skill.id}><MagicWand size={14} aria-hidden="true" />{skill.name}</span>)}
+                      </div>
+                    )}
+                    {message.image && <ChatGeneratedImage image={message.image} fallbackAlt={message.content} />}
                     {message.sources?.length > 0 && (
                       <nav className="message-sources" aria-label="回答の出典">
                         <span><GlobeHemisphereWest size={15} aria-hidden="true" />出典</span>
@@ -272,6 +346,57 @@ export function ChatView({
         </div>
 
         <form className="chat-composer" onSubmit={submit} aria-busy={busy}>
+          {toolPickerOpen && (
+            <section className="tool-picker" id="chat-tool-picker" aria-label="チャットツール">
+              <header>
+                <div><Wrench size={18} aria-hidden="true" /><strong>ツール</strong></div>
+                <ChatIconButton label="ツールを閉じる" onClick={() => setToolPickerOpen(false)}><X size={17} /></ChatIconButton>
+              </header>
+              <button
+                type="button"
+                className={`tool-option image-option${imageGenerationEnabled ? " active" : ""}`}
+                aria-pressed={imageGenerationEnabled}
+                disabled={busy || !imageGenerationSupported}
+                onClick={onToggleImageGeneration}
+              >
+                <span><ImageSquare size={21} weight={imageGenerationEnabled ? "fill" : "regular"} aria-hidden="true" /></span>
+                <span><strong>画像生成</strong><small>{imageGenerationSupported ? "会話内に画像を生成" : "現在の接続では利用できません"}</small></span>
+                <span aria-hidden="true">{imageGenerationEnabled ? "ON" : ""}</span>
+              </button>
+              <div className="skill-picker-heading">
+                <span><MagicWand size={17} aria-hidden="true" />スキル</span>
+                {selectedSkillIds.length > 0 && <small>{selectedSkillIds.length}/4</small>}
+              </div>
+              {skillsSupported && skills.length > 6 && (
+                <label className="skill-search">
+                  <MagnifyingGlass size={16} aria-hidden="true" />
+                  <span className="sr-only">スキルを検索</span>
+                  <input value={skillQuery} onChange={(event) => setSkillQuery(event.target.value)} placeholder="スキルを検索" />
+                </label>
+              )}
+              <div className="skill-options">
+                {skillsLoading ? <p>読み込み中…</p> : !skillsSupported ? <p>ChatGPT接続で利用できます。</p> : !visibleSkills.length ? <p>利用できるスキルがありません。</p> : visibleSkills.map((skill) => {
+                  const selected = selectedSkillIds.includes(skill.id);
+                  const selectionLimit = selectedSkillIds.length >= 4 && !selected;
+                  return (
+                    <button
+                      type="button"
+                      key={skill.id}
+                      className={`tool-option skill-option${selected ? " active" : ""}`}
+                      aria-pressed={selected}
+                      disabled={busy || selectionLimit}
+                      onClick={() => onToggleSkill(skill.id)}
+                    >
+                      <span><MagicWand size={18} weight={selected ? "fill" : "regular"} aria-hidden="true" /></span>
+                      <span><strong>{skill.displayName}</strong><small>{skill.description || skill.scope}</small></span>
+                      {skill.requiresTools && <span title="外部ツールを必要とする場合があります">連携</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="tool-picker-note">スキルは選択したターンだけ明示的に使用します。</p>
+            </section>
+          )}
           <label htmlFor="chat-message-input" className="sr-only">AIへのメッセージ</label>
           <textarea
             ref={composerRef}
@@ -291,6 +416,20 @@ export function ChatView({
           />
           <div className="chat-composer-footer">
             <span>{providerName}</span>
+            <button
+              type="button"
+              className={`tool-picker-toggle${selectedToolCount ? " active" : ""}`}
+              aria-label={`ツールを${toolPickerOpen ? "閉じる" : "開く"}${selectedToolCount ? `、${selectedToolCount}件選択中` : ""}`}
+              aria-expanded={toolPickerOpen}
+              aria-controls="chat-tool-picker"
+              title="スキルと画像生成"
+              disabled={busy}
+              onClick={() => setToolPickerOpen((open) => !open)}
+            >
+              <Wrench size={18} weight={selectedToolCount ? "fill" : "regular"} aria-hidden="true" />
+              <span>ツール</span>
+              {selectedToolCount > 0 && <b aria-hidden="true">{selectedToolCount}</b>}
+            </button>
             <button
               type="button"
               className={`web-search-toggle${webSearchEnabled && webSearchSupported ? " active" : ""}`}

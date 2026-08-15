@@ -133,7 +133,7 @@ fn app_root(app: &AppHandle, app_id: &str) -> Result<PathBuf, String> {
     Ok(root)
 }
 
-fn app_value_path(app: &AppHandle, app_id: &str, key: &str) -> Result<PathBuf, String> {
+pub(crate) fn app_value_path(app: &AppHandle, app_id: &str, key: &str) -> Result<PathBuf, String> {
     validate_key(key, false)?;
     let root = app_root(app, app_id)?;
     let mut current = root;

@@ -78,3 +78,33 @@ test("keeps safe deduplicated web sources on assistant messages", () => {
   assert.equal(message.webSearchUsed, true);
   assert.deepEqual(message.sources, [{ title: "公式情報", url: "https://example.com/news" }]);
 });
+
+test("keeps selected skills and an opaque generated-image reference", () => {
+  let history = createChatSession(createEmptyChatHistory(), { id: "session-one", now: firstTime }).history;
+  history = appendChatMessage(history, "session-one", {
+    role: "user",
+    content: "犬のイラストを生成して",
+    imageRequested: true,
+    skills: [{ id: "system:imagegen", name: "Image generation" }],
+  }, { id: "image-request", now: firstTime }).history;
+  history = appendChatMessage(history, "session-one", {
+    role: "assistant",
+    content: "画像を生成しました。",
+    providerId: "openai-codex-subscription",
+    image: {
+      resourceId: "019a4cef-43dd-7001-a012-abcdef123456.png",
+      mediaType: "image/png",
+      revisedPrompt: "A cheerful puppy",
+    },
+  }, { id: "image-response", now: secondTime }).history;
+
+  const [request, response] = history.sessions[0].messages;
+  assert.equal(request.imageRequested, true);
+  assert.deepEqual(request.skills, [{ id: "system:imagegen", name: "Image generation" }]);
+  assert.equal(response.image.resourceId, "019a4cef-43dd-7001-a012-abcdef123456.png");
+
+  const unsafe = normalizeChatHistory({
+    sessions: [{ ...history.sessions[0], messages: [{ ...response, image: { resourceId: "../secret.png", mediaType: "image/png" } }] }],
+  }, secondTime);
+  assert.equal(unsafe.sessions[0].messages[0].image, null);
+});

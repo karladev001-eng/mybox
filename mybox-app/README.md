@@ -44,6 +44,14 @@ not restrict the adapter to Plus or any other tier.
 This adapter refuses API-key authentication so subscription use cannot silently
 become metered API use.
 
+When the installed Codex version advertises the capabilities, chat can list
+enabled user/system skills and attach up to four of them to a single turn. It can
+also generate one image through the ChatGPT/Codex image tool. Generated images
+are validated and copied into private `ai-chat` storage; the WebView receives an
+opaque resource ID rather than a filesystem path. Image generation is mutually
+exclusive with Web search for a turn and may consume subscription allowance or
+credits.
+
 OpenAI API is a separate setting. Its key is stored in the operating system
 credential store and is never returned to the WebView or written to the workspace.
 Requests use the Responses API, opt out of response storage, and do not enable
@@ -56,3 +64,7 @@ Local LLM connects to an OpenAI-compatible Chat Completions server on loopback.
 For example, configure `http://127.0.0.1:11434/v1` plus the exact local model name.
 Remote endpoints, redirects, embedded credentials, and system proxies are rejected
 by this initial adapter. Local LLM does not yet provide Web search.
+
+OpenAI API and Local LLM currently report skill and image-generation capabilities
+as unavailable. Their adapters can implement the same provider-neutral contract
+later without changing chat history or UI ownership.

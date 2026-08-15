@@ -1,8 +1,16 @@
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use std::{env, path::PathBuf, process::Stdio, time::Duration};
+use std::{
+    env, fs,
+    io::Write,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
+use tauri::AppHandle;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
     process::{Child, ChildStdin, ChildStdout, Command},
@@ -13,6 +21,8 @@ const SHORT_TIMEOUT: Duration = Duration::from_secs(12);
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(600);
 const GENERATION_TIMEOUT: Duration = Duration::from_secs(240);
 const MAX_PROMPT_BYTES: usize = 64 * 1024;
+const MAX_SKILLS_PER_TURN: usize = 4;
+const MAX_IMAGE_BYTES: usize = 25 * 1024 * 1024;
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
@@ -61,6 +71,7 @@ pub struct CodexSubscriptionStatus {
     version: Option<String>,
     auth_mode: Option<String>,
     plan_type: Option<String>,
+    image_generation: bool,
     error: Option<String>,
 }
 
@@ -74,6 +85,27 @@ pub struct CodexGenerateRequest {
     model: Option<String>,
     #[serde(default)]
     web_search: bool,
+    #[serde(default)]
+    image_generation: bool,
+    #[serde(default)]
+    skill_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodexSkill {
+    id: String,
+    name: String,
+    display_name: String,
+    description: String,
+    scope: String,
+    requires_tools: bool,
+}
+
+#[derive(Clone, Debug)]
+struct ResolvedSkill {
+    public: CodexSkill,
+    path: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -90,12 +122,36 @@ pub struct CodexGenerateResponse {
     data: Option<Value>,
     sources: Vec<WebSource>,
     web_search_used: bool,
+    image: Option<GeneratedImageResource>,
+    #[serde(skip)]
+    image_data: Option<GeneratedImageData>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedImageResource {
+    resource_id: String,
+    media_type: String,
+    revised_prompt: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+struct GeneratedImageData {
+    bytes: Vec<u8>,
+    media_type: String,
+    extension: String,
+    revised_prompt: Option<String>,
 }
 
 #[derive(Default, Debug)]
 struct AccountState {
     auth_mode: Option<String>,
     plan_type: Option<String>,
+}
+
+#[derive(Default)]
+struct ProviderCapabilities {
+    image_generation: bool,
 }
 
 struct AppServer {
@@ -280,24 +336,58 @@ async fn read_account(server: &mut AppServer) -> Result<AccountState, String> {
     Ok(parse_account(&result))
 }
 
+async fn read_provider_capabilities(server: &mut AppServer) -> ProviderCapabilities {
+    if server
+        .send(&json!({
+            "method": "modelProvider/capabilities/read",
+            "id": 2,
+            "params": {}
+        }))
+        .await
+        .is_err()
+    {
+        return ProviderCapabilities::default();
+    }
+    match server.response(2, SHORT_TIMEOUT).await {
+        Ok(result) => ProviderCapabilities {
+            image_generation: result
+                .get("imageGeneration")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+        },
+        Err(_) => ProviderCapabilities::default(),
+    }
+}
+
 async fn status_for(launcher: CodexLauncher) -> CodexSubscriptionStatus {
     let version = codex_version(&launcher).await;
     let account = match AppServer::start(&launcher).await {
         Ok(mut server) => {
             let result = read_account(&mut server).await;
+            let capabilities = if result
+                .as_ref()
+                .ok()
+                .and_then(|account| account.auth_mode.as_deref())
+                == Some("chatgpt")
+            {
+                read_provider_capabilities(&mut server).await
+            } else {
+                ProviderCapabilities::default()
+            };
             server.stop().await;
-            result
+            result.map(|account| (account, capabilities))
         }
         Err(error) => Err(error),
     };
 
     match account {
-        Ok(account) => CodexSubscriptionStatus {
+        Ok((account, capabilities)) => CodexSubscriptionStatus {
             available: true,
             connected: account.auth_mode.as_deref() == Some("chatgpt"),
             version,
             auth_mode: account.auth_mode,
             plan_type: account.plan_type,
+            image_generation: capabilities.image_generation,
             error: None,
         },
         Err(error) => CodexSubscriptionStatus {
@@ -306,6 +396,7 @@ async fn status_for(launcher: CodexLauncher) -> CodexSubscriptionStatus {
             version,
             auth_mode: None,
             plan_type: None,
+            image_generation: false,
             error: Some(error),
         },
     }
@@ -321,6 +412,7 @@ pub async fn codex_subscription_status() -> CodexSubscriptionStatus {
             version: None,
             auth_mode: None,
             plan_type: None,
+            image_generation: false,
             error: Some("Codex CLIが見つかりません".to_string()),
         },
     }
@@ -355,6 +447,107 @@ pub async fn codex_subscription_login() -> Result<CodexSubscriptionStatus, Strin
     Ok(connected)
 }
 
+fn skill_id(scope: &str, name: &str) -> String {
+    format!("{scope}:{name}")
+}
+
+fn parse_skills(result: &Value) -> Vec<ResolvedSkill> {
+    result
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|entry| {
+            entry
+                .get("skills")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+        })
+        .filter_map(|skill| {
+            if !skill
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+            {
+                return None;
+            }
+            let name = skill.get("name")?.as_str()?.to_string();
+            let path = skill.get("path")?.as_str()?.to_string();
+            let scope = skill.get("scope")?.as_str()?.to_string();
+            let interface = skill.get("interface");
+            let display_name = interface
+                .and_then(|value| value.get("displayName"))
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(&name)
+                .to_string();
+            let description = interface
+                .and_then(|value| value.get("shortDescription"))
+                .and_then(Value::as_str)
+                .or_else(|| skill.get("shortDescription").and_then(Value::as_str))
+                .or_else(|| skill.get("description").and_then(Value::as_str))
+                .unwrap_or("")
+                .chars()
+                .take(500)
+                .collect();
+            let requires_tools = skill
+                .pointer("/dependencies/tools")
+                .and_then(Value::as_array)
+                .is_some_and(|tools| !tools.is_empty());
+            Some(ResolvedSkill {
+                public: CodexSkill {
+                    id: skill_id(&scope, &name),
+                    name,
+                    display_name,
+                    description,
+                    scope,
+                    requires_tools,
+                },
+                path,
+            })
+        })
+        .collect()
+}
+
+async fn list_skills_for(
+    server: &mut AppServer,
+    cwd: &Path,
+    request_id: i64,
+) -> Result<Vec<ResolvedSkill>, String> {
+    server
+        .send(&json!({
+            "method": "skills/list",
+            "id": request_id,
+            "params": {
+                "cwds": [cwd.to_string_lossy()],
+                "forceReload": false
+            }
+        }))
+        .await?;
+    Ok(parse_skills(
+        &server.response(request_id, SHORT_TIMEOUT).await?,
+    ))
+}
+
+#[tauri::command]
+pub async fn codex_subscription_skills() -> Result<Vec<CodexSkill>, String> {
+    let launcher = find_codex().ok_or_else(|| "Codex CLIをインストールしてください".to_string())?;
+    let isolated = tempfile::tempdir()
+        .map_err(|error| format!("スキル用の一時領域を作成できません：{error}"))?;
+    let mut server = AppServer::start(&launcher).await?;
+    let account = read_account(&mut server).await?;
+    if account.auth_mode.as_deref() != Some("chatgpt") {
+        server.stop().await;
+        return Err("ChatGPTサブスクリプションでCodexに接続してください".to_string());
+    }
+    let result = list_skills_for(&mut server, isolated.path(), 2).await;
+    server.stop().await;
+    let mut skills: Vec<_> = result?.into_iter().map(|skill| skill.public).collect();
+    skills.sort_by(|left, right| left.display_name.cmp(&right.display_name));
+    Ok(skills)
+}
+
 fn validate_generate_request(request: &CodexGenerateRequest) -> Result<(), String> {
     if request.prompt.trim().is_empty() {
         return Err("AIへの依頼を入力してください".to_string());
@@ -372,20 +565,108 @@ fn validate_generate_request(request: &CodexGenerateRequest) -> Result<(), Strin
             return Err("モデルIDが不正です".to_string());
         }
     }
+    if request.skill_ids.len() > MAX_SKILLS_PER_TURN
+        || request
+            .skill_ids
+            .iter()
+            .any(|id| id.is_empty() || id.len() > 200)
+    {
+        return Err("一度に選択できるスキルは4件までです".to_string());
+    }
+    if request.image_generation && request.web_search {
+        return Err("画像生成とWeb検索は同じターンでは使用できません".to_string());
+    }
+    if request.image_generation && request.response_schema.is_some() {
+        return Err("画像生成では構造化出力を使用できません".to_string());
+    }
     Ok(())
 }
 
-fn is_blocked_tool(message: &Value, allow_web_search: bool) -> bool {
+fn is_blocked_tool(message: &Value, allow_web_search: bool, allow_image_generation: bool) -> bool {
     if message.get("method").and_then(Value::as_str) != Some("item/started") {
         return false;
     }
     match message.pointer("/params/item/type").and_then(Value::as_str) {
         Some("webSearch") => !allow_web_search,
+        Some("imageGeneration") => !allow_image_generation,
         Some(
             "commandExecution" | "fileChange" | "mcpToolCall" | "dynamicToolCall" | "imageView",
         ) => true,
         _ => false,
     }
+}
+
+fn completed_image_generation(message: &Value) -> Option<&Value> {
+    if message.get("method").and_then(Value::as_str) != Some("item/completed") {
+        return None;
+    }
+    let item = message.pointer("/params/item")?;
+    (item.get("type").and_then(Value::as_str) == Some("imageGeneration")).then_some(item)
+}
+
+fn detect_image(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        Some(("image/png", "png"))
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some(("image/jpeg", "jpg"))
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some(("image/webp", "webp"))
+    } else {
+        None
+    }
+}
+
+fn generated_image_data(item: &Value, isolated_root: &Path) -> Result<GeneratedImageData, String> {
+    let encoded = item
+        .get("result")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .strip_prefix("data:image/png;base64,")
+        .or_else(|| {
+            item.get("result")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .strip_prefix("data:image/jpeg;base64,")
+        })
+        .or_else(|| {
+            item.get("result")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .strip_prefix("data:image/webp;base64,")
+        })
+        .unwrap_or_else(|| item.get("result").and_then(Value::as_str).unwrap_or(""));
+    let mut bytes = BASE64_STANDARD.decode(encoded).unwrap_or_default();
+    if bytes.is_empty() {
+        if let Some(saved_path) = item.get("savedPath").and_then(Value::as_str) {
+            let root = isolated_root
+                .canonicalize()
+                .map_err(|error| format!("画像生成領域を確認できません：{error}"))?;
+            let source = PathBuf::from(saved_path)
+                .canonicalize()
+                .map_err(|error| format!("生成画像を確認できません：{error}"))?;
+            if !source.starts_with(&root) {
+                return Err("生成画像が隔離領域の外を参照したため拒否しました".to_string());
+            }
+            bytes =
+                fs::read(source).map_err(|error| format!("生成画像を読み込めません：{error}"))?;
+        }
+    }
+    if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
+        return Err("生成画像のサイズが不正です".to_string());
+    }
+    let (media_type, extension) =
+        detect_image(&bytes).ok_or_else(|| "生成画像の形式に対応していません".to_string())?;
+    let revised_prompt = item
+        .get("revisedPrompt")
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.chars().take(16_000).collect());
+    Ok(GeneratedImageData {
+        bytes,
+        media_type: media_type.to_string(),
+        extension: extension.to_string(),
+        revised_prompt,
+    })
 }
 
 fn completed_agent_text(message: &Value) -> Option<String> {
@@ -468,16 +749,45 @@ async fn generate_with_server(
         return Err("ChatGPTサブスクリプションでCodexに接続してください。APIキー接続はこのプロバイダーでは使用しません".to_string());
     }
 
+    if request.image_generation {
+        let capabilities = read_provider_capabilities(&mut server).await;
+        if !capabilities.image_generation {
+            server.stop().await;
+            return Err("現在のChatGPT/Codex接続は画像生成に対応していません".to_string());
+        }
+    }
+
+    let all_skills = if request.skill_ids.is_empty() {
+        Vec::new()
+    } else {
+        list_skills_for(&mut server, isolated.path(), 3).await?
+    };
+    let selected_skills: Vec<_> = request
+        .skill_ids
+        .iter()
+        .map(|id| {
+            all_skills
+                .iter()
+                .find(|skill| &skill.public.id == id)
+                .cloned()
+                .ok_or_else(|| format!("選択したスキルが見つかりません：{id}"))
+        })
+        .collect::<Result<_, _>>()?;
+
     let mut thread_params = json!({
         "cwd": isolated.path().to_string_lossy(),
         "approvalPolicy": "never",
         "sandbox": "read-only",
         "ephemeral": true,
         "serviceName": "mybox",
-        "baseInstructions": if request.web_search {
+        "baseInstructions": if request.image_generation {
+            "You are the image generation adapter for MyBox. Use the image generation tool to create exactly one image that satisfies the latest user request. Do not merely write an image prompt. Follow explicitly selected skill instructions. Never use commands, file-change tools, MCP, Web search, image viewing, or any other external capability. Save generated output only inside the current working directory. Return one short Japanese sentence after generation."
+        } else if request.web_search {
             "You are an inference adapter for MyBox. You may use only the hosted web search tool when current information is useful. Never use commands, files, MCP, image tools, or any other external capability. Cite web-supported claims and include the source URLs in the answer."
-        } else {
+        } else if selected_skills.is_empty() {
             "You are an inference adapter for MyBox. Never use tools, commands, files, network access, MCP, or external resources. Work only from the text in the user message and return the requested answer or structured JSON."
+        } else {
+            "You are an inference adapter for MyBox. Follow the explicitly selected skill instructions, but never use tools, commands, files, network access, MCP, or external resources. If a skill needs a blocked capability, explain that limitation instead of attempting it. Work only from the provided text and return the requested answer or structured JSON."
         }
     });
     if request.web_search {
@@ -492,20 +802,38 @@ async fn generate_with_server(
     server
         .send(&json!({
             "method": "thread/start",
-            "id": 2,
+            "id": 4,
             "params": thread_params
         }))
         .await?;
-    let thread = server.response(2, SHORT_TIMEOUT).await?;
+    let thread = server.response(4, SHORT_TIMEOUT).await?;
     let thread_id = thread
         .pointer("/thread/id")
         .and_then(Value::as_str)
         .ok_or_else(|| "CodexがスレッドIDを返しませんでした".to_string())?
         .to_string();
 
+    let skill_markers = selected_skills
+        .iter()
+        .map(|skill| format!("${}", skill.public.name))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let prompt = if skill_markers.is_empty() {
+        request.prompt.clone()
+    } else {
+        format!("{skill_markers}\n\n{}", request.prompt)
+    };
+    let mut input = vec![json!({ "type": "text", "text": prompt })];
+    input.extend(selected_skills.iter().map(|skill| {
+        json!({
+            "type": "skill",
+            "name": skill.public.name,
+            "path": skill.path
+        })
+    }));
     let mut turn_params = json!({
         "threadId": thread_id,
-        "input": [{ "type": "text", "text": request.prompt }],
+        "input": input,
         "approvalPolicy": "never",
         "sandboxPolicy": { "type": "readOnly", "networkAccess": false }
     });
@@ -515,7 +843,7 @@ async fn generate_with_server(
     server
         .send(&json!({
             "method": "turn/start",
-            "id": 3,
+            "id": 5,
             "params": turn_params
         }))
         .await?;
@@ -525,16 +853,17 @@ async fn generate_with_server(
         let mut answer = None;
         let mut sources = Vec::new();
         let mut web_search_used = false;
+        let mut image_data = None;
         loop {
             let message = server.next_message().await?;
-            if message.get("id").and_then(Value::as_i64) == Some(3) {
+            if message.get("id").and_then(Value::as_i64) == Some(5) {
                 if let Some(error) = message.get("error") {
                     return Err(rpc_error(error));
                 }
                 accepted = true;
                 continue;
             }
-            if is_blocked_tool(&message, request.web_search) {
+            if is_blocked_tool(&message, request.web_search, request.image_generation) {
                 return Err(
                     "AIプロバイダーが禁止されたツールを要求したため停止しました".to_string()
                 );
@@ -545,6 +874,9 @@ async fn generate_with_server(
             if let Some(item) = completed_web_search(&message) {
                 web_search_used = true;
                 collect_web_search_source(item, &mut sources);
+            }
+            if let Some(item) = completed_image_generation(&message) {
+                image_data = Some(generated_image_data(item, isolated.path())?);
             }
             if message.get("method").and_then(Value::as_str) == Some("error") {
                 let detail = message
@@ -568,9 +900,21 @@ async fn generate_with_server(
                 if !accepted {
                     return Err("Codexがターン開始を確認しませんでした".to_string());
                 }
-                let answer = answer.ok_or_else(|| "Codexが回答を返しませんでした".to_string())?;
+                if request.image_generation && image_data.is_none() {
+                    return Err("Codexが生成画像を返しませんでした".to_string());
+                }
+                let answer = answer.unwrap_or_else(|| {
+                    if image_data.is_some() {
+                        "画像を生成しました。".to_string()
+                    } else {
+                        String::new()
+                    }
+                });
+                if answer.is_empty() {
+                    return Err("Codexが回答を返しませんでした".to_string());
+                }
                 collect_text_sources(&answer, &mut sources);
-                return Ok((answer, sources, web_search_used));
+                return Ok((answer, sources, web_search_used, image_data));
             }
         }
     })
@@ -578,7 +922,7 @@ async fn generate_with_server(
     .map_err(|_| "AIの応答がタイムアウトしました".to_string())?;
 
     server.stop().await;
-    let (text, sources, web_search_used) = outcome?;
+    let (text, sources, web_search_used, image_data) = outcome?;
     let data = expects_data
         .then(|| serde_json::from_str(&text).ok())
         .flatten();
@@ -587,15 +931,85 @@ async fn generate_with_server(
         data,
         sources,
         web_search_used,
+        image: None,
+        image_data,
     })
+}
+
+fn persist_generated_image(
+    app: &AppHandle,
+    image: GeneratedImageData,
+) -> Result<GeneratedImageResource, String> {
+    let resource_id = format!("{}.{}", uuid::Uuid::new_v4(), image.extension);
+    let key = format!("resources/generated-images/{resource_id}");
+    let destination = crate::workspace::app_value_path(app, "ai-chat", &key)?;
+    let parent = destination
+        .parent()
+        .ok_or_else(|| "生成画像の保存先が不正です".to_string())?;
+    fs::create_dir_all(parent)
+        .map_err(|error| format!("生成画像の保存先を作成できません：{error}"))?;
+    let mut temporary = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|error| format!("生成画像の一時ファイルを作成できません：{error}"))?;
+    temporary
+        .write_all(&image.bytes)
+        .map_err(|error| format!("生成画像を保存できません：{error}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("生成画像を同期できません：{error}"))?;
+    temporary
+        .persist(destination)
+        .map_err(|error| format!("生成画像を確定できません：{}", error.error))?;
+    Ok(GeneratedImageResource {
+        resource_id,
+        media_type: image.media_type,
+        revised_prompt: image.revised_prompt,
+    })
+}
+
+fn validate_image_resource_id(resource_id: &str) -> Result<(), String> {
+    if resource_id.len() > 64
+        || resource_id.contains(['/', '\\', '\0'])
+        || !resource_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '.'))
+        || ![".png", ".jpg", ".webp"]
+            .iter()
+            .any(|extension| resource_id.ends_with(extension))
+    {
+        return Err("画像リソースIDが不正です".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn read_chat_image(app: AppHandle, resource_id: String) -> Result<String, String> {
+    validate_image_resource_id(&resource_id)?;
+    let key = format!("resources/generated-images/{resource_id}");
+    let path = crate::workspace::app_value_path(&app, "ai-chat", &key)?;
+    let bytes = fs::read(path).map_err(|error| format!("生成画像を開けません：{error}"))?;
+    if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
+        return Err("生成画像のサイズが不正です".to_string());
+    }
+    let (media_type, _) =
+        detect_image(&bytes).ok_or_else(|| "生成画像の形式に対応していません".to_string())?;
+    Ok(format!(
+        "data:{media_type};base64,{}",
+        BASE64_STANDARD.encode(bytes)
+    ))
 }
 
 #[tauri::command]
 pub async fn codex_subscription_generate(
+    app: AppHandle,
     request: CodexGenerateRequest,
 ) -> Result<CodexGenerateResponse, String> {
     let launcher = find_codex().ok_or_else(|| "Codex CLIをインストールしてください".to_string())?;
-    generate_with_server(&launcher, request).await
+    let mut response = generate_with_server(&launcher, request).await?;
+    if let Some(image) = response.image_data.take() {
+        response.image = Some(persist_generated_image(&app, image)?);
+    }
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -624,6 +1038,22 @@ mod tests {
             let launcher = find_codex().expect("Codex CLI");
             let status = status_for(launcher).await;
             assert!(status.connected, "{status:?}");
+            assert!(status.image_generation, "{status:?}");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires a locally installed and authenticated Codex CLI"]
+    fn live_codex_lists_skills() {
+        tauri::async_runtime::block_on(async {
+            let launcher = find_codex().expect("Codex CLI");
+            let isolated = tempfile::tempdir().expect("isolated cwd");
+            let mut server = AppServer::start(&launcher).await.expect("App Server");
+            let skills = list_skills_for(&mut server, isolated.path(), 2)
+                .await
+                .expect("skills/list");
+            server.stop().await;
+            assert!(skills.iter().any(|skill| skill.public.name == "imagegen"));
         });
     }
 
@@ -639,6 +1069,8 @@ mod tests {
                     response_schema: None,
                     model: None,
                     web_search: false,
+                    image_generation: false,
+                    skill_ids: Vec::new(),
                 },
             )
             .await
@@ -660,12 +1092,38 @@ mod tests {
                     response_schema: None,
                     model: None,
                     web_search: true,
+                    image_generation: false,
+                    skill_ids: Vec::new(),
                 },
             )
             .await
             .expect("ChatGPT subscription Web search response");
             assert!(response.web_search_used, "{response:?}");
             assert!(!response.sources.is_empty(), "{response:?}");
+        });
+    }
+
+    #[test]
+    #[ignore = "requires a locally installed authenticated Codex CLI with image generation"]
+    fn live_codex_subscription_generates_an_image() {
+        tauri::async_runtime::block_on(async {
+            let launcher = find_codex().expect("Codex CLI");
+            let response = generate_with_server(
+                &launcher,
+                CodexGenerateRequest {
+                    prompt: "白い背景に、笑顔で座るかわいい子犬のシンプルな絵本風イラストを1枚生成してください。文字は入れないでください。".to_string(),
+                    response_schema: None,
+                    model: None,
+                    web_search: false,
+                    image_generation: true,
+                    skill_ids: Vec::new(),
+                },
+            )
+            .await
+            .expect("ChatGPT subscription image response");
+            let image = response.image_data.expect("generated image bytes");
+            assert!(!image.bytes.is_empty());
+            assert!(image.media_type.starts_with("image/"));
         });
     }
 
@@ -690,6 +1148,7 @@ mod tests {
                 "method": "item/started",
                 "params": { "item": { "type": "commandExecution" } }
             }),
+            false,
             false
         ));
         assert!(!is_blocked_tool(
@@ -697,14 +1156,21 @@ mod tests {
                 "method": "item/started",
                 "params": { "item": { "type": "agentMessage" } }
             }),
+            false,
             false
         ));
         let web_search = json!({
             "method": "item/started",
             "params": { "item": { "type": "webSearch" } }
         });
-        assert!(is_blocked_tool(&web_search, false));
-        assert!(!is_blocked_tool(&web_search, true));
+        assert!(is_blocked_tool(&web_search, false, false));
+        assert!(!is_blocked_tool(&web_search, true, false));
+        let image_generation = json!({
+            "method": "item/started",
+            "params": { "item": { "type": "imageGeneration" } }
+        });
+        assert!(is_blocked_tool(&image_generation, false, false));
+        assert!(!is_blocked_tool(&image_generation, false, true));
     }
 
     #[test]

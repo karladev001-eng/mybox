@@ -58,3 +58,5 @@ authority to invoke another app.
   and extracts both complete sources and URL-citation annotations.
 - `mybox-app/src/core/chat-history.js` validates and persists source metadata.
 - `mybox-app/src/ChatView.jsx` provides the toggle and source controls.
+- ADR 0009 introduces image generation as a separate, mutually exclusive
+  external capability; enabling it does not broaden Web-search authority.
