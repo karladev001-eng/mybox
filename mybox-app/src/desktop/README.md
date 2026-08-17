@@ -18,6 +18,9 @@ must only be called when `isDesktopRuntime()` returns true.
   before relaunching, resolving to a no-op outside the desktop runtime.
 - `accounts.js`: runs the OAuth device flow and reports the signed-in profile,
   staying signed out in the Web preview. Access tokens never cross this bridge.
+- `sync-endpoints.js`: connects a Project to the sync server its group runs,
+  joins one by invite, and issues invites. Unlike an account token, the member
+  token does cross this bridge, because the sync socket carries it in its URL.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

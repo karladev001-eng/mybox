@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   SidebarSimple,
   Tag,
+  UsersThree,
   TextB,
   TextItalic,
   TextStrikethrough,
@@ -31,6 +32,13 @@ import "katex/dist/katex.min.css";
 import { ThemedSelect } from "../ThemedSelect.jsx";
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { getProfilePreferencesStore } from "../desktop/profile-preferences.js";
+import {
+  connectSyncEndpoint,
+  createSyncInvite,
+  disconnectSyncEndpoint,
+  joinSyncEndpoint,
+  listSyncEndpoints,
+} from "../desktop/sync-endpoints.js";
 import { createKnowledgeClient } from "./client.js";
 import {
   applyColorWrap,
@@ -164,6 +172,86 @@ function ConfirmDialog({ title, description, actionLabel, onConfirm, onClose }) 
           <button ref={cancelRef} type="button" onClick={onClose}>キャンセル</button>
           <button type="button" className="knowledge-danger-button" onClick={onConfirm}><Trash size={18} aria-hidden="true" />{actionLabel}</button>
         </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Setting up sharing. The server secret proves the caller operates the server
+ * and is used once to claim a Project; an invite admits everyone else without
+ * ever revealing that secret.
+ */
+function ShareDialog({ mode, busy, invite, projectName, onConnect, onJoin, onInvite, onClose }) {
+  const [endpoint, setEndpoint] = useState("");
+  const [secret, setSecret] = useState("");
+  const [sharedProjectId, setSharedProjectId] = useState("");
+  const [inviteCode, setInviteCode] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  const titles = {
+    connect: "このProjectを共有する",
+    join: "招待から参加する",
+    invite: "メンバーを招待する",
+  };
+
+  return (
+    <div className="knowledge-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <section className="knowledge-dialog knowledge-share-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-share-title">
+        <h2 id="knowledge-share-title">{titles[mode]}</h2>
+
+        {mode === "connect" && (
+          <form onSubmit={(event) => { event.preventDefault(); onConnect({ endpoint, secret }); }}>
+            <p>「{projectName}」をあなたが用意した同期サーバーに接続します。サーバーはあなたのCloudflareアカウントで動き、MyBoxは一切保持しません。</p>
+            <label htmlFor="share-endpoint">サーバーURL</label>
+            <input id="share-endpoint" autoFocus value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://mybox-sync.you.workers.dev" required />
+            <label htmlFor="share-secret">サーバーの合言葉</label>
+            <input id="share-secret" type="password" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="wrangler secret put で設定した値" required />
+            <small className="form-note">合言葉はこの接続にのみ使い、保存しません。招待される側には不要です。</small>
+            <div className="knowledge-dialog-actions">
+              <button type="button" onClick={onClose}>キャンセル</button>
+              <button type="submit" className="knowledge-primary-button" disabled={busy || !endpoint || !secret}>{busy ? "接続中…" : "接続"}</button>
+            </div>
+          </form>
+        )}
+
+        {mode === "join" && (
+          <form onSubmit={(event) => { event.preventDefault(); onJoin({ endpoint, sharedProjectId, invite: inviteCode }); }}>
+            <p>相手から受け取ったサーバーURL・Project ID・招待コードを入力します。</p>
+            <label htmlFor="join-endpoint">サーバーURL</label>
+            <input id="join-endpoint" autoFocus value={endpoint} onChange={(event) => setEndpoint(event.target.value)} placeholder="https://mybox-sync.friend.workers.dev" required />
+            <label htmlFor="join-project">Project ID</label>
+            <input id="join-project" value={sharedProjectId} onChange={(event) => setSharedProjectId(event.target.value)} required />
+            <label htmlFor="join-invite">招待コード</label>
+            <input id="join-invite" value={inviteCode} onChange={(event) => setInviteCode(event.target.value)} required />
+            <div className="knowledge-dialog-actions">
+              <button type="button" onClick={onClose}>キャンセル</button>
+              <button type="submit" className="knowledge-primary-button" disabled={busy || !endpoint || !sharedProjectId || !inviteCode}>{busy ? "参加中…" : "参加"}</button>
+            </div>
+          </form>
+        )}
+
+        {mode === "invite" && (
+          <div>
+            <p>招待コードは一度きり有効です。相手に渡すと、その人のアカウントがメンバーとして記録され、後から個別に解除できます。</p>
+            {invite ? (
+              <div className="device-code">
+                <code>{invite}</code>
+                <button type="button" onClick={async () => {
+                  try { await navigator.clipboard.writeText(invite); setCopied(true); } catch { setCopied(false); }
+                }}>{copied ? "コピーしました" : "コピー"}</button>
+              </div>
+            ) : (
+              <div className="knowledge-share-roles">
+                <button type="button" disabled={busy} onClick={() => onInvite("editor")}>編集者として招待</button>
+                <button type="button" disabled={busy} onClick={() => onInvite("viewer")}>閲覧者として招待</button>
+              </div>
+            )}
+            <div className="knowledge-dialog-actions">
+              <button type="button" onClick={onClose}>閉じる</button>
+            </div>
+          </div>
+        )}
       </section>
     </div>
   );
@@ -646,6 +734,10 @@ export function KnowledgeView({
   const [pages, setPages] = useState([]);
   const [linkCandidates, setLinkCandidates] = useState([]);
   const [tagCandidates, setTagCandidates] = useState([]);
+  const [syncByProject, setSyncByProject] = useState({});
+  const [shareMode, setShareMode] = useState(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareInvite, setShareInvite] = useState("");
   const [dragBlockId, setDragBlockId] = useState(null);
   const [dragOverBlockId, setDragOverBlockId] = useState(null);
   const [selectedPageId, setSelectedPageId] = useState(null);
@@ -799,6 +891,74 @@ export function KnowledgeView({
     const result = await runMutation({ type: "block-add", afterBlockId, blockType });
     const added = result?.page.blocks.find((block) => !previousIds.has(block.id));
     if (added) setAutoEditBlockId(added.id);
+  };
+
+  const refreshSyncEndpoints = async () => {
+    const endpoints = await listSyncEndpoints();
+    setSyncByProject(Object.fromEntries(endpoints.map((item) => [item.projectId, item])));
+  };
+
+  useEffect(() => {
+    if (!desktop) return;
+    refreshSyncEndpoints().catch(() => {});
+  }, [desktop]);
+
+  /** Claims this Project on a server the User operates. */
+  const connectShare = async ({ endpoint, secret }) => {
+    setShareBusy(true);
+    setError("");
+    try {
+      await connectSyncEndpoint({ projectId, endpoint, secret, profileId });
+      await refreshSyncEndpoints();
+      setShareMode(null);
+      onToast("このProjectを共有サーバーに接続しました");
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  /** Joins a Project already shared on someone else's server. */
+  const joinShare = async ({ endpoint, sharedProjectId, invite }) => {
+    setShareBusy(true);
+    setError("");
+    try {
+      await joinSyncEndpoint({ projectId: sharedProjectId, endpoint, invite, profileId });
+      await refreshSyncEndpoints();
+      setShareMode(null);
+      onToast("共有Projectに参加しました");
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const issueInvite = async (role) => {
+    setShareBusy(true);
+    setError("");
+    try {
+      setShareInvite(await createSyncInvite({ projectId, role }));
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const stopSharing = async () => {
+    setShareBusy(true);
+    try {
+      await disconnectSyncEndpoint(projectId);
+      await refreshSyncEndpoints();
+      setShareMode(null);
+      onToast("この端末での同期を停止しました");
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    } finally {
+      setShareBusy(false);
+    }
   };
 
   const dropBlock = (beforeBlockId) => {
@@ -984,8 +1144,10 @@ export function KnowledgeView({
               setPageData(null);
             }}>
               <span className="knowledge-project-dot" aria-hidden="true" />
-              <span><strong>{project.name}</strong><small>{project.role}</small></span>
-              <span>{project.activePageCount}</span>
+              <span><strong>{project.name}</strong><small>{syncByProject[project.id] ? `${project.role}・共有中` : project.role}</small></span>
+              {syncByProject[project.id]
+                ? <UsersThree size={15} aria-label="共有Project" />
+                : <span>{project.activePageCount}</span>}
             </button>
           ))}
           {newProjectOpen && (
@@ -994,6 +1156,28 @@ export function KnowledgeView({
               <input id="knowledge-project-name" autoFocus value={newProjectName} onChange={(event) => setNewProjectName(event.target.value)} />
               <div><button type="button" onClick={() => setNewProjectOpen(false)}>取消</button><button type="submit" disabled={!newProjectName.trim()}>作成</button></div>
             </form>
+          )}
+        </div>
+
+        <div className="knowledge-sidebar-section">
+          <div className="knowledge-sidebar-heading"><span>共有</span></div>
+          {syncByProject[projectId] ? (
+            <div className="knowledge-share-state">
+              <p><UsersThree size={16} aria-hidden="true" />共有中・{syncByProject[projectId].role}</p>
+              <small>{syncByProject[projectId].endpoint}</small>
+              <div>
+                <button type="button" disabled={shareBusy || syncByProject[projectId].role !== "owner"} onClick={() => { setShareInvite(""); setShareMode("invite"); }}>招待</button>
+                <button type="button" disabled={shareBusy} onClick={stopSharing}>停止</button>
+              </div>
+            </div>
+          ) : (
+            <div className="knowledge-share-state">
+              <small>{desktop ? "このProjectはこの端末だけにあります。" : "共有はデスクトップ版で利用できます。"}</small>
+              <div>
+                <button type="button" disabled={!desktop || shareBusy} onClick={() => setShareMode("connect")}>共有を開始</button>
+                <button type="button" disabled={!desktop || shareBusy} onClick={() => setShareMode("join")}>招待から参加</button>
+              </div>
+            </div>
           )}
         </div>
 
@@ -1143,6 +1327,19 @@ export function KnowledgeView({
             <article key={entry.id}><div><strong>{entry.snapshot.title}</strong><time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time></div><small>{entry.actorId}・revision {entry.pageRevision}</small><button type="button" disabled={readOnly} onClick={() => restoreHistoryEntry(entry.id)}><ClockCounterClockwise size={16} />この版を復元</button></article>
           )) : <div className="knowledge-history-empty">復元できる履歴はまだありません。</div>}</div>
         </aside>
+      )}
+
+      {shareMode && (
+        <ShareDialog
+          mode={shareMode}
+          busy={shareBusy}
+          invite={shareInvite}
+          projectName={currentProject?.name ?? ""}
+          onConnect={connectShare}
+          onJoin={joinShare}
+          onInvite={issueInvite}
+          onClose={() => { setShareMode(null); setShareInvite(""); }}
+        />
       )}
 
       {confirmPurge && (

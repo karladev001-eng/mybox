@@ -1,6 +1,7 @@
 mod accounts;
 mod agent_providers;
 mod codex;
+mod sync_endpoints;
 mod workspace;
 
 pub fn run() {
@@ -15,6 +16,11 @@ pub fn run() {
             accounts::begin_github_device_login,
             accounts::complete_github_device_login,
             accounts::sign_out_account,
+            sync_endpoints::sync_endpoints,
+            sync_endpoints::connect_sync_endpoint,
+            sync_endpoints::join_sync_endpoint,
+            sync_endpoints::create_sync_invite,
+            sync_endpoints::disconnect_sync_endpoint,
             agent_providers::agent_provider_settings,
             agent_providers::configure_openai_api_provider,
             agent_providers::disconnect_openai_api_provider,
