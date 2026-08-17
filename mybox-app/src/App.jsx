@@ -1350,7 +1350,7 @@ export function App() {
   return (
     <div className={`app-shell${view === "chat" ? " chat-mode" : ""}${assistantOpen && view !== "chat" ? " assistant-panel-open" : ""}${selectedApp ? " app-surface-mode" : ""}`} onClick={(e) => !e.target.closest(".context-menu, .tile-actions, .launcher-menu-button") && setMenuOpen(null)}>
       <header className="topbar">
-        <button className="brand" aria-label="アプリ一覧へ" onClick={() => setView("apps")}><Cube size={34} weight="duotone" /><span>MyBox</span></button>
+        <button className="brand" aria-label="アプリ一覧へ" onClick={() => setView("apps")}><img className="brand-mark" src="/assets/mybox-mark.png" alt="" width="34" height="34" /><span>MyBox</span></button>
         <div className="topbar-actions">
           <IconButton label={assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} className={assistantOpen ? "assistant-toggle active" : "assistant-toggle"} aria-pressed={assistantOpen} aria-controls="assistant-panel" onClick={() => setAssistantOpen((open) => !open)}><Robot size={23} weight={assistantOpen ? "fill" : "regular"} /></IconButton>
           <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={23} /><span>追加</span></button>

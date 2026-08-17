@@ -96,6 +96,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .brand svg { color: var(--accent); }
+.brand-mark { width: 34px; height: 34px; object-fit: contain; flex: 0 0 auto; }
 
 .topbar-actions { display: flex; align-items: center; gap: 16px; }
 

@@ -1,4 +1,4 @@
-# MyBox
+<img src="docs/assets/mybox-wordmark.png" alt="MyBox" width="220">
 
 MyBox is a local-first desktop toolbox for independently usable, removable apps.
 Apps can be composed through public operations and events, and the same contracts
