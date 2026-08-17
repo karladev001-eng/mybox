@@ -12,6 +12,11 @@ contract described in `../../../docs/app-framework.md`.
   host operation boundary.
 - `chat-history.js`: provider-neutral AI chat sessions, bounded context building,
   and the app-scoped persistence contract.
+- `profile-preferences.js`: validated device-local profile preferences, including
+  the confirmation level retained across app restarts.
+- `app-version.js`: SemVer validation, precedence comparison, and update checks.
+- `app-installations.js`: validated installed App IDs, installed versions, and
+  serializable custom App metadata retained through the Host storage port.
 - `storage.js`: app-scoped storage port and in-memory test/Web driver.
 
 Production filesystem, secrets, network, and cloud adapters belong behind these

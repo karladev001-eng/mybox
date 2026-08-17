@@ -29,6 +29,7 @@ function createNotesApp() {
           id: "notes.create",
           title: "メモを作成",
           effect: "write",
+          confirmationClass: "recoverable",
           callers: ["user", "agent", "flow"],
           inputSchema: {
             type: "object",
@@ -46,6 +47,7 @@ function createNotesApp() {
           id: "notes.read",
           title: "メモを読む",
           effect: "read",
+          confirmationClass: "review",
           callers: ["user", "agent", "flow", "app"],
           inputSchema: {
             type: "object",
@@ -101,6 +103,7 @@ function createSlidesApp() {
           id: "slides.generate",
           title: "スライドを生成",
           effect: "write",
+          confirmationClass: "recoverable",
           callers: ["user", "agent", "flow"],
           inputSchema: {
             type: "object",
@@ -189,12 +192,13 @@ test("allows an agent to read and write only with scoped grants and approval", a
       actor: agent,
       grant: { operationIds: ["slides.generate"] },
     }),
-    (error) => error.code === "APPROVAL_REQUIRED",
+    (error) => error.code === "CONFIRMATION_REQUIRED",
   );
 
   const slide = await host.invoke("slides.generate", { id: "deck-1", source: note }, {
     actor: agent,
-    grant: { operationIds: ["slides.generate"], allowWrites: true },
+    grant: { operationIds: ["slides.generate"] },
+    confirmationLevel: "recoverable",
     reason: "選択したメモからスライドを生成",
   });
   assert.deepEqual(slide.sourceRef, { appId: "notes", resourceId: "note-1", revision: 1 });
@@ -247,6 +251,7 @@ test("isolates app storage namespaces and rejects traversal attempts", async () 
         id: "unsafe.write",
         title: "Unsafe write",
         effect: "write",
+        confirmationClass: "recoverable",
         callers: ["user"],
         inputSchema: { type: "object" },
         outputSchema: { type: "null" },
@@ -267,4 +272,74 @@ test("isolates app storage namespaces and rejects traversal attempts", async () 
     host.invoke("unsafe.write", {}),
     (error) => error.code === "INVALID_STORAGE_KEY",
   );
+});
+
+test("separates Confirmation levels from grants and preserves always-confirm", async () => {
+  const audit = [];
+  const host = new AppHost({ audit: async (entry) => audit.push(entry) });
+  host.register(defineApp({
+    manifest: {
+      schemaVersion: APP_SCHEMA_VERSION,
+      id: "policy",
+      name: "Policy fixture",
+      version: "0.1.0",
+      operations: [
+        {
+          id: "policy.change",
+          title: "Recoverable change",
+          effect: "write",
+          confirmationClass: "recoverable",
+          callers: ["agent"],
+          inputSchema: { type: "object" },
+          outputSchema: { type: "null" },
+        },
+        {
+          id: "policy.purge",
+          title: "Destructive change",
+          effect: "destructive",
+          confirmationClass: "autonomous",
+          callers: ["agent"],
+          inputSchema: { type: "object" },
+          outputSchema: { type: "null" },
+        },
+        {
+          id: "policy.share",
+          title: "Always confirm",
+          effect: "external",
+          confirmationClass: "always-confirm",
+          callers: ["agent"],
+          inputSchema: { type: "object" },
+          outputSchema: { type: "null" },
+        },
+      ],
+      events: [],
+    },
+    handlers: {
+      "policy.change": async () => null,
+      "policy.purge": async () => null,
+      "policy.share": async () => null,
+    },
+  }));
+
+  const actor = { type: "agent", id: "assistant" };
+  const grant = { operationIds: ["policy.change", "policy.purge", "policy.share"] };
+  await assert.rejects(
+    host.invoke("policy.change", {}, { actor, grant }),
+    (error) => error.code === "CONFIRMATION_REQUIRED",
+  );
+  await host.invoke("policy.change", {}, { actor, grant, confirmationLevel: "recoverable" });
+  await host.invoke("policy.purge", {}, { actor, grant, confirmationLevel: "autonomous" });
+  await assert.rejects(
+    host.invoke("policy.share", {}, { actor, grant, confirmationLevel: "autonomous" }),
+    (error) => error.code === "ALWAYS_CONFIRM_REQUIRED",
+  );
+  await host.invoke("policy.share", {}, {
+    actor,
+    grant,
+    confirmationLevel: "autonomous",
+    approval: { granted: true, fresh: true },
+  });
+
+  assert.equal(audit.at(-1).confirmationClass, "always-confirm");
+  assert.equal(audit.at(-1).confirmationLevel, "autonomous");
 });

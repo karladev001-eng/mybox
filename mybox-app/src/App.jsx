@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { chooseWorkspace, getCurrentWorkspace, isDesktopRuntime } from "./desktop/workspace.js";
 import { ChatView } from "./ChatView.jsx";
 import { ThemedSelect } from "./ThemedSelect.jsx";
@@ -12,6 +12,9 @@ import {
   sumSessionTokenUsage,
 } from "./core/chat-history.js";
 import { getChatHistoryStore } from "./desktop/chat-history.js";
+import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
+import { createDeviceAppInstallationsStore } from "./desktop/app-installations.js";
+import { compareAppVersions, isAppUpdateAvailable } from "./core/app-version.js";
 import {
   CODEX_SUBSCRIPTION_PROVIDER_ID,
   LOCAL_LLM_PROVIDER_ID,
@@ -68,14 +71,6 @@ const iconMap = {
   alert: Bell,
 };
 
-const initialApps = [
-  { id: "image", name: "画像", icon: "image", color: "#8a74ff", hint: "画像の整理と変換" },
-  { id: "note", name: "メモ", icon: "note", color: "#ff796f", hint: "すばやく記録" },
-  { id: "files", name: "ファイル", icon: "folder", color: "#5f91ff", hint: "ローカルファイルを管理" },
-  { id: "convert", name: "変換", icon: "convert", color: "#ffc45b", hint: "形式をまとめて変換" },
-  { id: "publish", name: "公開", icon: "publish", color: "#a68aff", hint: "成果物を公開" },
-];
-
 const navItems = [
   { id: "connections", label: "連携", icon: FlowArrow },
   { id: "history", label: "履歴", icon: ClockCounterClockwise },
@@ -91,6 +86,21 @@ const initialProviderSettings = {
 const providerLabels = Object.fromEntries(
   Object.entries(nativeAgentProviders).map(([id, provider]) => [id, provider.descriptor.name]),
 );
+
+const lazyAppSurfaces = new Map();
+
+function resolveLazyAppSurface(app) {
+  if (app.surface.kind !== "module") return null;
+  if (!lazyAppSurfaces.has(app.id)) {
+    lazyAppSurfaces.set(app.id, lazy(async () => {
+      const module = await app.surface.load();
+      const Component = module[app.surface.exportName];
+      if (typeof Component !== "function") throw new Error(`${app.id} App surface export is invalid`);
+      return { default: Component };
+    }));
+  }
+  return lazyAppSurfaces.get(app.id);
+}
 
 function AppGlyph({ icon, color, size = 108 }) {
   const Icon = iconMap[icon] ?? Cube;
@@ -118,20 +128,36 @@ function EmptyTile({ onClick }) {
   );
 }
 
-function AppTile({ app, onOpen, onMenu, menuOpen, onDelete, onFavorite }) {
+function AppTile({ app, installedVersion, onOpen, onMenu, menuOpen, onDelete, onFavorite, onUpdate, updating }) {
+  const versionComparison = compareAppVersions(installedVersion, app.version);
+  const updateAvailable = versionComparison < 0;
+  const installedAhead = versionComparison > 0;
+  const launchBlocked = versionComparison !== 0 || updating;
   return (
     <article className="app-launcher" style={{ "--app-color": app.color }}>
-      <button className="launcher-open-area" onClick={() => onOpen(app)} aria-label={`${app.name}を開く`}>
+      <button className="launcher-open-area" disabled={launchBlocked} onClick={() => onOpen(app)} aria-label={launchBlocked ? `${app.name}はバージョンを一致させてから開けます` : `${app.name}を開く`}>
         <AppGlyph icon={app.icon} color={app.color} size={58} />
         <span className="launcher-copy">
           <strong>{app.name}</strong>
           <small>{app.hint}</small>
+          <span className="launcher-version">
+            v{installedVersion}
+            {updateAvailable ? <em>v{app.version} 利用可能</em> : <em className="current">{installedAhead ? "Registryより新しい版" : "最新版"}</em>}
+          </span>
         </span>
         <span className="launcher-open-icon" aria-hidden="true"><ArrowSquareOut size={21} /></span>
       </button>
-      <IconButton className="launcher-menu-button" label={`${app.name}のメニュー`} aria-expanded={menuOpen} onClick={() => onMenu(app.id)}>
-        <DotsThree size={24} weight="bold" />
-      </IconButton>
+      <div className="launcher-actions">
+        {updateAvailable && (
+          <button className="launcher-update-button" type="button" disabled={updating} onClick={() => onUpdate(app)} aria-label={`${app.name}をバージョン${app.version}へ更新`}>
+            <ArrowsClockwise size={17} aria-hidden="true" />
+            <span>{updating ? "更新中…" : "更新"}</span>
+          </button>
+        )}
+        <IconButton className="launcher-menu-button" label={`${app.name}のメニュー`} aria-expanded={menuOpen} onClick={() => onMenu(app.id)}>
+          <DotsThree size={24} weight="bold" />
+        </IconButton>
+      </div>
       {menuOpen && (
         <div className="context-menu" role="menu">
           <button role="menuitem" onClick={() => onFavorite(app)}><Star size={19} />固定</button>
@@ -189,7 +215,7 @@ function Modal({ title, onClose, children, className = "" }) {
   );
 }
 
-function AddAppModal({ onClose, onAdd }) {
+function AddAppModal({ catalog, installedVersions, updatingAppId, onClose, onAdd, onUpdate }) {
   const [name, setName] = useState("");
   const [icon, setIcon] = useState("code");
   const colors = ["#67d7c4", "#8a74ff", "#ff796f", "#ffc45b", "#5f91ff"];
@@ -198,12 +224,43 @@ function AddAppModal({ onClose, onAdd }) {
   const submit = (event) => {
     event.preventDefault();
     if (!name.trim()) return;
-    onAdd({ id: `${icon}-${Date.now()}`, name: name.trim(), icon, color, hint: "カスタムアプリ" });
+    onAdd(createCustomAppDefinition({ name: name.trim(), icon, color }));
   };
 
   return (
-    <Modal title="アプリを追加" onClose={onClose}>
+    <Modal title="アプリを追加" onClose={onClose} className="add-app-modal">
+      <section className="app-catalog" aria-labelledby="registered-apps-title">
+        <div className="app-catalog-heading"><div><h3 id="registered-apps-title">登録済みApp</h3><p>App Registryから安全に追加します</p></div><span>{catalog.length}</span></div>
+        <div className="app-catalog-list">
+          {catalog.map((app) => {
+            const installedVersion = installedVersions[app.id];
+            const installed = Boolean(installedVersion);
+            const updateAvailable = installed && isAppUpdateAvailable(installedVersion, app.version);
+            const updating = updatingAppId === app.id;
+            return (
+              <article key={app.id} style={{ "--app-color": app.color }}>
+                <AppGlyph icon={app.icon} color={app.color} size={30} />
+                <span>
+                  <strong>{app.name}</strong>
+                  <small>{app.hint}</small>
+                  <span className={updateAvailable ? "catalog-version update" : "catalog-version"}>
+                    {updateAvailable ? `v${installedVersion} → v${app.version}` : `v${installedVersion ?? app.version}`}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={installed && !updateAvailable || updating}
+                  onClick={() => updateAvailable ? onUpdate(app) : onAdd(app)}
+                >
+                  {updating ? "更新中…" : updateAvailable ? "更新" : installed ? "追加済み" : "追加"}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      </section>
       <form className="add-form" onSubmit={submit}>
+        <div className="app-form-heading"><h3>新しいAppの雛形</h3><p>汎用Surfaceを登録します</p></div>
         <label htmlFor="app-name">名前</label>
         <input id="app-name" autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="例：ログ解析" />
         <fieldset>
@@ -251,6 +308,25 @@ function AppWorkspace({ app, onClose, onDone }) {
         </button>
       </div>
     </Modal>
+  );
+}
+
+function RegisteredAppWorkspace({ app, desktop, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
+  const Surface = resolveLazyAppSurface(app);
+  if (!Surface) return <AppWorkspace app={app} onClose={onClose} onDone={onDone} />;
+  return (
+    <Suspense fallback={<div className="modal-backdrop"><div className="workspace-body" role="status"><span className="spinner" /><strong>{app.name} Appを読み込んでいます…</strong></div></div>}>
+      <Surface
+        desktop={desktop}
+        persistenceReady={persistenceReady}
+        assistantOpen={assistantOpen}
+        onToggleAssistant={onToggleAssistant}
+        onContextChange={onContextChange}
+        onClose={onClose}
+        onOpenSettings={onOpenSettings}
+        onToast={onDone}
+      />
+    </Suspense>
   );
 }
 
@@ -456,13 +532,20 @@ function LocalLlmConfigModal({ settings, busy, onClose, onSave, onDisconnect }) 
 }
 
 export function App() {
-  const [apps, setApps] = useState(initialApps);
+  const [appRegistry] = useState(createMyBoxAppRegistry);
+  const defaultInstalledApps = useMemo(() => appRegistry.listDefaultInstalled(), [appRegistry]);
+  const [apps, setApps] = useState(defaultInstalledApps);
+  const [installedVersions, setInstalledVersions] = useState(() => Object.fromEntries(defaultInstalledApps.map((app) => [app.id, app.version])));
+  const [appInstallations] = useState(() => createDeviceAppInstallationsStore(defaultInstalledApps, appRegistry.list()));
+  const [updatingAppId, setUpdatingAppId] = useState(null);
   const [view, setView] = useState("apps");
   const [menuOpen, setMenuOpen] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [selectedApp, setSelectedApp] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [surfaceContext, setSurfaceContext] = useState("");
   const [aiText, setAiText] = useState("");
   const [toast, setToast] = useState("");
   const [workspace, setWorkspace] = useState(null);
@@ -488,6 +571,7 @@ export function App() {
   const desktop = isDesktopRuntime();
 
   const pageTitle = useMemo(() => view === "apps" ? "アプリ" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
+  const assistantContextLabel = surfaceContext || selectedApp?.name || pageTitle || "MyBox";
   const activeProviderId = providerSettings.activeProviderId;
   const activeProvider = nativeAgentProviders[activeProviderId] ?? codexSubscriptionProvider;
   const activeProviderName = activeProvider.descriptor.name;
@@ -518,6 +602,19 @@ export function App() {
   const chatPersistenceReady = chatLoaded && (!desktop || Boolean(workspace));
 
   useEffect(() => {
+    let active = true;
+    appInstallations.load().then((snapshot) => {
+      if (!active) return;
+      snapshot.customApps.forEach((definition) => {
+        if (!appRegistry.get(definition.id)) appRegistry.register(definition);
+      });
+      setApps(snapshot.installedApps.map(({ id }) => appRegistry.get(id)).filter(Boolean));
+      setInstalledVersions(Object.fromEntries(snapshot.installedApps.map(({ id, version }) => [id, version])));
+    }).catch((error) => active && setToast(`App一覧を復元できません：${String(error)}`));
+    return () => { active = false; };
+  }, [appInstallations, appRegistry]);
+
+  useEffect(() => {
     const onKey = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -534,6 +631,10 @@ export function App() {
     const timer = window.setTimeout(() => setToast(""), 3500);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  useEffect(() => {
+    setSurfaceContext(selectedApp?.name ?? "");
+  }, [selectedApp]);
 
   useEffect(() => {
     if (!desktop) return;
@@ -680,17 +781,54 @@ export function App() {
     }
   };
 
-  const addApp = (app) => {
-    setApps((current) => [...current, app]);
-    setAddOpen(false);
-    setToast(`${app.name}を追加しました`);
+  const addApp = async (app) => {
+    const registered = appRegistry.get(app.id) ?? appRegistry.register(app);
+    const next = apps.some((item) => item.id === registered.id) ? apps : [...apps, registered];
+    const nextVersions = { ...installedVersions, [registered.id]: registered.version };
+    try {
+      await appInstallations.save(next, appRegistry.list(), nextVersions);
+      setApps(next);
+      setInstalledVersions(nextVersions);
+      setAddOpen(false);
+      setToast(`${app.name} v${registered.version}を追加しました`);
+    } catch (error) {
+      setToast(`App一覧を保存できません：${String(error)}`);
+    }
   };
 
-  const deleteApp = () => {
-    setApps((current) => current.filter((app) => app.id !== pendingDelete.id));
-    setPendingDelete(null);
-    setMenuOpen(null);
-    setToast("アプリを削除しました");
+  const updateApp = async (app) => {
+    const installedVersion = installedVersions[app.id];
+    if (!installedVersion || !isAppUpdateAvailable(installedVersion, app.version)) {
+      setToast(`${app.name}は最新版です`);
+      return;
+    }
+    const nextVersions = { ...installedVersions, [app.id]: app.version };
+    setUpdatingAppId(app.id);
+    try {
+      await appInstallations.save(apps, appRegistry.list(), nextVersions);
+      setInstalledVersions(nextVersions);
+      setMenuOpen(null);
+      setToast(`${app.name}をv${app.version}へ更新しました`);
+    } catch (error) {
+      setToast(`${app.name}を更新できません：${String(error)}`);
+    } finally {
+      setUpdatingAppId(null);
+    }
+  };
+
+  const deleteApp = async () => {
+    const next = apps.filter((app) => app.id !== pendingDelete.id);
+    const nextVersions = Object.fromEntries(Object.entries(installedVersions).filter(([id]) => id !== pendingDelete.id));
+    try {
+      await appInstallations.save(next, appRegistry.list(), nextVersions);
+      setApps(next);
+      setInstalledVersions(nextVersions);
+      setPendingDelete(null);
+      setMenuOpen(null);
+      setToast("アプリを削除しました");
+    } catch (error) {
+      setToast(`App一覧を保存できません：${String(error)}`);
+    }
   };
 
   const connectAgent = async () => {
@@ -792,7 +930,7 @@ export function App() {
     return saved;
   };
 
-  const createNewChat = async () => {
+  const createNewChat = async ({ openChat = true } = {}) => {
     if (!chatPersistenceReady) {
       setView("settings");
       setToast("先にチャットの保存場所を設定してください");
@@ -800,7 +938,7 @@ export function App() {
     }
     const created = createChatSession(chatHistory);
     setActiveChatId(created.session.id);
-    setView("chat");
+    if (openChat) setView("chat");
     try {
       await saveChatHistory(created.history);
     } catch (error) {
@@ -808,9 +946,9 @@ export function App() {
     }
   };
 
-  const selectChatSession = (sessionId) => {
+  const selectChatSession = (sessionId, { openChat = true } = {}) => {
     setActiveChatId(sessionId);
-    setView("chat");
+    if (openChat) setView("chat");
   };
 
   const updateChatTitle = async (sessionId, title) => {
@@ -875,7 +1013,7 @@ export function App() {
     setReasoningSelections((current) => ({ ...current, [activeProviderId]: effort }));
   };
 
-  const sendChatMessage = async (text) => {
+  const sendChatMessage = async (text, { openChat = true, contextLabel = null } = {}) => {
     const request = text.trim();
     if (!request || agentBusy) return;
     if (!chatPersistenceReady) {
@@ -900,7 +1038,7 @@ export function App() {
       skills: selectedSkills,
       imageRequested: imageGenerationSupported && imageGenerationEnabled,
     }).history;
-    setView("chat");
+    if (openChat) setView("chat");
     setAiText("");
     setAiOpen(false);
     const providerReady = activeProviderReady();
@@ -920,8 +1058,11 @@ export function App() {
         return;
       }
       const session = workingHistory.sessions.find((item) => item.id === sessionId);
+      const conversationPrompt = buildConversationPrompt(session);
       const result = await activeProvider.generate({
-        prompt: buildConversationPrompt(session),
+        prompt: contextLabel
+          ? `Current MyBox screen: ${contextLabel}. Use this label only as interface context; do not assume access to data or operations that were not explicitly provided.\n\n${conversationPrompt}`
+          : conversationPrompt,
         model: selectedModelId || undefined,
         reasoningEffort: selectedReasoningEffort || undefined,
         webSearch: webSearchSupported && webSearchEnabled && !imageGenerationEnabled,
@@ -968,14 +1109,56 @@ export function App() {
 
   const runAi = (event) => {
     event.preventDefault();
-    sendChatMessage(aiText);
+    setAssistantOpen(true);
+    sendChatMessage(aiText, { openChat: false, contextLabel: assistantContextLabel });
+  };
+
+  const closeAssistantPanel = () => {
+    setAssistantOpen(false);
+    window.setTimeout(() => {
+      const selector = selectedApp ? ".knowledge-assistant-toggle" : ".assistant-toggle";
+      document.querySelector(selector)?.focus();
+    }, 0);
+  };
+
+  const sharedChatProps = {
+    history: chatHistory,
+    activeSessionId: activeChatId,
+    value: aiText,
+    busy: agentBusy,
+    providerName: activeProviderName,
+    providerReady: activeProviderReady(),
+    providerLabels,
+    models: availableModels,
+    selectedModelId,
+    onSelectModel: selectChatModel,
+    reasoningEfforts,
+    selectedReasoningEffort,
+    onSelectReasoningEffort: selectChatReasoning,
+    usage: providerUsage,
+    persistenceReady: chatPersistenceReady,
+    webSearchEnabled,
+    webSearchSupported,
+    onToggleWebSearch: toggleWebSearch,
+    skills: availableSkills,
+    skillsSupported,
+    skillsLoading,
+    selectedSkillIds,
+    onToggleSkill: toggleChatSkill,
+    imageGenerationEnabled,
+    imageGenerationSupported,
+    onToggleImageGeneration: toggleImageGeneration,
+    onRenameSession: updateChatTitle,
+    onDeleteSession: removeChatSession,
+    onChange: setAiText,
   };
 
   return (
-    <div className={`app-shell${view === "chat" ? " chat-mode" : ""}`} onClick={(e) => !e.target.closest(".context-menu, .tile-actions") && setMenuOpen(null)}>
+    <div className={`app-shell${view === "chat" ? " chat-mode" : ""}${assistantOpen && view !== "chat" ? " assistant-panel-open" : ""}${selectedApp ? " app-surface-mode" : ""}`} onClick={(e) => !e.target.closest(".context-menu, .tile-actions, .launcher-menu-button") && setMenuOpen(null)}>
       <header className="topbar">
         <button className="brand" aria-label="アプリ一覧へ" onClick={() => setView("apps")}><Cube size={34} weight="duotone" /><span>MyBox</span></button>
         <div className="topbar-actions">
+          <IconButton label={assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} className={assistantOpen ? "assistant-toggle active" : "assistant-toggle"} aria-pressed={assistantOpen} aria-controls="assistant-panel" onClick={() => setAssistantOpen((open) => !open)}><Robot size={23} weight={assistantOpen ? "fill" : "regular"} /></IconButton>
           <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={23} /><span>追加</span></button>
           <IconButton label="プロフィール" className="profile-button"><img src="/assets/profile-avatar.png" alt="" /></IconButton>
         </div>
@@ -983,7 +1166,7 @@ export function App() {
 
       <main className={`main-content${view === "chat" ? " chat-content" : ""}`}>
         {view !== "chat" && <form className={aiOpen ? "ai-command open" : "ai-command"} onSubmit={runAi} aria-busy={agentBusy}>
-          <button type="button" className="ai-trigger" aria-label="AIチャットを開く" onClick={() => setView("chat")}><Robot size={30} weight="duotone" /></button>
+          <button type="button" className="ai-trigger" aria-label="AIアシスタントを開く" aria-controls="assistant-panel" aria-expanded={assistantOpen} onClick={() => setAssistantOpen(true)}><Robot size={30} weight="duotone" /></button>
           <input ref={aiInput} aria-label="AIへの依頼" value={aiText} onChange={(e) => setAiText(e.target.value)} onFocus={() => setAiOpen(true)} placeholder={agentBusy ? "考えています…" : "AIに頼む"} disabled={agentBusy} />
           {agentBusy ? <span className="ai-busy spinner" aria-label="AIが処理中" /> : aiOpen ? <button className="ai-send" type="submit" aria-label="依頼を送信"><PaperPlaneTilt size={21} /></button> : <kbd>⌘ K</kbd>}
         </form>}
@@ -992,7 +1175,7 @@ export function App() {
           <section className="apps-view" aria-labelledby="apps-heading">
             <h1 id="apps-heading">アプリ</h1>
             <div className="app-grid">
-              {apps.map((app) => <AppTile key={app.id} app={app} onOpen={setSelectedApp} menuOpen={menuOpen === app.id} onMenu={(id) => setMenuOpen((current) => current === id ? null : id)} onDelete={setPendingDelete} onFavorite={(item) => { setToast(`${item.name}を固定しました`); setMenuOpen(null); }} />)}
+              {apps.map((app) => <AppTile key={app.id} app={app} installedVersion={installedVersions[app.id] ?? app.version} updating={updatingAppId === app.id} onUpdate={updateApp} onOpen={setSelectedApp} menuOpen={menuOpen === app.id} onMenu={(id) => setMenuOpen((current) => current === id ? null : id)} onDelete={setPendingDelete} onFavorite={(item) => { setToast(`${item.name}を固定しました`); setMenuOpen(null); }} />)}
               <EmptyTile onClick={() => setAddOpen(true)} />
             </div>
           </section>
@@ -1001,40 +1184,12 @@ export function App() {
         {view === "history" && <HistoryView />}
         {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} />}
         {view === "chat" && <ChatView
-          history={chatHistory}
-          activeSessionId={activeChatId}
-          value={aiText}
-          busy={agentBusy}
-          providerName={activeProviderName}
-          providerReady={activeProviderReady()}
-          providerLabels={providerLabels}
-          models={availableModels}
-          selectedModelId={selectedModelId}
-          onSelectModel={selectChatModel}
-          reasoningEfforts={reasoningEfforts}
-          selectedReasoningEffort={selectedReasoningEffort}
-          onSelectReasoningEffort={selectChatReasoning}
-          usage={providerUsage}
-          persistenceReady={chatPersistenceReady}
-          webSearchEnabled={webSearchEnabled}
-          webSearchSupported={webSearchSupported}
-          onToggleWebSearch={toggleWebSearch}
-          skills={availableSkills}
-          skillsSupported={skillsSupported}
-          skillsLoading={skillsLoading}
-          selectedSkillIds={selectedSkillIds}
-          onToggleSkill={toggleChatSkill}
-          imageGenerationEnabled={imageGenerationEnabled}
-          imageGenerationSupported={imageGenerationSupported}
-          onToggleImageGeneration={toggleImageGeneration}
+          {...sharedChatProps}
           onBack={() => setView("apps")}
           onOpenSettings={() => setView("settings")}
-          onNewSession={createNewChat}
-          onSelectSession={selectChatSession}
-          onRenameSession={updateChatTitle}
-          onDeleteSession={removeChatSession}
-          onChange={setAiText}
-          onSend={sendChatMessage}
+          onNewSession={() => createNewChat()}
+          onSelectSession={(sessionId) => selectChatSession(sessionId)}
+          onSend={(text) => sendChatMessage(text)}
         />}
       </main>
 
@@ -1043,8 +1198,42 @@ export function App() {
         {navItems.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}><Icon size={32} weight={view === id ? "fill" : "regular"} /><span>{label}</span></button>)}
       </nav>}
 
-      {addOpen && <AddAppModal onClose={() => setAddOpen(false)} onAdd={addApp} />}
-      {selectedApp && <AppWorkspace app={selectedApp} onClose={() => setSelectedApp(null)} onDone={setToast} />}
+      {addOpen && <AddAppModal catalog={appRegistry.list()} installedVersions={installedVersions} updatingAppId={updatingAppId} onClose={() => setAddOpen(false)} onAdd={addApp} onUpdate={updateApp} />}
+      {selectedApp && (
+        <RegisteredAppWorkspace
+          app={selectedApp}
+          desktop={desktop}
+          persistenceReady={!desktop || Boolean(workspace)}
+          assistantOpen={assistantOpen}
+          onToggleAssistant={() => setAssistantOpen((open) => !open)}
+          onContextChange={setSurfaceContext}
+          onClose={() => setSelectedApp(null)}
+          onOpenSettings={() => {
+            setSelectedApp(null);
+            setView("settings");
+          }}
+          onDone={setToast}
+        />
+      )}
+      {assistantOpen && view !== "chat" && <ChatView
+        {...sharedChatProps}
+        variant="panel"
+        contextLabel={assistantContextLabel}
+        onClose={closeAssistantPanel}
+        onOpenFull={() => {
+          setAssistantOpen(false);
+          setSelectedApp(null);
+          setView("chat");
+        }}
+        onOpenSettings={() => {
+          setAssistantOpen(false);
+          setSelectedApp(null);
+          setView("settings");
+        }}
+        onNewSession={() => createNewChat({ openChat: false })}
+        onSelectSession={(sessionId) => selectChatSession(sessionId, { openChat: false })}
+        onSend={(text) => sendChatMessage(text, { openChat: false, contextLabel: assistantContextLabel })}
+      />}
       {pendingDelete && <Modal title="アプリを削除" onClose={() => setPendingDelete(null)} className="confirm-modal"><div className="confirm-body"><AppGlyph icon={pendingDelete.icon} color={pendingDelete.color} size={52} /><p><strong>{pendingDelete.name}</strong>をMyBoxから削除しますか？</p><div className="confirm-actions"><button onClick={() => setPendingDelete(null)}>キャンセル</button><button className="danger-button" onClick={deleteApp}><Trash size={19} />削除</button></div></div></Modal>}
       {providerModal === "openai" && <OpenAiConfigModal settings={providerSettings.openaiApi} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveOpenAi} onDisconnect={removeOpenAi} />}
       {providerModal === "local" && <LocalLlmConfigModal settings={providerSettings.localLlm} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveLocalLlm} onDisconnect={removeLocalLlm} />}

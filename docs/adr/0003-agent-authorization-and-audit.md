@@ -22,5 +22,16 @@ provide grant management and approval UI before unattended writes are enabled.
 
 ## Implementation notes
 
-The initial host exposes an authorization hook and ships a conservative default:
-non-user write, destructive, and external operations require `approval.granted`.
+The reference Host exposes an authorization hook and its default policy requires
+an exact non-user Operation grant. It then evaluates the Operation's Confirmation
+class against the caller's current profile level or a fresh approval. Unattended
+execution is therefore a persistent Host-wide User-profile policy rather than an
+App-specific mode, while Operation grants and App data scopes remain separate
+constraints. Audit metadata now records the Confirmation class and level.
+
+Change-proposal storage and correlated Agent/User application audit remain to be
+implemented for Knowledge writes; the current editor invokes Operations as the
+local User, while direct Agent writes still pass through Host authorization.
+ADR 0016 replaces this ADR's requirement that every destructive or external
+invocation receive fresh confirmation; scoped authorization, Host enforcement,
+and audit requirements remain in force.

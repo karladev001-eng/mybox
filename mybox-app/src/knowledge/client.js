@@ -1,0 +1,40 @@
+import { AppHost } from "../core/app-host.js";
+import { MemoryStorageDriver } from "../core/storage.js";
+import { TauriStorageDriver } from "../desktop/tauri-storage.js";
+import { createKnowledgeApp } from "./app.js";
+
+const webDriver = new MemoryStorageDriver();
+
+export function createKnowledgeClient({ desktop = false } = {}) {
+  const host = new AppHost({ storageDriver: desktop ? new TauriStorageDriver() : webDriver });
+  host.register(createKnowledgeApp());
+  const invoke = (operationId, input = {}) => host.invoke(operationId, input, {
+    actor: { type: "user", id: "local-user" },
+  });
+
+  return Object.freeze({
+    listProjects: () => invoke("knowledge.project.list"),
+    createProject: (name) => invoke("knowledge.project.create", { name }),
+    listPages: (projectId, includeTrash = false) => invoke("knowledge.page.list", { projectId, includeTrash }),
+    readPage: (projectId, pageId) => invoke("knowledge.page.read", { projectId, pageId }),
+    search: ({ query, projectIds, includeTrash = false }) => invoke("knowledge.page.search", { query, projectIds, includeTrash }),
+    createPage: (projectId, title) => invoke("knowledge.page.create", { projectId, title }),
+    updatePage: (projectId, pageId, expectedRevision, mutation) => invoke("knowledge.page.update", {
+      projectId,
+      pageId,
+      expectedRevision,
+      mutation,
+    }),
+    moveToTrash: (projectId, pageId, expectedRevision) => invoke("knowledge.page.move-to-trash", { projectId, pageId, expectedRevision }),
+    restorePage: (projectId, pageId, expectedRevision) => invoke("knowledge.page.restore", { projectId, pageId, expectedRevision }),
+    purgePage: (projectId, pageId, expectedRevision) => invoke("knowledge.page.purge", { projectId, pageId, expectedRevision }),
+    readHistory: (projectId, pageId) => invoke("knowledge.page.history.read", { projectId, pageId }),
+    restoreHistory: (projectId, pageId, expectedRevision, historyId) => invoke("knowledge.page.history.restore", {
+      projectId,
+      pageId,
+      expectedRevision,
+      historyId,
+    }),
+    listTags: (projectId) => invoke("knowledge.tag.list", { projectId }),
+  });
+}

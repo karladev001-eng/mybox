@@ -10,6 +10,10 @@ must only be called when `isDesktopRuntime()` returns true.
   whose credentials, processes, and network calls stay in the native host.
 - `chat-history.js`: binds the independent AI chat app to native app-scoped
   workspace storage, with an in-memory Web preview fallback.
+- `profile-preferences.js`: binds host profile preferences to the same native
+  app-scoped storage boundary, with an in-memory Web preview fallback.
+- `app-installations.js`: binds the installed App catalog to device-local Host
+  storage, with an in-memory Web preview fallback.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

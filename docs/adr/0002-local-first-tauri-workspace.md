@@ -32,3 +32,9 @@ platform installers do not depend on implicit icon discovery. Desktop release
 versions are kept aligned across npm, Cargo, and Tauri metadata so Windows can
 recognize replacement installers as upgrades. Resource files and synchronization
 adapters remain future work; native secret storage is implemented by ADR 0006.
+ADR 0017 refines the layout by keeping common App state in the Workspace while
+allowing each Project to use a separately selected local Project store.
+
+The 2026-08-16 desktop package containing versioned App installations, Host
+updates, the Knowledge Surface, and the contextual assistant panel is released as
+MyBox `0.1.9` in both MSI and NSIS formats.

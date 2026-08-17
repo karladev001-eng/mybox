@@ -6,6 +6,7 @@ import { ThemedSelect } from "./ThemedSelect.jsx";
 import {
   ArrowSquareOut,
   ArrowLeft,
+  ArrowsOutSimple,
   Brain,
   ChatCircleDots,
   CheckCircle,
@@ -193,9 +194,14 @@ export function ChatView({
   onDeleteSession,
   onChange,
   onSend,
+  variant = "full",
+  contextLabel = "MyBox",
+  onClose,
+  onOpenFull,
 }) {
+  const panel = variant === "panel";
   const [query, setQuery] = useState("");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(!panel);
   const [editingId, setEditingId] = useState(null);
   const [draftTitle, setDraftTitle] = useState("");
   const [toolPickerOpen, setToolPickerOpen] = useState(false);
@@ -259,6 +265,12 @@ export function ChatView({
   }, [activeSession]);
 
   useEffect(() => {
+    if (!panel) return;
+    const timer = window.setTimeout(() => composerRef.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [panel]);
+
+  useEffect(() => {
     if (!toolPickerOpen) return undefined;
     const closeOnEscape = (event) => {
       if (event.key === "Escape") setToolPickerOpen(false);
@@ -315,8 +327,8 @@ export function ChatView({
   };
 
   return (
-    <section className={`chat-view${sidebarOpen ? "" : " sidebar-closed"}`} aria-label="AIチャット">
-      <aside className="chat-sidebar" id="chat-session-sidebar" aria-label="チャット履歴">
+    <section id={panel ? "assistant-panel" : undefined} className={`chat-view${sidebarOpen ? "" : " sidebar-closed"}${panel ? " assistant-panel" : ""}`} aria-label={panel ? "AIアシスタント" : "AIチャット"}>
+      {!panel && <aside className="chat-sidebar" id="chat-session-sidebar" aria-label="チャット履歴">
         <div className="chat-sidebar-heading">
           <div><Robot size={25} weight="duotone" aria-hidden="true" /><strong>AIチャット</strong></div>
           <ChatIconButton label="履歴を閉じる" onClick={() => setSidebarOpen(false)}><X size={20} /></ChatIconButton>
@@ -377,10 +389,19 @@ export function ChatView({
           ))}
           {!groupedSessions.length && <p className="chat-history-empty">一致する会話はありません</p>}
         </div>
-      </aside>
+      </aside>}
 
       <div className="chat-main">
-        <header className="chat-header">
+        {panel ? (
+          <header className="assistant-panel-header">
+            <div><Robot size={23} weight="duotone" aria-hidden="true" /><span><strong>AIアシスタント</strong><small title={contextLabel}>{contextLabel}</small></span></div>
+            <div>
+              <ChatIconButton label="新しいチャット" onClick={onNewSession}><Plus size={18} /></ChatIconButton>
+              <ChatIconButton label="AIチャットを全画面で開く" onClick={onOpenFull}><ArrowsOutSimple size={18} /></ChatIconButton>
+              <ChatIconButton label="AIアシスタントを閉じる" onClick={onClose}><X size={19} /></ChatIconButton>
+            </div>
+          </header>
+        ) : <header className="chat-header">
           <div className="chat-header-leading">
             <ChatIconButton label="アプリ一覧へ戻る" onClick={onBack}><ArrowLeft size={21} /></ChatIconButton>
             {!sidebarOpen && <ChatIconButton label="履歴を開く" aria-controls="chat-session-sidebar" aria-expanded={false} onClick={() => setSidebarOpen(true)}><SidebarSimple size={21} /></ChatIconButton>}
@@ -390,14 +411,14 @@ export function ChatView({
             </div>
           </div>
           <div className="chat-header-actions"><button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button></div>
-        </header>
+        </header>}
 
         <div ref={messageListRef} className="chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
           {!activeSession?.messages.length ? (
             <div className="chat-welcome">
               <span><ChatCircleDots size={38} weight="duotone" aria-hidden="true" /></span>
-              <h2>今日は何を一緒に進めますか？</h2>
-              <p>会話はこのワークスペースに保存され、あとから続けられます。</p>
+              <h2>{panel ? "この画面で何を進めますか？" : "今日は何を一緒に進めますか？"}</h2>
+              <p>{panel ? `${contextLabel}を開いたまま依頼できます。` : "会話はこのワークスペースに保存され、あとから続けられます。"}</p>
               <div className="chat-suggestions">
                 {suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => { onChange(suggestion); composerRef.current?.focus(); }}>{suggestion}</button>)}
               </div>

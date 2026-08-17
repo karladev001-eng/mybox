@@ -1,5 +1,5 @@
 import Ajv from "ajv";
-import { CALLER_TYPES, defineApp } from "./app-contract.js";
+import { CALLER_TYPES, CONFIRMATION_LEVELS, defineApp } from "./app-contract.js";
 import { createAppStorage, MemoryStorageDriver } from "./storage.js";
 
 export class AppHostError extends Error {
@@ -27,7 +27,7 @@ function grantIncludes(grant, operationId, now) {
   return grant.operationIds.includes(operationId) || grant.operationIds.includes("*");
 }
 
-export async function defaultAuthorize({ actor, operation, grant, approval, now }) {
+export async function defaultAuthorize({ actor, operation, grant, approval, confirmationLevel, now }) {
   if (!operation.callers.includes(actor.type)) {
     throw new AppHostError("CALLER_NOT_ALLOWED", "Operation is not exposed to this caller type", {
       operationId: operation.id,
@@ -44,21 +44,23 @@ export async function defaultAuthorize({ actor, operation, grant, approval, now 
     });
   }
 
-  if (operation.effect === "read") return;
-
-  const sessionAllowsWrite = operation.effect === "write" && grant?.allowWrites === true;
   const freshApproval = approval?.granted === true && approval?.fresh === true;
-  if (!sessionAllowsWrite && !freshApproval) {
-    throw new AppHostError("APPROVAL_REQUIRED", "Operation requires write approval", {
+  if (operation.confirmationClass === "always-confirm" && !freshApproval) {
+    throw new AppHostError("ALWAYS_CONFIRM_REQUIRED", "Operation always requires fresh confirmation", {
       operationId: operation.id,
-      effect: operation.effect,
+      confirmationClass: operation.confirmationClass,
     });
   }
 
-  if (["external", "destructive"].includes(operation.effect) && !freshApproval) {
-    throw new AppHostError("FRESH_APPROVAL_REQUIRED", "Operation requires fresh approval", {
+  if (freshApproval) return;
+
+  const requiredLevel = CONFIRMATION_LEVELS.indexOf(operation.confirmationClass);
+  const currentLevel = CONFIRMATION_LEVELS.indexOf(confirmationLevel);
+  if (currentLevel < requiredLevel) {
+    throw new AppHostError("CONFIRMATION_REQUIRED", "Operation exceeds the current Confirmation level", {
       operationId: operation.id,
-      effect: operation.effect,
+      confirmationClass: operation.confirmationClass,
+      confirmationLevel,
     });
   }
 }
@@ -211,6 +213,7 @@ export class AppHost {
     actor = { type: "user", id: "local-user" },
     grant,
     approval,
+    confirmationLevel = "review",
     reason = "",
     correlationId = newId(),
   } = {}) {
@@ -221,6 +224,11 @@ export class AppHost {
 
     try {
       validateActor(actor);
+      if (!CONFIRMATION_LEVELS.includes(confirmationLevel)) {
+        throw new AppHostError("INVALID_CONFIRMATION_LEVEL", "Invocation requires a valid Confirmation level", {
+          confirmationLevel,
+        });
+      }
       if (!record) {
         throw new AppHostError("OPERATION_NOT_FOUND", "Operation is unavailable", { operationId });
       }
@@ -236,6 +244,7 @@ export class AppHost {
         operation: record.declaration,
         grant,
         approval,
+        confirmationLevel,
         reason,
         now: startedAt,
       });
@@ -272,6 +281,8 @@ export class AppHost {
         appId: record?.appId ?? null,
         actor,
         effect: record?.declaration.effect ?? null,
+        confirmationClass: record?.declaration.confirmationClass ?? null,
+        confirmationLevel,
         reason,
         correlationId,
         startedAt: startedAt.toISOString(),

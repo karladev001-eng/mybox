@@ -16,6 +16,7 @@ function createEchoApp() {
         id: "echo.read",
         title: "Read a value",
         effect: "read",
+        confirmationClass: "review",
         callers: ["agent"],
         inputSchema: {
           type: "object",

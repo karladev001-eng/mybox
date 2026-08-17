@@ -1,4 +1,4 @@
-export const APP_SCHEMA_VERSION = 1;
+export const APP_SCHEMA_VERSION = 2;
 
 export const OPERATION_EFFECTS = Object.freeze([
   "read",
@@ -13,6 +13,17 @@ export const CALLER_TYPES = Object.freeze([
   "flow",
   "app",
   "system",
+]);
+
+export const CONFIRMATION_LEVELS = Object.freeze([
+  "review",
+  "recoverable",
+  "autonomous",
+]);
+
+export const CONFIRMATION_CLASSES = Object.freeze([
+  ...CONFIRMATION_LEVELS,
+  "always-confirm",
 ]);
 
 const APP_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -83,6 +94,10 @@ export function validateAppManifest(manifest) {
     assert(OPERATION_EFFECTS.includes(operation.effect), "Operation effect is invalid", {
       id: operation.id,
       effect: operation.effect,
+    });
+    assert(CONFIRMATION_CLASSES.includes(operation.confirmationClass), "Operation Confirmation class is invalid", {
+      id: operation.id,
+      confirmationClass: operation.confirmationClass,
     });
     assert(Array.isArray(operation.callers) && operation.callers.length > 0, "Operation callers are required", {
       id: operation.id,
