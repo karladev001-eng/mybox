@@ -190,6 +190,8 @@
 .knowledge-share-state p svg { color: var(--accent); }
 .knowledge-share-state small { overflow: hidden; color: var(--subtle); font-size: 10px; line-height: 1.6; text-overflow: ellipsis; }
 .knowledge-share-state > div { display: flex; gap: 6px; }
+.knowledge-sync-live { display: inline-flex; align-items: center; gap: 5px; color: var(--accent); }
+.knowledge-sync-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .knowledge-share-state button { flex: 1; min-height: 32px; padding: 0 8px 1px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--muted); background: var(--surface-strong); font-size: 11px; line-height: 1; }
 .knowledge-share-state button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 

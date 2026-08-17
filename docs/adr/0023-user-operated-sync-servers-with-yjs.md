@@ -105,5 +105,15 @@ Character-level merge depends on sending the smallest edit rather than the whole
 paragraph: replacing a Y.Text wholesale deletes characters a collaborator just
 typed. `textDelta` computes that range and never splits a surrogate pair.
 
-Still to come: connecting the client to a Project's endpoint, presence in the
-editor, and the Operations that create and join a shared Project.
+`mybox-app/src/knowledge/sync-client.js` runs the socket protocol,
+`shared-project.js` holds a shared Project's live state and answers Page reads
+in the same shapes the local store returns, and `src-tauri/src/sync_endpoints.rs`
+claims or joins a Project and keeps the member token in OS credential storage.
+Unlike an account token that token reaches the WebView, because the sync socket
+carries it in its URL.
+
+A shared Project accepts the editing mutations today. Tag changes and PageLink
+creation still run through the local model and are refused with an explanation
+rather than silently dropped. Presence is relayed but not yet drawn in the
+editor, and two-device editing has been verified through the sync engine rather
+than through the desktop UI.

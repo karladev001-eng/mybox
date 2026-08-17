@@ -40,6 +40,7 @@ import {
   listSyncEndpoints,
 } from "../desktop/sync-endpoints.js";
 import { createKnowledgeClient } from "./client.js";
+import { createSharedProject } from "./shared-project.js";
 import {
   applyColorWrap,
   buildInlineNodes,
@@ -52,6 +53,33 @@ import {
 import "./knowledge.css";
 
 const TEXT_COLOR_PRESETS = Object.freeze(["ff6b6b", "ffa94d", "ffd43b", "69db7c", "4dabf7", "748ffc", "b197fc", "f783ac"]);
+
+/**
+ * Mutations a shared Project accepts today. Tags and PageLink creation still
+ * run through the local model, so they are refused with an explanation rather
+ * than silently dropped.
+ */
+const SHARED_MUTATIONS = new Set(["rename", "block-update", "block-add", "block-remove", "block-move"]);
+
+function newBlockId() {
+  return `block-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
+/** The editor's mutation vocabulary, adapted to what the document expects. */
+function toSharedMutation(mutation) {
+  if (mutation.type !== "block-add") return mutation;
+  return {
+    type: "block-add",
+    afterBlockId: mutation.afterBlockId,
+    block: {
+      id: newBlockId(),
+      type: mutation.blockType ?? "paragraph",
+      text: mutation.text ?? "",
+      checked: false,
+      links: [],
+    },
+  };
+}
 
 const confirmationLevels = [
   { id: "review", label: "確認", description: "Review：変更案を確認" },
@@ -738,6 +766,10 @@ export function KnowledgeView({
   const [shareMode, setShareMode] = useState(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareInvite, setShareInvite] = useState("");
+  const [syncStatus, setSyncStatus] = useState("idle");
+  const sharedRef = useRef(null);
+  // Bumped whenever the shared document moves, so the editor re-reads it.
+  const [sharedRevision, setSharedRevision] = useState(0);
   const [dragBlockId, setDragBlockId] = useState(null);
   const [dragOverBlockId, setDragOverBlockId] = useState(null);
   const [selectedPageId, setSelectedPageId] = useState(null);
@@ -788,7 +820,10 @@ export function KnowledgeView({
       setPageData(null);
       return null;
     }
-    const result = await client.readPage(nextProjectId, pageId);
+    const shared = sharedRef.current;
+    const result = shared && nextProjectId === projectId
+      ? shared.readPage(pageId)
+      : await client.readPage(nextProjectId, pageId);
     setPageData(result);
     setSelectedPageId(pageId);
     return result;
@@ -796,6 +831,18 @@ export function KnowledgeView({
 
   const loadPageLists = async (nextProjectId = projectId, nextProjects = projects) => {
     if (!nextProjectId) return;
+    const shared = sharedRef.current;
+    if (shared && nextProjectId === projectId) {
+      // A shared Project's Pages live in its document, so the list and the
+      // link picker read from there rather than the local store.
+      const sharedPages = shared.listPages();
+      setLinkCandidates(sharedPages);
+      const needle = normalized(query);
+      setPages(query.trim()
+        ? sharedPages.filter((page) => normalized(page.title).includes(needle) || normalized(page.excerpt).includes(needle))
+        : sharedPages);
+      return;
+    }
     const candidatesResult = await client.listPages(nextProjectId, true);
     setLinkCandidates(candidatesResult.pages);
     const tagsResult = await client.listTags(nextProjectId);
@@ -851,6 +898,27 @@ export function KnowledgeView({
   }, [projectId, query, includeTrash, searchScope]);
 
   const runMutation = (mutation, successMessage) => {
+    const shared = sharedRef.current;
+    if (shared) {
+      const current = pageRef.current;
+      if (!current) return Promise.resolve(null);
+      if (!SHARED_MUTATIONS.has(mutation.type)) {
+        setError("この操作は共有Projectではまだ利用できません。");
+        return Promise.resolve(null);
+      }
+      try {
+        // A CRDT converges instead of rejecting, so there is no revision to
+        // carry and no conflict to report.
+        shared.mutate(current.id, toSharedMutation(mutation));
+        setError("");
+        if (successMessage) onToast(successMessage);
+        return Promise.resolve(shared.readPage(current.id));
+      } catch (nextError) {
+        setError(displayError(nextError));
+        return Promise.resolve(null);
+      }
+    }
+
     setSaving(true);
     setError("");
     const queued = operationQueue.current.then(async () => {
@@ -902,6 +970,61 @@ export function KnowledgeView({
     if (!desktop) return;
     refreshSyncEndpoints().catch(() => {});
   }, [desktop]);
+
+  /**
+   * A shared Project is edited through its Yjs document instead of the JSON
+   * store, so the session lives as long as that Project is selected.
+   */
+  useEffect(() => {
+    const endpoint = syncByProject[projectId];
+    if (!endpoint?.token) {
+      sharedRef.current?.dispose();
+      sharedRef.current = null;
+      setSyncStatus("idle");
+      return undefined;
+    }
+
+    const shared = createSharedProject({
+      endpoint: endpoint.endpoint,
+      projectId,
+      token: endpoint.token,
+      onChange: () => setSharedRevision((value) => value + 1),
+      onStatus: ({ status }) => setSyncStatus(status),
+      onError: (nextError) => setError(`同期エラー：${nextError.message}`),
+    });
+    sharedRef.current = shared;
+    // Pages written before this Project was shared must reach the others.
+    client.listPages(projectId, false)
+      .then(async ({ pages }) => {
+        const full = await Promise.all(pages.map((page) => client.readPage(projectId, page.id)));
+        shared.adopt(full.map((item) => item.page));
+      })
+      .catch(() => {})
+      .finally(() => shared.connect());
+
+    return () => {
+      shared.dispose();
+      sharedRef.current = null;
+      setSyncStatus("idle");
+    };
+  }, [projectId, syncByProject[projectId]?.token, syncByProject[projectId]?.endpoint]);
+
+  /**
+   * Re-reads the shared document after it moves, whether the edit came from
+   * this device or a peer. A Block being typed into keeps its own text until
+   * it loses focus, so a collaborator's update never yanks the caret away.
+   */
+  useEffect(() => {
+    const shared = sharedRef.current;
+    if (!shared || !sharedRevision) return;
+    const sharedPages = shared.listPages();
+    setLinkCandidates(sharedPages);
+    setPages(sharedPages);
+    if (selectedPageId) {
+      const next = shared.readPage(selectedPageId);
+      if (next) setPageData(next);
+    }
+  }, [sharedRevision, selectedPageId]);
 
   /** Claims this Project on a server the User operates. */
   const connectShare = async ({ endpoint, secret }) => {
@@ -1164,6 +1287,9 @@ export function KnowledgeView({
           {syncByProject[projectId] ? (
             <div className="knowledge-share-state">
               <p><UsersThree size={16} aria-hidden="true" />共有中・{syncByProject[projectId].role}</p>
+              <small className={syncStatus === "connected" ? "knowledge-sync-live" : undefined}>
+                {syncStatus === "connected" ? "同期中" : syncStatus === "connecting" ? "接続中…" : "オフライン（編集はこの端末に保存されます）"}
+              </small>
               <small>{syncByProject[projectId].endpoint}</small>
               <div>
                 <button type="button" disabled={shareBusy || syncByProject[projectId].role !== "owner"} onClick={() => { setShareInvite(""); setShareMode("invite"); }}>招待</button>

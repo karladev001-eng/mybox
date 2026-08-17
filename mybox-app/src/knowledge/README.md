@@ -13,6 +13,9 @@ Implements the first vertical slice of the `knowledge` App described in
   mutation vocabulary as `domain.js` to a Yjs document and projects it back into
   the Page and Block shape, so a shared Project merges concurrent edits where a
   local one reports a revision conflict.
+- `shared-project.js`: a shared Project's live state. Owns the document and its
+  sync client, and answers Page reads in the same shapes the local store does,
+  so `KnowledgeView` reads one or the other without branching on shape.
 - `sync-client.js`: keeps that document in step with a Project's sync endpoint.
   Relayed updates carry a remote origin so they are never echoed back, and a
   Viewer sends nothing because the server would refuse it anyway.
