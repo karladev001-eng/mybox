@@ -392,10 +392,10 @@ function ProviderRow({ icon: Icon, title, detail, badge, active, disabled, onSel
         <span className="settings-row-icon"><Icon size={24} weight="duotone" aria-hidden="true" /></span>
         <span className="settings-row-copy"><strong>{title}</strong><small>{detail}</small></span>
       </button>
-      <span className={active ? "settings-row-status active" : "settings-row-status"}>{badge}</span>
-      {onConfigure
-        ? <IconButton label={`${title}を設定`} className="provider-config" onClick={onConfigure} disabled={disabled}><GearSix size={20} /></IconButton>
-        : <span className="provider-config-spacer" aria-hidden="true" />}
+      {/* Without a gear the badge takes the gear's column too, so its right
+          edge lines up with the buttons on every other Settings row. */}
+      <span className={`settings-row-status${active ? " active" : ""}${onConfigure ? "" : " full-width"}`}>{badge}</span>
+      {onConfigure && <IconButton label={`${title}を設定`} className="provider-config" onClick={onConfigure} disabled={disabled}><GearSix size={20} /></IconButton>}
     </div>
   );
 }

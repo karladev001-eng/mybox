@@ -734,7 +734,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
    control's height. */
 .settings-row-status.active { padding: 6px 11px 8px; border: 1px solid #377d71; border-radius: 999px; background: #203a35; color: var(--accent); }
 .provider-config { width: 44px; height: 44px; justify-self: end; }
-.provider-config-spacer { width: 44px; height: 44px; }
+.settings-row-status.full-width { grid-column: 3 / 5; }
 .account-avatar { border-radius: 50%; object-fit: cover; }
 .account-action { grid-column: 3 / 5; justify-self: end; min-height: 40px; padding: 0 13px 1px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
 .account-action:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
@@ -764,7 +764,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .secondary-button:hover { border-color: #565d65; background: #2b2f34; }
 .settings-list strong, .settings-list small { display: block; }
 .settings-list small { margin-top: 4px; color: var(--muted); }
-.workspace-action .settings-row-control { min-width: 66px; padding: 6px 11px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-align: center; font-size: 12px; font-weight: 700; }
+/* The base control right-aligns its contents; a pill must centre them, and
+   text-align does not reach a flex item. */
+.workspace-action .settings-row-control { min-width: 66px; padding: 6px 11px 8px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; justify-content: center; color: var(--muted); font-size: 12px; font-weight: 700; }
 .workspace-action:not(:disabled):hover .settings-row-control { border-color: var(--accent); color: var(--accent); }
 .provider-roadmap { min-height: 62px; display: flex; align-items: center; gap: 10px; color: var(--subtle); }
 .provider-roadmap > span { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #30353a; border-radius: 10px; }
