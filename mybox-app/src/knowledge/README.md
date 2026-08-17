@@ -13,6 +13,9 @@ Implements the first vertical slice of the `knowledge` App described in
   mutation vocabulary as `domain.js` to a Yjs document and projects it back into
   the Page and Block shape, so a shared Project merges concurrent edits where a
   local one reports a revision conflict.
+- `sync-client.js`: keeps that document in step with a Project's sync endpoint.
+  Relayed updates carry a remote origin so they are never echoed back, and a
+  Viewer sends nothing because the server would refuse it anyway.
 - `knowledge.css`: Knowledge App layout and component states using root tokens.
 
 Keep domain rules out of React. Other Apps and Agents must use the Operations in

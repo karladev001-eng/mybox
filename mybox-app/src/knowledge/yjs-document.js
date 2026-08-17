@@ -229,6 +229,11 @@ export function encodeState(doc) {
   return Y.encodeStateAsUpdate(doc);
 }
 
-export function applyUpdate(doc, update) {
-  Y.applyUpdate(doc, update);
+/**
+ * `origin` lets a caller mark where an update came from. A sync client tags
+ * relayed updates so it can tell them apart from local edits and avoid echoing
+ * them back to the room.
+ */
+export function applyUpdate(doc, update, origin) {
+  Y.applyUpdate(doc, update, origin);
 }

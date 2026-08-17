@@ -1,5 +1,9 @@
 # Tests
 
+`npm test` needs no server. `npm run test:sync` drives two real sync clients
+against a running `sync-server` (`npm run dev` there first) and is the only
+place the client, the wire protocol, and the server meet.
+
 Contains Node tests for framework behavior and Sites packaging.
 
 - `app-host.test.mjs`: operation/event contracts, agent authorization, auditing,
