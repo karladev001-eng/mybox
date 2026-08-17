@@ -90,7 +90,7 @@ export class AppRegistry {
 const builtInDefinitions = [
   {
     id: "knowledge",
-    version: "1.1.0",
+    version: "1.2.0",
     name: "メモ",
     icon: "note",
     color: "#ff796f",
