@@ -95,7 +95,12 @@ undecided. Each needs its own ADR before it is built.
 
 ## Implementation notes
 
-As of 2026-08-17 the server exists in `sync-server/`: one Durable Object per
+As of 2026-08-18 the server exists in the separate
+[mybox-sync-server](https://github.com/karladev001-eng/mybox-sync-server)
+repository rather than a directory of this one: the Cloudflare deploy button a
+Project's Owner clicks does not reliably deploy from a subdirectory of a
+monorepo, and the split is what makes the button actually work. It implements
+one Durable Object per
 Project, invite-token membership, and the role check enforced there rather than
 only in the client. `mybox-app/src/knowledge/yjs-document.js` holds the shared
 document model and applies `domain.js`'s mutation vocabulary to it, so a caller

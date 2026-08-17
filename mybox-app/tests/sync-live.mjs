@@ -3,8 +3,10 @@
  * only place the client, the protocol, and the server meet. Excluded from
  * `npm test` because it needs a server.
  *
- *   cd ../sync-server && npm run dev
- *   cd ../mybox-app && npm run test:sync -- http://127.0.0.1:8787
+ *   In a checkout of https://github.com/karladev001-eng/mybox-sync-server:
+ *     npm run dev
+ *   Then in mybox-app:
+ *     npm run test:sync -- http://127.0.0.1:8787
  */
 import { createSyncClient } from "../src/knowledge/sync-client.js";
 import {
