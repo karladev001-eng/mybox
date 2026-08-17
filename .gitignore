@@ -16,3 +16,9 @@ Thumbs.db
 .mybox/
 workspace/
 workspaces/
+
+# Updater and code-signing keys belong in the OS keychain or CI secrets, never here.
+*.key
+*.pem
+*.p12
+*.pfx
