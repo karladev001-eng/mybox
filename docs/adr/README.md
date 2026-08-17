@@ -28,3 +28,4 @@ notes of the ADR it realizes.
 - [0020 — Track installed App versions and apply catalog updates through the Host](0020-track-installed-app-versions-and-host-updates.md)
 - [0021 — Publish signed desktop releases and update MyBox in place](0021-publish-signed-desktop-releases.md)
 - [0022 — Identify Users through OAuth providers without holding passwords](0022-account-identity-through-oauth.md)
+- [0023 — Merge shared Projects with Yjs over a sync server each group runs](0023-user-operated-sync-servers-with-yjs.md)

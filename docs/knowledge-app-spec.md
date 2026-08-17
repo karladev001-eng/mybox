@@ -440,10 +440,17 @@ and single-writer. Initial implementation MUST therefore:
 - detect conflicts rather than use last-write-wins silently; and
 - keep cloud synchronization behind an adapter contract.
 
-A later ADR must choose user identity, synchronization provider, offline merge,
-CRDT or equivalent algorithm, presence protocol, revocation behavior, encrypted
-transport/storage, and shared-history retention before real-time collaboration is
-implemented.
+Those choices are now recorded.
+[ADR 0022](adr/0022-account-identity-through-oauth.md) fixes user identity, and
+[ADR 0023](adr/0023-user-operated-sync-servers-with-yjs.md) fixes the
+synchronization provider, offline merge, CRDT, presence protocol, revocation
+behavior, transport and storage encryption, and shared-history retention. A
+shared Project therefore merges through Yjs on a sync server the owning group
+runs, while a Project with no endpoint stays local and single-writer.
+
+Server-side enforcement is the one invariant the local implementation cannot
+supply: once a peer can connect, the Project role check in section 6.1 MUST also
+run on the server, because a client-side check only advises a cooperating client.
 
 ## 15. Required user surfaces
 

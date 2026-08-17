@@ -39,6 +39,16 @@ authenticates through the provider and never holds a password. Linking is
 optional and required only to reach a shared Project.
 _Avoid_: login, credential, sign-up
 
+**Sync endpoint** — The address of the sync server a shared Project merges
+through, chosen by the Project's Owner and operated by their group rather than by
+MyBox. A Project without one never leaves the device.
+_Avoid_: cloud, backend, our server
+
+**Invite token** — A single value an Owner issues and passes to a person joining
+a shared Project. The server exchanges it once for a recorded membership, so
+access is revoked per member instead of by changing a shared secret.
+_Avoid_: password, shared key, room key
+
 **Profile ID** — The stable value a Project membership stores to identify a User.
 It is `local-user` on a profile with no Linked account, and
 `<provider>:<subject>` once linked, built from the provider's immutable subject
