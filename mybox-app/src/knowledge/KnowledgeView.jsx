@@ -29,6 +29,7 @@ import {
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { ThemedSelect } from "../ThemedSelect.jsx";
+import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { getProfilePreferencesStore } from "../desktop/profile-preferences.js";
 import { createKnowledgeClient } from "./client.js";
 import {
@@ -617,6 +618,7 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
 
 export function KnowledgeView({
   desktop = false,
+  profileId = LOCAL_PROFILE_ID,
   persistenceReady = true,
   onClose,
   onOpenSettings,
@@ -627,7 +629,13 @@ export function KnowledgeView({
 }) {
   const clientRef = useRef(null);
   const profileStoreRef = useRef(null);
-  if (!clientRef.current) clientRef.current = createKnowledgeClient({ desktop });
+  // Read through a ref so a sign-in applies to the next Operation without
+  // rebuilding the client and losing view state.
+  const profileIdRef = useRef(profileId);
+  profileIdRef.current = profileId;
+  if (!clientRef.current) {
+    clientRef.current = createKnowledgeClient({ desktop, getProfileId: () => profileIdRef.current });
+  }
   if (!profileStoreRef.current) profileStoreRef.current = getProfilePreferencesStore();
   const client = clientRef.current;
   const profileStore = profileStoreRef.current;
@@ -725,7 +733,13 @@ export function KnowledgeView({
     }
     let active = true;
     setLoading(true);
-    Promise.all([loadProjects(), profileStore.load()])
+    // A signed-in account must inherit what the local profile already owns, or
+    // the User signs in and finds their own Pages unreachable. It is idempotent.
+    const ready = profileId === LOCAL_PROFILE_ID
+      ? Promise.resolve()
+      : client.linkAccount(profileId);
+    ready
+      .then(() => Promise.all([loadProjects(), profileStore.load()]))
       .then(async ([projectResult, loadedPreferences]) => {
         if (!active) return;
         setPreferences(loadedPreferences);
@@ -734,7 +748,7 @@ export function KnowledgeView({
       .catch((nextError) => active && setError(displayError(nextError)))
       .finally(() => active && setLoading(false));
     return () => { active = false; };
-  }, [persistenceReady]);
+  }, [persistenceReady, profileId]);
 
   useEffect(() => {
     if (!persistenceReady || !projectId) return;

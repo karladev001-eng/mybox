@@ -1,3 +1,4 @@
+mod accounts;
 mod agent_providers;
 mod codex;
 mod workspace;
@@ -10,6 +11,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
+            accounts::account_session,
+            accounts::begin_github_device_login,
+            accounts::complete_github_device_login,
+            accounts::sign_out_account,
             agent_providers::agent_provider_settings,
             agent_providers::configure_openai_api_provider,
             agent_providers::disconnect_openai_api_provider,

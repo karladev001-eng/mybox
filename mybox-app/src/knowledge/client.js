@@ -1,3 +1,4 @@
+import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { AppHost } from "../core/app-host.js";
 import { MemoryStorageDriver } from "../core/storage.js";
 import { TauriStorageDriver } from "../desktop/tauri-storage.js";
@@ -5,11 +6,15 @@ import { createKnowledgeApp } from "./app.js";
 
 const webDriver = new MemoryStorageDriver();
 
-export function createKnowledgeClient({ desktop = false } = {}) {
+/**
+ * `getProfileId` is read per invocation so a sign-in or sign-out applies to the
+ * next Operation without rebuilding the client.
+ */
+export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID } = {}) {
   const host = new AppHost({ storageDriver: desktop ? new TauriStorageDriver() : webDriver });
   host.register(createKnowledgeApp());
   const invoke = (operationId, input = {}) => host.invoke(operationId, input, {
-    actor: { type: "user", id: "local-user" },
+    actor: { type: "user", id: getProfileId() || LOCAL_PROFILE_ID },
   });
 
   return Object.freeze({
@@ -36,5 +41,6 @@ export function createKnowledgeClient({ desktop = false } = {}) {
       historyId,
     }),
     listTags: (projectId) => invoke("knowledge.tag.list", { projectId }),
+    linkAccount: (accountId) => invoke("knowledge.profile.link-account", { accountId }),
   });
 }

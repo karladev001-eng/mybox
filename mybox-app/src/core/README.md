@@ -17,6 +17,8 @@ contract described in `../../../docs/app-framework.md`.
 - `app-version.js`: SemVer validation, precedence comparison, and update checks.
 - `app-installations.js`: validated installed App IDs, installed versions, and
   serializable custom App metadata retained through the Host storage port.
+- `account-identity.js`: Profile ID construction from a Linked account, and
+  resolution of a host account view into the session Operations run as.
 - `storage.js`: app-scoped storage port and in-memory test/Web driver.
 
 Production filesystem, secrets, network, and cloud adapters belong behind these

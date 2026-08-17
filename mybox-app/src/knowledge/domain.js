@@ -1,3 +1,5 @@
+import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
+
 export const KNOWLEDGE_SCHEMA_VERSION = 1;
 export const PAGE_STATES = Object.freeze(["active", "trash"]);
 export const PROJECT_ROLES = Object.freeze(["viewer", "editor", "owner"]);
@@ -204,7 +206,7 @@ function resolveTagIds(state, projectId, labels, context) {
 }
 
 export function createKnowledgeState({
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   now = new Date(),
   idFactory = newId,
 } = {}) {
@@ -237,7 +239,7 @@ export function validateKnowledgeState(state) {
   return state;
 }
 
-export function listProjects(state, { profileId = "local-user" } = {}) {
+export function listProjects(state, { profileId = LOCAL_PROFILE_ID } = {}) {
   validateKnowledgeState(state);
   return state.projects
     .filter((project) => project.members.some((member) => member.profileId === profileId))
@@ -255,7 +257,7 @@ export function listProjects(state, { profileId = "local-user" } = {}) {
 
 export function createProject(state, {
   name,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   now = new Date(),
   idFactory = newId,
 } = {}) {
@@ -274,7 +276,7 @@ export function createProject(state, {
 
 export function listPages(state, {
   projectId,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   includeTrash = false,
 } = {}) {
   validateKnowledgeState(state);
@@ -299,7 +301,7 @@ export function listPages(state, {
 export function createPage(state, {
   projectId,
   title,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   actorId = profileId,
   now = new Date(),
   idFactory = newId,
@@ -337,7 +339,7 @@ export function createPage(state, {
 export function readPage(state, {
   projectId,
   pageId,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
 } = {}) {
   validateKnowledgeState(state);
   const project = findProject(state, projectId);
@@ -350,7 +352,7 @@ export function updatePage(state, {
   pageId,
   expectedRevision,
   mutation,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   actorId = profileId,
   now = new Date(),
   idFactory = newId,
@@ -528,7 +530,7 @@ export function movePageToTrash(state, {
   projectId,
   pageId,
   expectedRevision,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   actorId = profileId,
   now = new Date(),
   idFactory = newId,
@@ -551,7 +553,7 @@ export function restorePage(state, {
   projectId,
   pageId,
   expectedRevision,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   actorId = profileId,
   now = new Date(),
   idFactory = newId,
@@ -572,7 +574,7 @@ export function purgePage(state, {
   projectId,
   pageId,
   expectedRevision,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   actorId = profileId,
   now = new Date(),
   idFactory = newId,
@@ -591,7 +593,7 @@ export function purgePage(state, {
 export function readPageHistory(state, {
   projectId,
   pageId,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   now = new Date(),
 } = {}) {
   validateKnowledgeState(state);
@@ -610,7 +612,7 @@ export function restorePageHistory(state, {
   pageId,
   historyId,
   expectedRevision,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   actorId = profileId,
   now = new Date(),
   idFactory = newId,
@@ -635,7 +637,7 @@ export function restorePageHistory(state, {
 export function getBacklinks(state, {
   projectId,
   pageId,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
 } = {}) {
   validateKnowledgeState(state);
   const project = findProject(state, projectId);
@@ -659,7 +661,7 @@ export function getBacklinks(state, {
 export function searchPages(state, {
   query = "",
   projectIds,
-  profileId = "local-user",
+  profileId = LOCAL_PROFILE_ID,
   includeTrash = false,
 } = {}) {
   validateKnowledgeState(state);
@@ -722,7 +724,33 @@ export function searchPages(state, {
     .slice(0, 100);
 }
 
-export function getProjectTags(state, { projectId, profileId = "local-user" } = {}) {
+/**
+ * Grants a newly linked account the role the local profile already holds in
+ * each local Project. Without it a User signs in and loses access to Pages they
+ * created while signed out. The local profile keeps its membership so signing
+ * out restores the previous state, and repeated calls change nothing.
+ */
+export function adoptLocalMemberships(state, {
+  accountId,
+  now = new Date(),
+} = {}) {
+  const next = copy(validateKnowledgeState(state));
+  const profileId = requireText(accountId, "INVALID_ACCOUNT_ID", "Account ID");
+  if (profileId === LOCAL_PROFILE_ID) {
+    throw new KnowledgeDomainError("INVALID_ACCOUNT_ID", "Account ID must differ from the local profile", { accountId });
+  }
+  const adoptedProjectIds = [];
+  for (const project of next.projects) {
+    const local = project.members.find((member) => member.profileId === LOCAL_PROFILE_ID);
+    if (!local || project.members.some((member) => member.profileId === profileId)) continue;
+    project.members.push({ profileId, role: local.role });
+    project.updatedAt = isoNow(now);
+    adoptedProjectIds.push(project.id);
+  }
+  return { state: next, adoptedProjectIds };
+}
+
+export function getProjectTags(state, { projectId, profileId = LOCAL_PROFILE_ID } = {}) {
   validateKnowledgeState(state);
   const project = findProject(state, projectId);
   assertRole(project, profileId, "viewer");

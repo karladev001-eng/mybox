@@ -728,6 +728,17 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .settings-row-status.active { padding: 7px 11px; border: 1px solid #377d71; border-radius: 999px; background: #203a35; color: var(--accent); }
 .provider-config { width: 44px; height: 44px; justify-self: end; }
 .provider-config-spacer { width: 44px; height: 44px; }
+.account-avatar { border-radius: 50%; object-fit: cover; }
+.account-action { grid-column: 3 / 5; justify-self: end; min-height: 40px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.account-action:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
+.account-action:disabled { cursor: not-allowed; opacity: .48; }
+.device-login { display: grid; gap: 14px; }
+.device-login > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
+.device-code { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: #141618; }
+.device-code code { color: var(--text); font: 700 24px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .18em; }
+.device-code button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: transparent; font-size: 12px; }
+.device-code button:hover { border-color: var(--accent); color: var(--accent); }
+.device-link { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 13px; word-break: break-all; }
 .settings-list strong, .settings-list small { display: block; }
 .settings-list small { margin-top: 4px; color: var(--muted); }
 .workspace-action .settings-row-control { min-width: 66px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-align: center; font-size: 12px; font-weight: 700; }

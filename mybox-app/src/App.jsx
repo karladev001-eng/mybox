@@ -15,6 +15,8 @@ import { getChatHistoryStore } from "./desktop/chat-history.js";
 import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
 import { createDeviceAppInstallationsStore } from "./desktop/app-installations.js";
 import { getHostUpdaterClient } from "./desktop/app-updater.js";
+import { beginGitHubSignIn, completeGitHubSignIn, getAccountSession, signOutAccount } from "./desktop/accounts.js";
+import { resolveProfileId, signedOutSession } from "./core/account-identity.js";
 import { compareAppVersions, isAppUpdateAvailable } from "./core/app-version.js";
 import {
   CODEX_SUBSCRIPTION_PROVIDER_ID,
@@ -46,6 +48,7 @@ import {
   FlowArrow,
   FolderSimple,
   GearSix,
+  GithubLogo,
   Globe,
   GlobeHemisphereWest,
   Image as ImageIcon,
@@ -55,9 +58,11 @@ import {
   PencilSimpleLine,
   Plus,
   Robot,
+  SignOut,
   SlidersHorizontal,
   Star,
   Trash,
+  UserCircle,
   X,
 } from "@phosphor-icons/react";
 
@@ -312,13 +317,14 @@ function AppWorkspace({ app, onClose, onDone }) {
   );
 }
 
-function RegisteredAppWorkspace({ app, desktop, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
+function RegisteredAppWorkspace({ app, desktop, profileId, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
   const Surface = resolveLazyAppSurface(app);
   if (!Surface) return <AppWorkspace app={app} onClose={onClose} onDone={onDone} />;
   return (
     <Suspense fallback={<div className="modal-backdrop"><div className="workspace-body" role="status"><span className="spinner" /><strong>{app.name} Appを読み込んでいます…</strong></div></div>}>
       <Surface
         desktop={desktop}
+        profileId={profileId}
         persistenceReady={persistenceReady}
         assistantOpen={assistantOpen}
         onToggleAssistant={onToggleAssistant}
@@ -390,6 +396,59 @@ function ProviderRow({ icon: Icon, title, detail, badge, active, disabled, onSel
         ? <IconButton label={`${title}を設定`} className="provider-config" onClick={onConfigure} disabled={disabled}><GearSix size={20} /></IconButton>
         : <span className="provider-config-spacer" aria-hidden="true" />}
     </div>
+  );
+}
+
+function AccountRow({ desktop, session, busy, onSignIn, onSignOut }) {
+  const detail = !desktop
+    ? "デスクトップ版で利用できます"
+    : busy ? "処理中…"
+    : session.signedIn ? `${session.displayName} · 共有Projectを利用できます`
+    : "共有Projectを使うときだけ必要です";
+  return (
+    <div className={session.signedIn ? "provider-row active" : "provider-row"}>
+      <button className="provider-select" onClick={session.signedIn ? undefined : onSignIn} disabled={!desktop || busy || session.signedIn}>
+        <span className="settings-row-icon">
+          {session.avatarUrl
+            ? <img className="account-avatar" src={session.avatarUrl} alt="" width="24" height="24" />
+            : <UserCircle size={24} weight="duotone" aria-hidden="true" />}
+        </span>
+        <span className="settings-row-copy"><strong>アカウント</strong><small>{detail}</small></span>
+      </button>
+      {session.signedIn
+        ? <button type="button" className="account-action" onClick={onSignOut} disabled={busy}><SignOut size={17} aria-hidden="true" />サインアウト</button>
+        : <button type="button" className="account-action" onClick={onSignIn} disabled={!desktop || busy}><GithubLogo size={17} aria-hidden="true" />サインイン</button>}
+    </div>
+  );
+}
+
+function DeviceLoginModal({ login, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(login.userCode);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <Modal title="GitHubでサインイン" onClose={onClose}>
+      <div className="device-login">
+        <p>ブラウザで次のコードを入力してください。完了すると自動的にサインインします。</p>
+        <div className="device-code" role="group" aria-label="確認コード">
+          <code>{login.userCode}</code>
+          <button type="button" onClick={copyCode}>{copied ? "コピーしました" : "コピー"}</button>
+        </div>
+        <a className="device-link" href={login.verificationUri} target="_blank" rel="noreferrer noopener">
+          <ArrowSquareOut size={17} aria-hidden="true" />{login.verificationUri}
+        </a>
+        <p className="form-note">MyBoxはパスワードを受け取りません。認証はGitHub上で完結します。</p>
+        <div className="provider-form-actions">
+          <button type="button" onClick={onClose}>キャンセル</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -479,6 +538,10 @@ function SettingsView({
   onConfigureOpenAi,
   onConfigureLocal,
   onToast,
+  accountSession,
+  accountBusy,
+  onSignIn,
+  onSignOut,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -491,6 +554,13 @@ function SettingsView({
     <section className="secondary-view" aria-labelledby="settings-heading">
       <div className="view-title"><span><GearSix size={27} /></span><div><h1 id="settings-heading">設定</h1><p>MyBoxの動作</p></div></div>
       <div className="settings-list">
+        <AccountRow
+          desktop={desktop}
+          session={accountSession}
+          busy={accountBusy}
+          onSignIn={onSignIn}
+          onSignOut={onSignOut}
+        />
         <ProviderRow
           icon={Robot}
           title="ChatGPT"
@@ -630,6 +700,9 @@ export function App() {
   const [providerSettings, setProviderSettings] = useState(initialProviderSettings);
   const [providerModal, setProviderModal] = useState(null);
   const [agentBusy, setAgentBusy] = useState(false);
+  const [accountSession, setAccountSession] = useState(signedOutSession);
+  const [deviceLogin, setDeviceLogin] = useState(null);
+  const [accountBusy, setAccountBusy] = useState(false);
   const [chatHistory, setChatHistory] = useState(createEmptyChatHistory);
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatLoaded, setChatLoaded] = useState(false);
@@ -753,6 +826,15 @@ export function App() {
   }, [desktop]);
 
   useEffect(() => {
+    if (!desktop) return;
+    let active = true;
+    getAccountSession()
+      .then((session) => active && setAccountSession(session))
+      .catch((error) => active && setToast(`アカウントを確認できません：${String(error)}`));
+    return () => { active = false; };
+  }, [desktop]);
+
+  useEffect(() => {
     if (!desktop) {
       setAgentStatus({ available: false, connected: false, planType: null, authMode: null, imageGeneration: false, error: "デスクトップ版で利用できます" });
       return;
@@ -869,6 +951,42 @@ export function App() {
       setToast(`${app.name} v${registered.version}を追加しました`);
     } catch (error) {
       setToast(`App一覧を保存できません：${String(error)}`);
+    }
+  };
+
+  const startSignIn = async () => {
+    setAccountBusy(true);
+    try {
+      const start = await beginGitHubSignIn();
+      setDeviceLogin(start);
+      // Polling runs while the dialog shows the code; GitHub only issues the
+      // token once the user finishes in the browser.
+      const session = await completeGitHubSignIn({ deviceCode: start.deviceCode, interval: start.interval });
+      setAccountSession(session);
+      setDeviceLogin(null);
+      setToast(`${session.displayName} でサインインしました`);
+    } catch (error) {
+      setDeviceLogin(null);
+      setToast(`サインインできません：${String(error?.message ?? error)}`);
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const cancelSignIn = () => {
+    setDeviceLogin(null);
+    setAccountBusy(false);
+  };
+
+  const signOut = async () => {
+    setAccountBusy(true);
+    try {
+      setAccountSession(await signOutAccount());
+      setToast("サインアウトしました");
+    } catch (error) {
+      setToast(`サインアウトできません：${String(error?.message ?? error)}`);
+    } finally {
+      setAccountBusy(false);
     }
   };
 
@@ -1258,7 +1376,7 @@ export function App() {
         )}
         {view === "connections" && <ConnectionsView apps={apps} onToast={setToast} />}
         {view === "history" && <HistoryView />}
-        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} onToast={setToast} />}
+        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} onToast={setToast} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} />}
         {view === "chat" && <ChatView
           {...sharedChatProps}
           onBack={() => setView("apps")}
@@ -1279,6 +1397,7 @@ export function App() {
         <RegisteredAppWorkspace
           app={selectedApp}
           desktop={desktop}
+          profileId={resolveProfileId(accountSession)}
           persistenceReady={!desktop || Boolean(workspace)}
           assistantOpen={assistantOpen}
           onToggleAssistant={() => setAssistantOpen((open) => !open)}
@@ -1311,6 +1430,7 @@ export function App() {
         onSend={(text) => sendChatMessage(text, { openChat: false, contextLabel: assistantContextLabel })}
       />}
       {pendingDelete && <Modal title="アプリを削除" onClose={() => setPendingDelete(null)} className="confirm-modal"><div className="confirm-body"><AppGlyph icon={pendingDelete.icon} color={pendingDelete.color} size={52} /><p><strong>{pendingDelete.name}</strong>をMyBoxから削除しますか？</p><div className="confirm-actions"><button onClick={() => setPendingDelete(null)}>キャンセル</button><button className="danger-button" onClick={deleteApp}><Trash size={19} />削除</button></div></div></Modal>}
+      {deviceLogin && <DeviceLoginModal login={deviceLogin} onClose={cancelSignIn} />}
       {providerModal === "openai" && <OpenAiConfigModal settings={providerSettings.openaiApi} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveOpenAi} onDisconnect={removeOpenAi} />}
       {providerModal === "local" && <LocalLlmConfigModal settings={providerSettings.localLlm} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveLocalLlm} onDisconnect={removeLocalLlm} />}
       {toast && <div className="toast" role="status"><Check size={19} weight="bold" />{toast}</div>}

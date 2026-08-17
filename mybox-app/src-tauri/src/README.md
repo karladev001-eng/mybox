@@ -8,6 +8,8 @@
   skills, hosted Web search, and generated-image ingestion.
 - `agent_providers.rs`: OS-backed API secrets, non-secret provider settings, and
   constrained OpenAI API/local-LLM HTTP adapters, including API token accounting.
+- `accounts.rs`: OAuth device-flow sign-in for the Linked account, with the access
+  token in OS credential storage and only non-secret profile fields persisted.
 
 Native commands are host capabilities. Validate every app ID and relative key,
 reject symlinks and path traversal, and never accept an unrestricted path from an

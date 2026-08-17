@@ -16,6 +16,8 @@ must only be called when `isDesktopRuntime()` returns true.
   storage, with an in-memory Web preview fallback.
 - `app-updater.js`: checks for, downloads, and installs a signed MyBox release
   before relaunching, resolving to a no-op outside the desktop runtime.
+- `accounts.js`: runs the OAuth device flow and reports the signed-in profile,
+  staying signed out in the Web preview. Access tokens never cross this bridge.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

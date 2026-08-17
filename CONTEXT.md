@@ -29,8 +29,21 @@ exposed to it. Reads and writes remain subject to host authorization and auditin
 
 **User profile** — A MyBox identity representing one User and owning that User's
 persistent Host preferences. It is distinct from operating-system and Agent
-provider accounts.
-_Avoid_: Account, provider account
+provider accounts. A profile with no Linked account still works and is
+identified locally.
+_Avoid_: provider account
+
+**Linked account** — An external provider identity, currently GitHub, bound to a
+User profile so that identity is meaningful to other devices and Users. MyBox
+authenticates through the provider and never holds a password. Linking is
+optional and required only to reach a shared Project.
+_Avoid_: login, credential, sign-up
+
+**Profile ID** — The stable value a Project membership stores to identify a User.
+It is `local-user` on a profile with no Linked account, and
+`<provider>:<subject>` once linked, built from the provider's immutable subject
+so renaming an upstream account preserves membership.
+_Avoid_: user name, login name, email
 
 **Change proposal** — An Agent-authored set of Page or Block changes that has no
 effect until a User reviews and applies it.

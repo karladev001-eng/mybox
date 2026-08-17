@@ -1,5 +1,7 @@
+import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { APP_SCHEMA_VERSION, defineApp } from "../core/app-contract.js";
 import {
+  adoptLocalMemberships,
   createKnowledgeState,
   createPage,
   createProject,
@@ -23,7 +25,7 @@ const objectSchema = { type: "object" };
 const actorCallers = ["user", "agent", "flow", "app"];
 
 function profileIdFor(actor) {
-  return actor.type === "user" ? actor.id : "local-user";
+  return actor.type === "user" ? actor.id : LOCAL_PROFILE_ID;
 }
 
 async function loadState(storage) {
@@ -156,6 +158,18 @@ export function createKnowledgeApp() {
           },
         }),
         operation({ id: "knowledge.tag.list", title: "Tagを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
+        operation({
+          id: "knowledge.profile.link-account",
+          title: "ローカルProjectにアカウントを紐付け",
+          effect: "write",
+          confirmationClass: "recoverable",
+          callers: ["user"],
+          inputSchema: {
+            type: "object",
+            required: ["accountId"],
+            properties: { accountId: { type: "string", minLength: 1, maxLength: 160 } },
+          },
+        }),
       ],
       events: [
         {
@@ -315,6 +329,10 @@ export function createKnowledgeApp() {
       async "knowledge.tag.list"({ projectId }, { actor, storage }) {
         const state = await loadState(storage);
         return { tags: getProjectTags(state, { projectId, profileId: profileIdFor(actor) }) };
+      },
+      async "knowledge.profile.link-account"({ accountId }, { storage }) {
+        const mutation = await saveMutation(storage, adoptLocalMemberships(await loadState(storage), { accountId }));
+        return { adoptedProjectIds: mutation.adoptedProjectIds };
       },
     },
   });
