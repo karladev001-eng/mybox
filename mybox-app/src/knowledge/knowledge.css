@@ -298,9 +298,9 @@
 .knowledge-block.type-quote textarea { padding-left: var(--space-4); border-left: 3px solid var(--line-strong); color: #d8dde2; font-style: italic; }
 .knowledge-block.type-code pre,
 .knowledge-block.type-code textarea { margin: 0; padding: var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); color: #d6efe9; background: #111416; font: 13px/1.7 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
-.knowledge-block.type-divider { padding: 12px 0; }
-.knowledge-block.type-divider .knowledge-block-preview { padding-left: 8px; }
-.knowledge-block.type-divider hr { width: 96px; max-width: 40%; margin: 0; border: 0; border-top: 2px solid var(--line-strong); }
+.knowledge-block.type-divider { padding: 4px 0; }
+.knowledge-block.type-divider .knowledge-block-preview { min-height: 0; padding-top: 3px; padding-bottom: 3px; }
+.knowledge-block.type-divider hr { width: 100%; margin: 0; border: 0; border-top: 1px solid var(--line-strong); }
 
 .knowledge-inline-math { display: inline-block; vertical-align: middle; }
 .knowledge-inline-math.display { display: block; margin: 4px 0; padding: var(--space-3) var(--space-4); border: 1px solid var(--line); border-radius: var(--radius-md); background: #111416; overflow-x: auto; }

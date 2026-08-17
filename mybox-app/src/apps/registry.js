@@ -89,7 +89,7 @@ const builtInDefinitions = [
   { id: "image", version: "1.0.0", name: "画像", icon: "image", color: "#8a74ff", hint: "画像の整理と変換", builtIn: true, defaultInstalled: true },
   {
     id: "knowledge",
-    version: "1.0.0",
+    version: "1.1.0",
     name: "メモ",
     icon: "note",
     color: "#ff796f",

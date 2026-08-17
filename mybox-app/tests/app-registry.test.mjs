@@ -15,7 +15,7 @@ test("registers the Knowledge module surface in the default installed catalog", 
   assert.equal(knowledge.surface.kind, "module");
   assert.equal(knowledge.surface.exportName, "KnowledgeView");
   assert.equal(typeof knowledge.surface.load, "function");
-  assert.equal(knowledge.version, "1.0.0");
+  assert.equal(knowledge.version, "1.1.0");
   assert.equal(registry.listDefaultInstalled().some((app) => app.id === "knowledge"), true);
 });
 
