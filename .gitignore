@@ -22,3 +22,9 @@ workspaces/
 *.pem
 *.p12
 *.pfx
+
+# Cloudflare local dev secrets
+.dev.vars
+
+# Wrangler local state and build output
+.wrangler/

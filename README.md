@@ -10,6 +10,8 @@ are available to flows and authorized AI agents.
 - `FRONTEND.md`: mandatory visual, interaction, control, and UI review rules.
 - `docs/README.md`: architecture documentation and ADR index.
 - `mybox-app/README.md`: current React prototype and framework package.
+- `sync-server/README.md`: the sync server a group deploys for its own shared
+  Projects. MyBox operates none.
 - `AGENTS.md`: mandatory repository workflow.
 
 The `.agents/` directory is tool-managed reference material and is not part of the
