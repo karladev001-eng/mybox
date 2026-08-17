@@ -40,6 +40,13 @@ area-specific rules, but it must not weaken these rules.
   `dist/`.
 - Update `CONTEXT.md` when a task introduces or changes a domain term.
 
+## Public repository
+
+- The repository is public. Keep secrets, credentials, local machine paths, and
+  account names out of committed files.
+- The release signing key lives only in GitHub Secrets and a maintainer backup.
+  Losing it ends the update channel for every existing install.
+
 ## Architecture invariants
 
 - Apps are independent, removable units and own their private state.
@@ -51,8 +58,26 @@ area-specific rules, but it must not weaken these rules.
   and audit logging.
 - Local workspace data is authoritative. Cloud storage and future sharing are
   adapters, not alternate access paths into app internals.
+- The desktop shell currently runs with no Content Security Policy. Set one in
+  `tauri.conf.json` before rendering remote content or untrusted HTML.
 
 ## Verification
 
 - Run the smallest relevant tests first, then the package build before handoff.
 - Report any verification that could not be run and why.
+
+## Releasing
+
+[ADR 0021](docs/adr/0021-publish-signed-desktop-releases.md) describes how an
+update reaches a device.
+
+- Move `mybox-app/package.json`, `mybox-app/src-tauri/tauri.conf.json`, and
+  `mybox-app/src-tauri/Cargo.toml` to the same version, then push a matching
+  `v*.*.*` tag. CI opens a draft Release; publishing it is what delivers the
+  update.
+- Raise an App's version in `mybox-app/src/apps/registry.js` whenever that App
+  changes. Users see an update only when that number rises above the installed
+  one ([ADR 0020](docs/adr/0020-track-installed-app-versions-and-host-updates.md)).
+- The release job depends on the `tauri` script in `mybox-app/package.json` and
+  on `bundle.createUpdaterArtifacts` in `mybox-app/src-tauri/tauri.conf.json`.
+  Dropping the latter yields unsigned artifacts that every install rejects.

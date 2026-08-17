@@ -9,7 +9,7 @@ notes of the ADR it realizes.
 - [0001 — Use operations and events for app collaboration](0001-operations-and-events.md)
 - [0002 — Use a local-first Tauri workspace](0002-local-first-tauri-workspace.md)
 - [0003 — Require scoped authorization and audit for non-user callers](0003-agent-authorization-and-audit.md)
-- [0004 — Keep the initial GitHub repository private](0004-private-github-repository.md)
+- [0004 — Keep the initial GitHub repository private](0004-private-github-repository.md) (superseded by 0021)
 - [0005 — Isolate agent providers behind a capability contract](0005-agent-provider-boundary.md)
 - [0006 — Keep provider secrets in native credential storage](0006-store-provider-secrets-in-the-native-host.md)
 - [0007 — Own provider-neutral chat history locally](0007-own-provider-neutral-chat-history-locally.md)
@@ -26,3 +26,4 @@ notes of the ADR it realizes.
 - [0018 — Register installable App surfaces through a Host catalog](0018-register-installable-app-surfaces.md)
 - [0019 — Provide a Host-owned contextual assistant panel](0019-host-contextual-assistant-panel.md)
 - [0020 — Track installed App versions and apply catalog updates through the Host](0020-track-installed-app-versions-and-host-updates.md)
+- [0021 — Publish signed desktop releases and update MyBox in place](0021-publish-signed-desktop-releases.md)

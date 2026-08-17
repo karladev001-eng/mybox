@@ -1,6 +1,6 @@
 # ADR 0004: Keep the initial GitHub repository private
 
-- Status: Accepted
+- Status: Superseded by [ADR 0021](0021-publish-signed-desktop-releases.md)
 - Date: 2026-08-15
 
 ## Context

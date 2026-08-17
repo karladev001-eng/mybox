@@ -14,6 +14,8 @@ must only be called when `isDesktopRuntime()` returns true.
   app-scoped storage boundary, with an in-memory Web preview fallback.
 - `app-installations.js`: binds the installed App catalog to device-local Host
   storage, with an in-memory Web preview fallback.
+- `app-updater.js`: checks for, downloads, and installs a signed MyBox release
+  before relaunching, resolving to a no-op outside the desktop runtime.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.
