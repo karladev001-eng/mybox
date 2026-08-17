@@ -31,6 +31,10 @@ merged document is written on a timer rather than per keystroke, because typing
 would otherwise exhaust the 100,000 daily row writes. Exceeding a daily limit
 fails writes until 00:00 UTC rather than charging you.
 
+The free plan offers only the SQLite storage backend for Durable Objects, which
+is why `wrangler.json`'s migration declares `new_sqlite_classes` rather than the
+default key-value backend.
+
 ## Files
 
 - `src/router.js`: validates the path and hands the request to the Project's
