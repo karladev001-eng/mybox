@@ -23,7 +23,12 @@ jobs:
         with:
           node-version: 20
 
-      - uses: dtolnay/rust-toolchain@stable
+      # The runner image ships a stable Rust toolchain, so no action installs
+      # one. Fetching dtolnay/rust-toolchain failed the 0.4.0 release twice on
+      # a 429, and this workflow holds the signing key, so every third-party
+      # action it does without is one less thing to trust.
+      - name: Show the Rust toolchain in use
+        run: rustc --version && cargo --version
 
       - name: Install frontend dependencies
         working-directory: mybox-app
