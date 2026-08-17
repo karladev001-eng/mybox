@@ -26,9 +26,13 @@ const MAX_POLL_INTERVAL: u64 = 60;
 const MAX_POLL_ATTEMPTS: u32 = 180;
 
 /// The OAuth client ID is public by design: the device flow authenticates with
-/// it alone and GitHub documents no client secret for this grant. It is
-/// supplied at build time so a fork can point at its own OAuth App.
-const GITHUB_CLIENT_ID: Option<&str> = option_env!("MYBOX_GITHUB_CLIENT_ID");
+/// it alone and GitHub documents no client secret for this grant. Committing it
+/// keeps every build working; a fork overrides it at build time through
+/// `MYBOX_GITHUB_CLIENT_ID` to point at its own OAuth App.
+const GITHUB_CLIENT_ID: &str = match option_env!("MYBOX_GITHUB_CLIENT_ID") {
+    Some(value) => value,
+    None => "Ov23licPzrkI4TS9Wxud",
+};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -130,14 +134,19 @@ struct GitHubUser {
     avatar_url: Option<String>,
 }
 
-fn client_id() -> Result<&'static str, String> {
-    match GITHUB_CLIENT_ID {
-        Some(value) if !value.trim().is_empty() => Ok(value.trim()),
-        _ => Err(
+fn validated_client_id(raw: &'static str) -> Result<&'static str, String> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Err(
             "GitHubのClient IDが未設定です。OAuth Appを作成し、MYBOX_GITHUB_CLIENT_IDを指定してビルドしてください。"
                 .to_string(),
-        ),
+        );
     }
+    Ok(value)
+}
+
+fn client_id() -> Result<&'static str, String> {
+    validated_client_id(GITHUB_CLIENT_ID)
 }
 
 fn http_client() -> Result<Client, String> {
@@ -422,9 +431,15 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_client_id_explains_the_setup_step() {
-        if GITHUB_CLIENT_ID.is_none() {
-            assert!(client_id().unwrap_err().contains("MYBOX_GITHUB_CLIENT_ID"));
-        }
+    fn the_build_carries_a_usable_client_id() {
+        assert!(client_id().is_ok());
+        assert!(!client_id().unwrap().is_empty());
+    }
+
+    #[test]
+    fn an_empty_client_id_explains_the_setup_step() {
+        assert!(validated_client_id("   ")
+            .unwrap_err()
+            .contains("MYBOX_GITHUB_CLIENT_ID"));
     }
 }

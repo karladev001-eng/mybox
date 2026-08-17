@@ -36,21 +36,22 @@ the `local-user` Profile ID; signing in is what makes an identity meaningful to
 other devices, and is required only to reach a shared Project. MyBox never
 receives a password ([ADR 0022](../docs/adr/0022-account-identity-through-oauth.md)).
 
-Sign-in uses the GitHub device flow, which needs a `client_id` and no secret. To
-enable it in your own build:
+Sign-in uses the GitHub device flow, which needs a `client_id` and no secret.
+MyBox ships one, so a normal build needs no extra setup.
+
+To point a fork at its own OAuth App:
 
 1. Create an OAuth App at <https://github.com/settings/developers>. Any
    homepage URL works; the device flow uses no callback URL.
-2. On that app's page, enable **Device flow**.
+2. On that app's page, enable **Device flow**. Sign-in fails without it.
 3. Build with the client ID in the environment:
 
 ```sh
 MYBOX_GITHUB_CLIENT_ID=<your client id> npm run build:desktop
 ```
 
-The client ID is not a secret and may be committed or set in CI. A build without
-it keeps every other feature working and explains the missing setup when a User
-tries to sign in.
+The client ID is not a secret, which is why it is committed. The device flow
+never uses a client secret, so none is needed or stored.
 
 ## AI providers
 

@@ -69,4 +69,5 @@ owns keyring access, `mybox-app/src/core/account-identity.js` resolves the
 effective profile ID, `mybox-app/src/desktop/accounts.js` bridges to the host
 with a signed-out Web fallback, and `adoptLocalMemberships` in
 `mybox-app/src/knowledge/domain.js` performs the first-sign-in grant. The
-`client_id` is supplied at build time through `MYBOX_GITHUB_CLIENT_ID`.
+`client_id` is committed as a default and overridden at build time through
+`MYBOX_GITHUB_CLIENT_ID`.
