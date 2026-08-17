@@ -95,6 +95,15 @@ undecided. Each needs its own ADR before it is built.
 
 ## Implementation notes
 
-Not yet implemented. This ADR records the decision so implementation can start
-against a fixed target; the sync adapter, Worker template, and server-side role
-enforcement will add their notes here as they land.
+As of 2026-08-17 the server exists in `sync-server/`: one Durable Object per
+Project, invite-token membership, and the role check enforced there rather than
+only in the client. `mybox-app/src/knowledge/yjs-document.js` holds the shared
+document model and applies `domain.js`'s mutation vocabulary to it, so a caller
+does not branch on whether a Project is shared.
+
+Character-level merge depends on sending the smallest edit rather than the whole
+paragraph: replacing a Y.Text wholesale deletes characters a collaborator just
+typed. `textDelta` computes that range and never splits a surrogate pair.
+
+Still to come: connecting the client to a Project's endpoint, presence in the
+editor, and the Operations that create and join a shared Project.
