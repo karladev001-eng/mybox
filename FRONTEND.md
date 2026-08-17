@@ -49,6 +49,14 @@ and the corresponding ARIA state. Feedback must not move surrounding layout.
   an accessible name. Do not use text glyphs or emoji as structural icons.
 - Hover/pressed transitions normally use color, opacity, or border changes in
   80–180 ms. Respect `prefers-reduced-motion`.
+- Place a control's contents with the mechanism its layout actually reads:
+  `justify-content` and `align-items` position flex and grid children, while
+  `text-align` leaves them where they are.
+- A control that sets `color` also sets its own `background` and `border`. The
+  shell's light text on an unstyled control keeps the browser's light default
+  background, which renders the label unreadable.
+- Open an external link through the desktop opener bridge. The WebView ignores
+  `target="_blank"`, so a plain anchor is a control that silently does nothing.
 
 ## Lists, menus, and popups
 
@@ -68,6 +76,8 @@ when the native popup cannot be themed completely.
   Escape closes without applying, Tab closes and continues normal focus order.
   Closing returns focus to the trigger when appropriate.
 - Popups close on outside pointer input and must not obscure the focused control.
+- A dialog body carries its own padding. Content flush to the edge is clipped by
+  the surface's own radius and `overflow: hidden`.
 
 ## Layout and app collections
 
@@ -82,6 +92,11 @@ vertical columns. Within a track, use one deliberate alignment (`start`, `end`,
 `center`, or `stretch`) instead of relying on content width or inherited browser
 defaults. Prefer CSS Grid for repeated rows with three or more visual columns.
 
+Every row's trailing control ends on the same track edge, whatever that control
+is. When a row omits one trailing element, let the remaining control span that
+track; holding the track open with an empty spacer leaves the shorter control
+visibly inset from the rest of the column.
+
 App collections are launchers, not poster galleries. Prefer compact horizontal
 items that show icon, name, purpose, and explicit actions. Keep one primary open
 surface and a separate overflow menu. Items may use the app color as a small
@@ -95,6 +110,10 @@ Primary text must meet 4.5:1 contrast on its actual surface. Functional state is
 communicated by icon or text in addition to color. Numeric usage values use
 tabular figures.
 
+Noto Sans JP reserves more line box above its glyphs than below, so a Japanese
+label centred by line box sits about 1 px low inside a fixed-height control.
+Correct it with asymmetric vertical padding, which keeps the control's height.
+
 ## Review workflow
 
 Before handoff, verify all affected states in the actual dark desktop surface:
@@ -104,6 +123,8 @@ Before handoff, verify all affected states in the actual dark desktop surface:
 - pointer, Tab, arrows, Enter/Space, and Escape all work;
 - hover, pressed, selected, focus-visible, disabled, loading, and empty states
   remain distinguishable;
+- shared column edges and centred labels are confirmed by measuring the rendered
+  geometry, since eyeballing a few pixels mistakes one axis for the other;
 - 100%, 125%, 150%, and 200% scaling or equivalent responsive viewport checks do
   not clip important content;
 - narrow and wide windows do not introduce horizontal scrolling;
