@@ -4,7 +4,6 @@ Contains first-party static media referenced by the UI. Inspect individual binar
 assets only when a visual task requires them, and document their origin and use in
 this file when adding new assets.
 
-- `profile-avatar.png`: placeholder avatar used by the prototype top bar.
 - `mybox-mark.png`: MyBox hexagon mark, light ink on transparency, shown in the
   top-bar brand control. The light ink is what makes it readable on the dark
   shell; the desktop icon under `src-tauri/` keeps an opaque plate instead.

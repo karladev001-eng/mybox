@@ -85,8 +85,9 @@ export class AppRegistry {
   }
 }
 
+// Only Apps with a working Surface are offered. A placeholder in the catalog
+// reads as a shipped feature and installs to an empty screen.
 const builtInDefinitions = [
-  { id: "image", version: "1.0.0", name: "画像", icon: "image", color: "#8a74ff", hint: "画像の整理と変換", builtIn: true, defaultInstalled: true },
   {
     id: "knowledge",
     version: "1.1.0",
@@ -102,9 +103,6 @@ const builtInDefinitions = [
       exportName: "KnowledgeView",
     },
   },
-  { id: "files", version: "1.0.0", name: "ファイル", icon: "folder", color: "#5f91ff", hint: "ローカルファイルを管理", builtIn: true, defaultInstalled: true },
-  { id: "convert", version: "1.0.0", name: "変換", icon: "convert", color: "#ffc45b", hint: "形式をまとめて変換", builtIn: true, defaultInstalled: true },
-  { id: "publish", version: "1.0.0", name: "公開", icon: "publish", color: "#a68aff", hint: "成果物を公開", builtIn: true, defaultInstalled: true },
 ];
 
 export function createMyBoxAppRegistry() {

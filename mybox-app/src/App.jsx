@@ -1354,7 +1354,13 @@ export function App() {
         <div className="topbar-actions">
           <IconButton label={assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} className={assistantOpen ? "assistant-toggle active" : "assistant-toggle"} aria-pressed={assistantOpen} aria-controls="assistant-panel" onClick={() => setAssistantOpen((open) => !open)}><Robot size={23} weight={assistantOpen ? "fill" : "regular"} /></IconButton>
           <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={23} /><span>追加</span></button>
-          <IconButton label="プロフィール" className="profile-button"><img src="/assets/profile-avatar.png" alt="" /></IconButton>
+          {accountSession.signedIn && (
+            <IconButton label={`${accountSession.displayName}・アカウント設定`} className="profile-button" onClick={() => setView("settings")}>
+              {accountSession.avatarUrl
+                ? <img src={accountSession.avatarUrl} alt="" />
+                : <UserCircle size={30} weight="duotone" />}
+            </IconButton>
+          )}
         </div>
       </header>
 

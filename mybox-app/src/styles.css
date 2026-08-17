@@ -112,6 +112,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding: 0 22px;
   color: var(--text);
   font-weight: 600;
+  line-height: 1;
   transition: background-color 160ms ease, border-color 160ms ease;
 }
 
@@ -730,10 +731,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .provider-config { width: 44px; height: 44px; justify-self: end; }
 .provider-config-spacer { width: 44px; height: 44px; }
 .account-avatar { border-radius: 50%; object-fit: cover; }
-.account-action { grid-column: 3 / 5; justify-self: end; min-height: 40px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.account-action { grid-column: 3 / 5; justify-self: end; min-height: 40px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
 .account-action:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 .account-action:disabled { cursor: not-allowed; opacity: .48; }
-.device-login { display: grid; gap: 14px; }
+.device-login { padding: 24px; display: grid; gap: 14px; }
 .device-login > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
 .device-code { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: #141618; }
 .device-code code { color: var(--text); font: 700 24px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .18em; }
