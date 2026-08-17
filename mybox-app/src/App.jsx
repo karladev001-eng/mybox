@@ -14,6 +14,7 @@ import {
 import { getChatHistoryStore } from "./desktop/chat-history.js";
 import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
 import { createDeviceAppInstallationsStore } from "./desktop/app-installations.js";
+import { getHostUpdaterClient } from "./desktop/app-updater.js";
 import { compareAppVersions, isAppUpdateAvailable } from "./core/app-version.js";
 import {
   CODEX_SUBSCRIPTION_PROVIDER_ID,
@@ -392,6 +393,79 @@ function ProviderRow({ icon: Icon, title, detail, badge, active, disabled, onSel
   );
 }
 
+function HostUpdateRow({ desktop, onToast }) {
+  const updaterRef = useRef(null);
+  if (!updaterRef.current) updaterRef.current = getHostUpdaterClient();
+  const updater = updaterRef.current;
+  const [version, setVersion] = useState("");
+  const [status, setStatus] = useState("idle");
+  const [pending, setPending] = useState(null);
+  const [progress, setProgress] = useState(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!desktop) return;
+    let active = true;
+    updater.currentVersion().then((value) => active && setVersion(value ?? "")).catch(() => {});
+    return () => { active = false; };
+  }, [desktop]);
+
+  const runCheck = async () => {
+    setStatus("checking");
+    setError("");
+    try {
+      const result = await updater.check();
+      if (result.available) {
+        setPending(result.update);
+        setStatus("available");
+      } else {
+        setStatus("up-to-date");
+      }
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+      setStatus("error");
+    }
+  };
+
+  const runInstall = async () => {
+    if (!pending) return;
+    setStatus("downloading");
+    setProgress({ downloaded: 0, total: 0 });
+    try {
+      await updater.downloadAndInstall(pending, setProgress);
+      setStatus("ready");
+      onToast?.("更新の準備ができました。再起動して適用してください");
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+      setStatus("error");
+    }
+  };
+
+  const runRelaunch = () => updater.relaunch();
+
+  const busy = status === "checking" || status === "downloading";
+  const progressPercent = progress?.total ? Math.round((progress.downloaded / progress.total) * 100) : null;
+  const detail = !desktop
+    ? "デスクトップ版で利用できます"
+    : status === "checking" ? "確認中…"
+    : status === "available" ? `v${pending?.version} が利用可能です`
+    : status === "downloading" ? `ダウンロード中…${progressPercent !== null ? ` ${progressPercent}%` : ""}`
+    : status === "ready" ? "再起動して適用してください"
+    : status === "error" ? error
+    : status === "up-to-date" ? "最新版です"
+    : version ? `現在 v${version}` : "確認してください";
+  const controlLabel = status === "ready" ? "再起動" : status === "available" ? "更新" : status === "checking" ? "確認中…" : status === "downloading" ? "取得中…" : "確認";
+  const onClick = status === "ready" ? runRelaunch : status === "available" ? runInstall : runCheck;
+
+  return (
+    <button type="button" className="workspace-action" onClick={onClick} disabled={!desktop || busy}>
+      <span className="settings-row-icon"><ArrowsClockwise size={22} aria-hidden="true" /></span>
+      <span className="settings-row-copy"><strong>MyBoxの更新</strong><small>{detail}</small></span>
+      <span className="settings-row-control">{controlLabel}</span>
+    </button>
+  );
+}
+
 function SettingsView({
   desktop,
   workspace,
@@ -404,6 +478,7 @@ function SettingsView({
   onSelectProvider,
   onConfigureOpenAi,
   onConfigureLocal,
+  onToast,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -445,6 +520,7 @@ function SettingsView({
           onSelect={providerSettings.localLlm.configured ? () => onSelectProvider(LOCAL_LLM_PROVIDER_ID) : onConfigureLocal}
           onConfigure={onConfigureLocal}
         />
+        <HostUpdateRow desktop={desktop} onToast={onToast} />
         <button className="workspace-action" onClick={onChooseWorkspace} disabled={!desktop || workspaceBusy} title={workspace?.path ?? ""}>
           <span className="settings-row-icon"><FolderSimple size={22} aria-hidden="true" /></span>
           <span className="settings-row-copy"><strong>保存場所</strong><small>{workspace?.name ?? (desktop ? "未選択" : "Webプレビュー")}</small></span>
@@ -1182,7 +1258,7 @@ export function App() {
         )}
         {view === "connections" && <ConnectionsView apps={apps} onToast={setToast} />}
         {view === "history" && <HistoryView />}
-        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} />}
+        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} onToast={setToast} />}
         {view === "chat" && <ChatView
           {...sharedChatProps}
           onBack={() => setView("apps")}

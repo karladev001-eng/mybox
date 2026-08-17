@@ -40,5 +40,13 @@
     "category": "Productivity",
     "shortDescription": "Local-first app toolbox",
     "longDescription": "A local-first desktop toolbox for independent, removable apps."
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY4OTI4MzVFRTNENkMxMDYKUldRR3dkYmpYb09TK000NlRTdHField2aThObndVckw1K0UwM2hPajJ5NFVxVE8vb25yZzVVM2IK",
+      "endpoints": [
+        "https://github.com/karladev001-eng/mybox/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

@@ -21,6 +21,8 @@ serde_json = "1"
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 tempfile = "3"
 tokio = { version = "1", features = ["io-util", "process", "time"] }
 uuid = { version = "1", features = ["v4"] }
