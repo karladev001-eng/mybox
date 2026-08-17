@@ -12,6 +12,7 @@ export const BLOCK_TYPES = Object.freeze([
   "quote",
   "code",
   "divider",
+  "math",
 ]);
 
 const ROLE_RANK = Object.freeze({ viewer: 1, editor: 2, owner: 3 });
@@ -438,12 +439,26 @@ export function updatePage(state, {
     }
     case "block-move": {
       const index = page.blocks.findIndex((item) => item.id === mutation.blockId);
-      const offset = mutation.direction === "up" ? -1 : mutation.direction === "down" ? 1 : 0;
-      const target = index + offset;
       if (index < 0) throw new KnowledgeDomainError("BLOCK_NOT_FOUND", "Block was not found", { blockId: mutation.blockId });
-      if (offset && target >= 0 && target < page.blocks.length) {
+      if (mutation.beforeBlockId !== undefined) {
         const [block] = page.blocks.splice(index, 1);
-        page.blocks.splice(target, 0, block);
+        if (mutation.beforeBlockId === null) {
+          page.blocks.push(block);
+        } else {
+          const targetIndex = page.blocks.findIndex((item) => item.id === mutation.beforeBlockId);
+          if (targetIndex < 0) {
+            page.blocks.splice(index, 0, block);
+            throw new KnowledgeDomainError("BLOCK_NOT_FOUND", "Block was not found", { blockId: mutation.beforeBlockId });
+          }
+          page.blocks.splice(targetIndex, 0, block);
+        }
+      } else {
+        const offset = mutation.direction === "up" ? -1 : mutation.direction === "down" ? 1 : 0;
+        const target = index + offset;
+        if (offset && target >= 0 && target < page.blocks.length) {
+          const [block] = page.blocks.splice(index, 1);
+          page.blocks.splice(target, 0, block);
+        }
       }
       break;
     }

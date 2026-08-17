@@ -4,7 +4,14 @@ import { AppHost } from "../src/core/app-host.js";
 import { createProfilePreferencesStore } from "../src/core/profile-preferences.js";
 import { createAppStorage, MemoryStorageDriver } from "../src/core/storage.js";
 import { createKnowledgeApp } from "../src/knowledge/app.js";
-import { groupedListEnter, markdownConversion, splitListItems } from "../src/knowledge/editor-behavior.js";
+import {
+  applyColorWrap,
+  buildInlineNodes,
+  groupedListEnter,
+  markdownConversion,
+  splitListItems,
+  toggleInlineWrap,
+} from "../src/knowledge/editor-behavior.js";
 import {
   createKnowledgeState,
   createPage,
@@ -287,4 +294,112 @@ test("persists the device confirmation level through the profile storage port", 
 
   const restartedStore = createProfilePreferencesStore(createAppStorage("mybox-host", driver));
   assert.equal((await restartedStore.load()).confirmationLevel, "recoverable");
+});
+
+test("converts a $$ marker into an empty math Block", () => {
+  assert.deepEqual(markdownConversion("$$"), { text: "", blockType: "math", checked: false });
+});
+
+test("tokenizes bold, italic, underline, strike, color, math, and PageLink segments", () => {
+  const nodes = buildInlineNodes(
+    "start **bold** *italic* __under__ ~~gone~~ %%#ff0000;red%% $x^2$ [[Target Page]] end",
+    [{ token: "[[Target Page]]", targetPageId: "page-9" }],
+  );
+  assert.deepEqual(nodes, [
+    { type: "text", value: "start " },
+    { type: "bold", value: "bold" },
+    { type: "text", value: " " },
+    { type: "italic", value: "italic" },
+    { type: "text", value: " " },
+    { type: "underline", value: "under" },
+    { type: "text", value: " " },
+    { type: "strike", value: "gone" },
+    { type: "text", value: " " },
+    { type: "color", value: "red", color: "#ff0000" },
+    { type: "text", value: " " },
+    { type: "math", value: "x^2" },
+    { type: "text", value: " " },
+    { type: "link", value: "Target Page", targetPageId: "page-9" },
+    { type: "text", value: " end" },
+  ]);
+});
+
+test("toggles a bold wrap around the selection and unwraps it on a second toggle", () => {
+  const wrapped = toggleInlineWrap("hello world", 6, 11, "bold");
+  assert.deepEqual(wrapped, { text: "hello **world**", start: 8, end: 13 });
+  const unwrapped = toggleInlineWrap(wrapped.text, wrapped.start, wrapped.end, "bold");
+  assert.deepEqual(unwrapped, { text: "hello world", start: 6, end: 11 });
+});
+
+test("applies a text-color wrap around the selection", () => {
+  const colored = applyColorWrap("hello world", 6, 11, "4dabf7");
+  assert.deepEqual(colored, { text: "hello %%#4dabf7;world%%", start: 16, end: 21 });
+  assert.equal(applyColorWrap("hello world", 6, 11, "bad-hex"), null);
+});
+
+test("block-move with beforeBlockId reorders Blocks independent of direction", () => {
+  const setup = fixture();
+  const created = createPage(setup.state, {
+    projectId: setup.projectId,
+    title: "Reorder Page",
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  let state = created.state;
+  let page = created.page;
+  let revision = page.revision;
+  for (let index = 0; index < 2; index += 1) {
+    const added = updatePage(state, {
+      projectId: setup.projectId,
+      pageId: page.id,
+      expectedRevision: revision,
+      mutation: { type: "block-add", afterBlockId: page.blocks.at(-1).id, blockType: "paragraph" },
+      idFactory: setup.idFactory,
+      now: setup.now,
+    });
+    state = added.state;
+    page = added.page;
+    revision = page.revision;
+  }
+  const [firstId, secondId, thirdId] = page.blocks.map((block) => block.id);
+
+  const moved = updatePage(state, {
+    projectId: setup.projectId,
+    pageId: page.id,
+    expectedRevision: revision,
+    mutation: { type: "block-move", blockId: thirdId, beforeBlockId: firstId },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  assert.deepEqual(moved.page.blocks.map((block) => block.id), [thirdId, firstId, secondId]);
+
+  const movedToEnd = updatePage(moved.state, {
+    projectId: setup.projectId,
+    pageId: page.id,
+    expectedRevision: moved.page.revision,
+    mutation: { type: "block-move", blockId: firstId, beforeBlockId: null },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  assert.deepEqual(movedToEnd.page.blocks.map((block) => block.id), [thirdId, secondId, firstId]);
+});
+
+test("block-update accepts the math Block type", () => {
+  const setup = fixture();
+  const created = createPage(setup.state, {
+    projectId: setup.projectId,
+    title: "Math Page",
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  const updated = updatePage(created.state, {
+    projectId: setup.projectId,
+    pageId: created.page.id,
+    expectedRevision: created.page.revision,
+    mutation: { type: "block-update", blockId: created.page.blocks[0].id, blockType: "math", text: "E = mc^2" },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  assert.equal(updated.page.blocks[0].type, "math");
+  assert.equal(updated.page.blocks[0].text, "E = mc^2");
 });

@@ -2,36 +2,47 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowUDownLeft,
-  ArrowUp,
-  ArrowDown,
   CaretRight,
   Check,
   ClockCounterClockwise,
+  DotsSixVertical,
   FileText,
   FolderSimplePlus,
   Link as LinkIcon,
   ListBullets,
   ListNumbers,
   MagnifyingGlass,
+  Palette,
   PencilSimple,
   Plus,
   Robot,
   ShieldCheck,
   SidebarSimple,
   Tag,
+  TextB,
+  TextItalic,
+  TextStrikethrough,
+  TextUnderline,
   Trash,
   X,
 } from "@phosphor-icons/react";
+import katex from "katex";
+import "katex/dist/katex.min.css";
 import { ThemedSelect } from "../ThemedSelect.jsx";
 import { getProfilePreferencesStore } from "../desktop/profile-preferences.js";
 import { createKnowledgeClient } from "./client.js";
 import {
+  applyColorWrap,
+  buildInlineNodes,
   groupedListEnter,
   isGroupedListType,
   markdownConversion,
   splitListItems,
+  toggleInlineWrap,
 } from "./editor-behavior.js";
 import "./knowledge.css";
+
+const TEXT_COLOR_PRESETS = Object.freeze(["ff6b6b", "ffa94d", "ffd43b", "69db7c", "4dabf7", "748ffc", "b197fc", "f783ac"]);
 
 const confirmationLevels = [
   { id: "review", label: "確認", description: "Review：変更案を確認" },
@@ -50,6 +61,7 @@ const blockLabels = Object.freeze({
   quote: "引用",
   code: "コード",
   divider: "区切り",
+  math: "数式",
 });
 
 function displayError(error) {
@@ -76,33 +88,57 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
-function renderLinkedText(block, onOpenPage) {
-  if (!block.links.length) return block.text || <span className="knowledge-empty-copy">入力して書き始める</span>;
-  const pieces = [];
-  let cursor = 0;
-  const links = [...block.links].sort((a, b) => block.text.indexOf(a.token) - block.text.indexOf(b.token));
-  for (const link of links) {
-    const index = block.text.indexOf(link.token, cursor);
-    if (index < 0) continue;
-    if (index > cursor) pieces.push(block.text.slice(cursor, index));
-    pieces.push(
-      <button
-        key={`${link.targetPageId}-${index}`}
-        type="button"
-        className="knowledge-inline-link"
-        onClick={(event) => {
-          event.stopPropagation();
-          onOpenPage(link.targetPageId);
-        }}
-      >
-        <LinkIcon size={15} aria-hidden="true" />
-        {link.token.slice(2, -2)}
-      </button>,
-    );
-    cursor = index + link.token.length;
+function renderMathHtml(source) {
+  try {
+    return katex.renderToString(source || "", { throwOnError: false, output: "html" });
+  } catch {
+    return String(source ?? "");
   }
-  if (cursor < block.text.length) pieces.push(block.text.slice(cursor));
-  return pieces;
+}
+
+function InlineMath({ source, display = false }) {
+  const html = useMemo(() => renderMathHtml(source), [source]);
+  const Tag = display ? "div" : "span";
+  return <Tag className={`knowledge-inline-math${display ? " display" : ""}`} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+function renderInlineText(text, links, onOpenPage) {
+  const nodes = buildInlineNodes(text, links);
+  if (!nodes.length) return <span className="knowledge-empty-copy">入力して書き始める</span>;
+  return nodes.map((node, index) => {
+    const key = `${node.type}-${index}`;
+    switch (node.type) {
+      case "link":
+        return (
+          <button
+            key={key}
+            type="button"
+            className="knowledge-inline-link"
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpenPage(node.targetPageId);
+            }}
+          >
+            <LinkIcon size={15} aria-hidden="true" />
+            {node.value}
+          </button>
+        );
+      case "bold":
+        return <strong key={key}>{node.value}</strong>;
+      case "italic":
+        return <em key={key}>{node.value}</em>;
+      case "underline":
+        return <u key={key}>{node.value}</u>;
+      case "strike":
+        return <s key={key}>{node.value}</s>;
+      case "color":
+        return <span key={key} style={{ color: node.color }}>{node.value}</span>;
+      case "math":
+        return <InlineMath key={key} source={node.value} />;
+      default:
+        return <span key={key}>{node.value}</span>;
+    }
+  });
 }
 
 function ConfirmDialog({ title, description, actionLabel, onConfirm, onClose }) {
@@ -142,9 +178,14 @@ function BlockRow({
   onCommit,
   onAddAfter,
   onRemove,
-  onMove,
   onOpenPage,
   onAutoEditHandled,
+  isDragging,
+  isDragOver,
+  onDragStart,
+  onDragEnterBlock,
+  onDropBlock,
+  onDragEnd,
 }) {
   const [editing, setEditing] = useState(Boolean(autoEdit && !readOnly));
   const [text, setText] = useState(block.text);
@@ -152,7 +193,11 @@ function BlockRow({
   const [checked, setChecked] = useState(block.checked);
   const [activeOption, setActiveOption] = useState(0);
   const [dismissedMarker, setDismissedMarker] = useState(null);
+  const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 });
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const textareaRef = useRef(null);
+  const canFormat = editing && !readOnly && blockType !== "code" && blockType !== "math" && blockType !== "divider";
+  const hasSelection = canFormat && selectionRange.end > selectionRange.start;
 
   useEffect(() => {
     if (editing) return;
@@ -207,6 +252,41 @@ function BlockRow({
     setBlockType(conversion.blockType);
     setChecked(conversion.checked ?? false);
     commit(conversion);
+  };
+
+  const trackSelection = () => {
+    const node = textareaRef.current;
+    if (!node) return;
+    setSelectionRange({ start: node.selectionStart, end: node.selectionEnd });
+  };
+
+  const applyMark = (mark) => {
+    const node = textareaRef.current;
+    if (!node) return;
+    const result = toggleInlineWrap(text, node.selectionStart, node.selectionEnd, mark);
+    if (!result) return;
+    setText(result.text);
+    commit({ text: result.text });
+    window.setTimeout(() => {
+      node.focus();
+      node.setSelectionRange(result.start, result.end);
+      trackSelection();
+    }, 0);
+  };
+
+  const applyColor = (hex) => {
+    const node = textareaRef.current;
+    if (!node) return;
+    const result = applyColorWrap(text, node.selectionStart, node.selectionEnd, hex);
+    setColorPickerOpen(false);
+    if (!result) return;
+    setText(result.text);
+    commit({ text: result.text });
+    window.setTimeout(() => {
+      node.focus();
+      node.setSelectionRange(result.start, result.end);
+      trackSelection();
+    }, 0);
   };
 
   const selectLink = (option) => {
@@ -278,31 +358,56 @@ function BlockRow({
   const listItems = populatedListItems.length ? populatedListItems : [""];
   const renderListItem = (item, index) => (
     <li key={`${block.id}-item-${index}`}>
-      {renderLinkedText({ ...block, text: item, links: block.links.filter((link) => item.includes(link.token)) }, onOpenPage)}
+      {renderInlineText(item, block.links.filter((link) => item.includes(link.token)), onOpenPage)}
     </li>
   );
   const preview = blockType === "divider"
     ? <hr />
     : blockType === "code"
       ? <pre>{block.text || "code"}</pre>
-      : blockType === "bulleted-list"
-        ? <ul className="knowledge-structured-list">{listItems.map(renderListItem)}</ul>
-        : blockType === "numbered-list"
-          ? <ol className="knowledge-structured-list">{listItems.map(renderListItem)}</ol>
+      : blockType === "math"
+        ? <InlineMath source={block.text} display />
+        : blockType === "bulleted-list"
+          ? <ul className="knowledge-structured-list">{listItems.map(renderListItem)}</ul>
+          : blockType === "numbered-list"
+            ? <ol className="knowledge-structured-list">{listItems.map(renderListItem)}</ol>
       : (
         <div className="knowledge-block-preview-copy">
           {blockType === "checklist" && <span className={`knowledge-check${block.checked ? " checked" : ""}`} aria-hidden="true">{block.checked && <Check size={13} weight="bold" />}</span>}
-          <span>{renderLinkedText(block, onOpenPage)}</span>
+          <span>{renderInlineText(block.text, block.links, onOpenPage)}</span>
         </div>
       );
 
   return (
-    <article className={`knowledge-block type-${blockType}${editing ? " editing" : ""}`}>
+    <article
+      className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}`}
+      onDragOver={(event) => {
+        if (readOnly) return;
+        event.preventDefault();
+        onDragEnterBlock?.(block.id);
+      }}
+      onDrop={(event) => {
+        if (readOnly) return;
+        event.preventDefault();
+        onDropBlock?.(block.id);
+      }}
+    >
       <div className="knowledge-block-rail" aria-label={`${blockLabels[blockType]}の操作`}>
         <span className="knowledge-block-kind">{blockLabels[blockType]}</span>
         {!readOnly && <>
-          <button type="button" aria-label="Blockを上へ移動" disabled={blockIndex === 0} onClick={() => onMove(block.id, "up")}><ArrowUp size={15} /></button>
-          <button type="button" aria-label="Blockを下へ移動" disabled={blockIndex === blockCount - 1} onClick={() => onMove(block.id, "down")}><ArrowDown size={15} /></button>
+          <button
+            type="button"
+            className="knowledge-drag-handle"
+            aria-label={`Blockを移動（${blockIndex + 1}/${blockCount}）`}
+            draggable
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = "move";
+              onDragStart?.(block.id);
+            }}
+            onDragEnd={() => onDragEnd?.()}
+          >
+            <DotsSixVertical size={16} />
+          </button>
           <button type="button" aria-label="Blockを削除" onClick={() => onRemove(block.id)}><X size={15} /></button>
         </>}
       </div>
@@ -333,8 +438,11 @@ function BlockRow({
             placeholder={blockType === "paragraph" ? "Markdown記号または / で入力…" : blockLabels[blockType]}
             onChange={(event) => changeText(event.target.value)}
             onKeyDown={onKeyDown}
+            onSelect={trackSelection}
+            onClick={trackSelection}
+            onKeyUp={trackSelection}
             onBlur={(event) => {
-              if (event.relatedTarget?.closest?.(".knowledge-link-picker")) return;
+              if (event.relatedTarget?.closest?.(".knowledge-link-picker, .knowledge-format-toolbar")) return;
               if (isGroupedListType(blockType)) {
                 const normalizedText = splitListItems(text).filter((item) => item.trim()).join("\n");
                 setText(normalizedText);
@@ -342,9 +450,39 @@ function BlockRow({
               } else {
                 commit();
               }
+              setSelectionRange({ start: 0, end: 0 });
+              setColorPickerOpen(false);
               setEditing(false);
             }}
           />
+          {hasSelection && (
+            <div className="knowledge-format-toolbar" role="toolbar" aria-label="文字装飾">
+              <button type="button" aria-label="太字" onMouseDown={(event) => event.preventDefault()} onClick={() => applyMark("bold")}><TextB size={15} weight="bold" /></button>
+              <button type="button" aria-label="斜体" onMouseDown={(event) => event.preventDefault()} onClick={() => applyMark("italic")}><TextItalic size={15} /></button>
+              <button type="button" aria-label="下線" onMouseDown={(event) => event.preventDefault()} onClick={() => applyMark("underline")}><TextUnderline size={15} /></button>
+              <button type="button" aria-label="取り消し線" onMouseDown={(event) => event.preventDefault()} onClick={() => applyMark("strike")}><TextStrikethrough size={15} /></button>
+              <span className="knowledge-format-divider" aria-hidden="true" />
+              <button
+                type="button"
+                aria-label="文字色"
+                aria-expanded={colorPickerOpen}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => setColorPickerOpen((value) => !value)}
+              >
+                <Palette size={15} />
+              </button>
+              {colorPickerOpen && (
+                <div className="knowledge-color-picker" onMouseDown={(event) => event.preventDefault()}>
+                  {TEXT_COLOR_PRESETS.map((hex) => (
+                    <button key={hex} type="button" aria-label={`文字色 #${hex}`} className="knowledge-color-swatch" style={{ background: `#${hex}` }} onClick={() => applyColor(hex)} />
+                  ))}
+                  <label className="knowledge-color-custom" aria-label="文字色をカスタム選択">
+                    <input type="color" onChange={(event) => applyColor(event.target.value.slice(1))} />
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
           {markerOpen && (
             <div className="knowledge-link-picker" role="listbox" aria-label="リンクするPage">
               <div className="knowledge-link-picker-heading"><LinkIcon size={16} aria-hidden="true" /><span>Pageへリンク</span></div>
@@ -384,6 +522,99 @@ function BlockRow({
   );
 }
 
+function TagsEditor({ tags, candidates, readOnly, onCommit }) {
+  const [labels, setLabels] = useState(tags);
+  const [draft, setDraft] = useState("");
+  const [open, setOpen] = useState(false);
+  const inputRef = useRef(null);
+
+  const commitLabels = (nextLabels) => {
+    setLabels(nextLabels);
+    onCommit(nextLabels);
+  };
+
+  const addLabel = (label) => {
+    const value = label.trim();
+    if (!value || labels.some((item) => normalized(item) === normalized(value))) {
+      setDraft("");
+      return;
+    }
+    commitLabels([...labels, value]);
+    setDraft("");
+  };
+
+  const removeLabel = (label) => {
+    commitLabels(labels.filter((item) => item !== label));
+  };
+
+  const filteredCandidates = draft.trim()
+    ? candidates.filter((tag) => normalized(tag.label).includes(normalized(draft)) && !labels.some((item) => normalized(item) === normalized(tag.label))).slice(0, 8)
+    : candidates.filter((tag) => !labels.some((item) => normalized(item) === normalized(tag.label))).slice(0, 8);
+
+  return (
+    <div className="knowledge-tags-field">
+      <span><Tag size={16} aria-hidden="true" />Tags</span>
+      <div className="knowledge-tags-editor">
+        <div className="knowledge-tags-chips">
+          {labels.map((label) => (
+            <span key={label} className="knowledge-tag-chip">
+              {label}
+              {!readOnly && <button type="button" aria-label={`${label}を削除`} onClick={() => removeLabel(label)}><X size={11} /></button>}
+            </span>
+          ))}
+          {!readOnly && (
+            <input
+              ref={inputRef}
+              value={draft}
+              placeholder={labels.length ? "" : "例：設計, アイデア"}
+              onChange={(event) => {
+                setDraft(event.target.value);
+                setOpen(true);
+              }}
+              onFocus={() => setOpen(true)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === ",") {
+                  event.preventDefault();
+                  addLabel(draft);
+                } else if (event.key === "Backspace" && !draft && labels.length) {
+                  removeLabel(labels[labels.length - 1]);
+                } else if (event.key === "Escape") {
+                  setOpen(false);
+                }
+              }}
+              onBlur={(event) => {
+                if (event.relatedTarget?.closest?.(".knowledge-tag-picker")) return;
+                if (draft.trim()) addLabel(draft);
+                setOpen(false);
+              }}
+            />
+          )}
+        </div>
+        {!readOnly && open && filteredCandidates.length > 0 && (
+          <div className="knowledge-tag-picker" role="listbox" aria-label="既存のTag">
+            {filteredCandidates.map((tag) => (
+              <button
+                key={tag.id}
+                type="button"
+                role="option"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  addLabel(tag.label);
+                  inputRef.current?.focus();
+                }}
+              >
+                <Tag size={13} aria-hidden="true" />
+                <span>{tag.label}</span>
+                <small>{tag.pageCount}</small>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function KnowledgeView({
   desktop = false,
   persistenceReady = true,
@@ -406,6 +637,9 @@ export function KnowledgeView({
   const [projectId, setProjectId] = useState("");
   const [pages, setPages] = useState([]);
   const [linkCandidates, setLinkCandidates] = useState([]);
+  const [tagCandidates, setTagCandidates] = useState([]);
+  const [dragBlockId, setDragBlockId] = useState(null);
+  const [dragOverBlockId, setDragOverBlockId] = useState(null);
   const [selectedPageId, setSelectedPageId] = useState(null);
   const [pageData, setPageData] = useState(null);
   const [query, setQuery] = useState("");
@@ -464,6 +698,8 @@ export function KnowledgeView({
     if (!nextProjectId) return;
     const candidatesResult = await client.listPages(nextProjectId, true);
     setLinkCandidates(candidatesResult.pages);
+    const tagsResult = await client.listTags(nextProjectId);
+    setTagCandidates(tagsResult.tags);
     if (query.trim()) {
       const projectIds = searchScope === "all" ? nextProjects.map((project) => project.id) : [nextProjectId];
       const result = await client.search({ query, projectIds, includeTrash });
@@ -549,6 +785,14 @@ export function KnowledgeView({
     const result = await runMutation({ type: "block-add", afterBlockId, blockType });
     const added = result?.page.blocks.find((block) => !previousIds.has(block.id));
     if (added) setAutoEditBlockId(added.id);
+  };
+
+  const dropBlock = (beforeBlockId) => {
+    const blockId = dragBlockId;
+    setDragBlockId(null);
+    setDragOverBlockId(null);
+    if (!blockId || blockId === beforeBlockId) return;
+    runMutation({ type: "block-move", blockId, beforeBlockId });
   };
 
   const createNewProject = async (event) => {
@@ -808,19 +1052,15 @@ export function KnowledgeView({
                 />
               </label>
 
-              <label className="knowledge-tags-field">
-                <span><Tag size={16} aria-hidden="true" />Tags</span>
-                <input
-                  key={`${pageData.page.id}-${pageData.page.revision}-tags`}
-                  defaultValue={activeTagLabels.join(", ")}
-                  readOnly={readOnly}
-                  placeholder="例：設計, アイデア"
-                  onBlur={(event) => {
-                    const labels = event.target.value.split(",").map((label) => label.trim()).filter(Boolean);
-                    if (labels.join("|") !== activeTagLabels.join("|")) runMutation({ type: "tags-set", labels });
-                  }}
-                />
-              </label>
+              <TagsEditor
+                key={`${pageData.page.id}-${pageData.page.revision}-tags`}
+                tags={activeTagLabels}
+                candidates={tagCandidates}
+                readOnly={readOnly}
+                onCommit={(labels) => {
+                  if (labels.join("|") !== activeTagLabels.join("|")) runMutation({ type: "tags-set", labels });
+                }}
+              />
 
               {pageState === "trash" && <div className="knowledge-trash-notice"><Trash size={19} aria-hidden="true" /><div><strong>このPageはTrashにあります</strong><p>内容は読み取り専用です。編集するには復元してください。</p></div></div>}
 
@@ -837,11 +1077,32 @@ export function KnowledgeView({
                     onCommit={runMutation}
                     onAddAfter={addBlockAfter}
                     onRemove={(blockId) => runMutation({ type: "block-remove", blockId })}
-                    onMove={(blockId, direction) => runMutation({ type: "block-move", blockId, direction })}
                     onOpenPage={(targetId) => selectPage(projectId, targetId)}
                     onAutoEditHandled={() => setAutoEditBlockId(null)}
+                    isDragging={dragBlockId === block.id}
+                    isDragOver={dragOverBlockId === block.id && dragBlockId !== block.id}
+                    onDragStart={setDragBlockId}
+                    onDragEnterBlock={setDragOverBlockId}
+                    onDropBlock={dropBlock}
+                    onDragEnd={() => {
+                      setDragBlockId(null);
+                      setDragOverBlockId(null);
+                    }}
                   />
                 ))}
+                {!readOnly && dragBlockId && (
+                  <div
+                    className={`knowledge-block-dropzone${dragOverBlockId === "__end__" ? " drag-over" : ""}`}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDragOverBlockId("__end__");
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      dropBlock(null);
+                    }}
+                  />
+                )}
                 {!readOnly && <button type="button" className="knowledge-add-block" onClick={() => addBlockAfter(pageData.page.blocks.at(-1)?.id)}><Plus size={17} />Blockを追加</button>}
               </div>
 
