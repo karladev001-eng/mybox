@@ -17,6 +17,7 @@ import { createDeviceAppInstallationsStore } from "./desktop/app-installations.j
 import { getHostUpdaterClient } from "./desktop/app-updater.js";
 import { beginGitHubSignIn, completeGitHubSignIn, getAccountSession, signOutAccount } from "./desktop/accounts.js";
 import { resolveProfileId, signedOutSession } from "./core/account-identity.js";
+import { openExternalUrl } from "./desktop/open-url.js";
 import { compareAppVersions, isAppUpdateAvailable } from "./core/app-version.js";
 import {
   CODEX_SUBSCRIPTION_PROVIDER_ID,
@@ -440,19 +441,23 @@ function DeviceLoginModal({ login, onClose }) {
           <code>{login.userCode}</code>
           <button type="button" onClick={copyCode}>{copied ? "コピーしました" : "コピー"}</button>
         </div>
-        <a className="device-link" href={login.verificationUri} target="_blank" rel="noreferrer noopener">
+        <button type="button" className="device-link" onClick={() => openExternalUrl(login.verificationUri)}>
           <ArrowSquareOut size={17} aria-hidden="true" />{login.verificationUri}
-        </a>
+        </button>
         <p className="form-note">MyBoxはパスワードを受け取りません。認証はGitHub上で完結します。</p>
         <div className="provider-form-actions">
-          <button type="button" onClick={onClose}>キャンセル</button>
+          <button type="button" className="secondary-button" onClick={onClose}>キャンセル</button>
         </div>
       </div>
     </Modal>
   );
 }
 
-function HostUpdateRow({ desktop, onToast }) {
+/**
+ * Owns update state once so the Settings row and the corner prompt cannot
+ * disagree about what is downloading or ready.
+ */
+function useHostUpdater(desktop) {
   const updaterRef = useRef(null);
   if (!updaterRef.current) updaterRef.current = getHostUpdaterClient();
   const updater = updaterRef.current;
@@ -461,49 +466,95 @@ function HostUpdateRow({ desktop, onToast }) {
   const [pending, setPending] = useState(null);
   const [progress, setProgress] = useState(null);
   const [error, setError] = useState("");
+  const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    if (!desktop) return;
+    if (!desktop) return undefined;
     let active = true;
     updater.currentVersion().then((value) => active && setVersion(value ?? "")).catch(() => {});
     return () => { active = false; };
   }, [desktop]);
 
-  const runCheck = async () => {
-    setStatus("checking");
-    setError("");
+  const check = async ({ silent = false } = {}) => {
+    if (!silent) {
+      setStatus("checking");
+      setError("");
+    }
     try {
       const result = await updater.check();
       if (result.available) {
         setPending(result.update);
         setStatus("available");
-      } else {
+      } else if (!silent) {
         setStatus("up-to-date");
       }
     } catch (nextError) {
+      // A silent startup check must not shout at a User who is simply offline.
+      if (silent) return;
       setError(String(nextError?.message ?? nextError));
       setStatus("error");
     }
   };
 
-  const runInstall = async () => {
+  useEffect(() => {
+    if (!desktop) return;
+    check({ silent: true });
+  }, [desktop]);
+
+  const install = async () => {
     if (!pending) return;
     setStatus("downloading");
     setProgress({ downloaded: 0, total: 0 });
     try {
       await updater.downloadAndInstall(pending, setProgress);
       setStatus("ready");
-      onToast?.("更新の準備ができました。再起動して適用してください");
     } catch (nextError) {
       setError(String(nextError?.message ?? nextError));
       setStatus("error");
     }
   };
 
-  const runRelaunch = () => updater.relaunch();
-
-  const busy = status === "checking" || status === "downloading";
   const progressPercent = progress?.total ? Math.round((progress.downloaded / progress.total) * 100) : null;
+
+  return {
+    version,
+    status,
+    pending,
+    error,
+    progressPercent,
+    dismissed,
+    dismiss: () => setDismissed(true),
+    check,
+    install,
+    relaunch: () => updater.relaunch(),
+  };
+}
+
+function UpdatePrompt({ updater }) {
+  const { status, pending, version, progressPercent, dismissed, dismiss, install, relaunch } = updater;
+  if (dismissed || !["available", "downloading", "ready"].includes(status)) return null;
+  const ready = status === "ready";
+  const downloading = status === "downloading";
+  return (
+    <aside className="update-prompt" role="status" aria-live="polite">
+      <span className="update-prompt-icon"><ArrowsClockwise size={20} aria-hidden="true" /></span>
+      <span className="update-prompt-copy">
+        <strong>{ready ? "更新の準備ができました" : `MyBox v${pending?.version} が利用できます`}</strong>
+        <small>{downloading ? `ダウンロード中…${progressPercent !== null ? ` ${progressPercent}%` : ""}` : ready ? "再起動すると適用されます" : version ? `現在 v${version}` : ""}</small>
+      </span>
+      <span className="update-prompt-actions">
+        <button type="button" className="update-prompt-later" onClick={dismiss}>あとで</button>
+        <button type="button" className="update-prompt-apply" disabled={downloading} onClick={ready ? relaunch : install}>
+          <span>{ready ? "再起動" : downloading ? "取得中…" : "更新"}</span>
+        </button>
+      </span>
+    </aside>
+  );
+}
+
+function HostUpdateRow({ desktop, updater }) {
+  const { version, status, pending, error, progressPercent, check, install, relaunch } = updater;
+  const busy = status === "checking" || status === "downloading";
   const detail = !desktop
     ? "デスクトップ版で利用できます"
     : status === "checking" ? "確認中…"
@@ -514,7 +565,7 @@ function HostUpdateRow({ desktop, onToast }) {
     : status === "up-to-date" ? "最新版です"
     : version ? `現在 v${version}` : "確認してください";
   const controlLabel = status === "ready" ? "再起動" : status === "available" ? "更新" : status === "checking" ? "確認中…" : status === "downloading" ? "取得中…" : "確認";
-  const onClick = status === "ready" ? runRelaunch : status === "available" ? runInstall : runCheck;
+  const onClick = status === "ready" ? relaunch : status === "available" ? install : () => check();
 
   return (
     <button type="button" className="workspace-action" onClick={onClick} disabled={!desktop || busy}>
@@ -537,11 +588,11 @@ function SettingsView({
   onSelectProvider,
   onConfigureOpenAi,
   onConfigureLocal,
-  onToast,
   accountSession,
   accountBusy,
   onSignIn,
   onSignOut,
+  hostUpdater,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -590,7 +641,7 @@ function SettingsView({
           onSelect={providerSettings.localLlm.configured ? () => onSelectProvider(LOCAL_LLM_PROVIDER_ID) : onConfigureLocal}
           onConfigure={onConfigureLocal}
         />
-        <HostUpdateRow desktop={desktop} onToast={onToast} />
+        <HostUpdateRow desktop={desktop} updater={hostUpdater} />
         <button className="workspace-action" onClick={onChooseWorkspace} disabled={!desktop || workspaceBusy} title={workspace?.path ?? ""}>
           <span className="settings-row-icon"><FolderSimple size={22} aria-hidden="true" /></span>
           <span className="settings-row-copy"><strong>保存場所</strong><small>{workspace?.name ?? (desktop ? "未選択" : "Webプレビュー")}</small></span>
@@ -718,6 +769,7 @@ export function App() {
   const aiInput = useRef(null);
   const chatStore = useRef(getChatHistoryStore()).current;
   const desktop = isDesktopRuntime();
+  const hostUpdater = useHostUpdater(desktop);
 
   const pageTitle = useMemo(() => view === "apps" ? "アプリ" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
   const assistantContextLabel = surfaceContext || selectedApp?.name || pageTitle || "MyBox";
@@ -1382,7 +1434,7 @@ export function App() {
         )}
         {view === "connections" && <ConnectionsView apps={apps} onToast={setToast} />}
         {view === "history" && <HistoryView />}
-        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} onToast={setToast} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} />}
+        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} />}
         {view === "chat" && <ChatView
           {...sharedChatProps}
           onBack={() => setView("apps")}
@@ -1436,6 +1488,7 @@ export function App() {
         onSend={(text) => sendChatMessage(text, { openChat: false, contextLabel: assistantContextLabel })}
       />}
       {pendingDelete && <Modal title="アプリを削除" onClose={() => setPendingDelete(null)} className="confirm-modal"><div className="confirm-body"><AppGlyph icon={pendingDelete.icon} color={pendingDelete.color} size={52} /><p><strong>{pendingDelete.name}</strong>をMyBoxから削除しますか？</p><div className="confirm-actions"><button onClick={() => setPendingDelete(null)}>キャンセル</button><button className="danger-button" onClick={deleteApp}><Trash size={19} />削除</button></div></div></Modal>}
+      <UpdatePrompt updater={hostUpdater} />
       {deviceLogin && <DeviceLoginModal login={deviceLogin} onClose={cancelSignIn} />}
       {providerModal === "openai" && <OpenAiConfigModal settings={providerSettings.openaiApi} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveOpenAi} onDisconnect={removeOpenAi} />}
       {providerModal === "local" && <LocalLlmConfigModal settings={providerSettings.localLlm} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveLocalLlm} onDisconnect={removeLocalLlm} />}

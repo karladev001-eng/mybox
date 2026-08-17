@@ -117,6 +117,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .add-button { padding-inline: 26px; }
+.add-button > span, .primary-button > span { transform: translateY(-1px); }
 
 .add-button:hover { background: #24282c; border-color: #565d65; }
 
@@ -727,11 +728,15 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .provider-select:disabled { cursor: default; opacity: .62; }
 .settings-row-status { min-width: 64px; justify-self: end; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; }
 .settings-row-status:empty { min-width: 0; }
-.settings-row-status.active { padding: 7px 11px; border: 1px solid #377d71; border-radius: 999px; background: #203a35; color: var(--accent); }
+/* Noto Sans JP reserves more line box above its glyphs than below, so text
+   centred by line box lands about 1px low inside a fixed-height control. The
+   asymmetric padding below restores optical centring without changing any
+   control's height. */
+.settings-row-status.active { padding: 6px 11px 8px; border: 1px solid #377d71; border-radius: 999px; background: #203a35; color: var(--accent); }
 .provider-config { width: 44px; height: 44px; justify-self: end; }
 .provider-config-spacer { width: 44px; height: 44px; }
 .account-avatar { border-radius: 50%; object-fit: cover; }
-.account-action { grid-column: 3 / 5; justify-self: end; min-height: 40px; padding: 0 13px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
+.account-action { grid-column: 3 / 5; justify-self: end; min-height: 40px; padding: 0 13px 1px; border: 1px solid var(--line); border-radius: 999px; display: inline-flex; align-items: center; gap: 7px; color: var(--muted); background: transparent; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; }
 .account-action:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }
 .account-action:disabled { cursor: not-allowed; opacity: .48; }
 .device-login { padding: 24px; display: grid; gap: 14px; }
@@ -740,10 +745,26 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .device-code code { color: var(--text); font: 700 24px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .18em; }
 .device-code button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: transparent; font-size: 12px; }
 .device-code button:hover { border-color: var(--accent); color: var(--accent); }
-.device-link { display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 13px; word-break: break-all; }
+/* Sits below the modal layer (z-index 40) so a dialog always covers it. */
+.update-prompt { position: fixed; right: 24px; bottom: 24px; z-index: 36; width: min(380px, calc(100vw - 48px)); padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: 14px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px 12px; background: var(--surface-elevated); box-shadow: 0 20px 54px rgba(0, 0, 0, .46); }
+.update-prompt-icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.update-prompt-copy { min-width: 0; display: grid; gap: 3px; }
+.update-prompt-copy strong { font-size: 13px; }
+.update-prompt-copy small { color: var(--muted); font-size: 11px; }
+.update-prompt-actions { grid-column: 2; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.update-prompt-later { min-height: 34px; padding: 0 12px 1px; border: 0; border-radius: 999px; color: var(--muted); background: transparent; font-size: 12px; line-height: 1; }
+.update-prompt-later:hover { color: var(--text); background: var(--surface-strong); }
+.update-prompt-apply { min-height: 34px; padding: 0 15px 1px; border: 1px solid color-mix(in srgb, var(--accent) 68%, var(--line)); border-radius: 999px; color: #0c2722; background: var(--accent); font-size: 12px; font-weight: 700; line-height: 1; }
+.update-prompt-apply:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, white); }
+.update-prompt-apply:disabled { cursor: not-allowed; opacity: .6; }
+
+.device-link { justify-self: start; padding: 0; border: 0; background: transparent; display: inline-flex; align-items: center; gap: 7px; color: var(--accent); font-size: 13px; text-align: left; word-break: break-all; }
+.device-link:hover { text-decoration: underline; }
+.secondary-button { min-height: 44px; padding: 0 16px 2px; border: 1px solid var(--line-strong); border-radius: 11px; color: var(--text); background: var(--surface-strong); font-weight: 600; line-height: 1; }
+.secondary-button:hover { border-color: #565d65; background: #2b2f34; }
 .settings-list strong, .settings-list small { display: block; }
 .settings-list small { margin-top: 4px; color: var(--muted); }
-.workspace-action .settings-row-control { min-width: 66px; padding: 7px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-align: center; font-size: 12px; font-weight: 700; }
+.workspace-action .settings-row-control { min-width: 66px; padding: 6px 11px 8px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); text-align: center; font-size: 12px; font-weight: 700; }
 .workspace-action:not(:disabled):hover .settings-row-control { border-color: var(--accent); color: var(--accent); }
 .provider-roadmap { min-height: 62px; display: flex; align-items: center; gap: 10px; color: var(--subtle); }
 .provider-roadmap > span { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid #30353a; border-radius: 10px; }

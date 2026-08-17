@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { isTauri } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
 import { readChatImage } from "./desktop/agent-providers.js";
+import { openExternalUrl } from "./desktop/open-url.js";
 import { ThemedSelect } from "./ThemedSelect.jsx";
 import {
   ArrowSquareOut,
@@ -117,13 +116,7 @@ function ChatIconButton({ label, children, ...props }) {
   return <button type="button" className="chat-icon-button" aria-label={label} title={label} {...props}>{children}</button>;
 }
 
-async function openSource(url) {
-  if (isTauri()) {
-    await openUrl(url);
-    return;
-  }
-  window.open(url, "_blank", "noopener,noreferrer");
-}
+const openSource = openExternalUrl;
 
 function ChatGeneratedImage({ image, fallbackAlt }) {
   const [dataUrl, setDataUrl] = useState("");
