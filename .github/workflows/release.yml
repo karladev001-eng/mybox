@@ -34,6 +34,14 @@ jobs:
         working-directory: mybox-app
         run: npm ci
 
+      # src-tauri's build.rs embeds this bundle via include_str! and refuses
+      # to fall back to a network install, so it must exist before cargo runs.
+      - name: Build the sync server bundle
+        working-directory: sync-server
+        run: |
+          npm ci
+          npm run build
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

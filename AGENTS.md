@@ -91,3 +91,8 @@ update reaches a device.
 - The release job depends on the `tauri` script in `mybox-app/package.json` and
   on `bundle.createUpdaterArtifacts` in `mybox-app/src-tauri/tauri.conf.json`.
   Dropping the latter yields unsigned artifacts that every install rejects.
+- The release job also depends on the "Build the sync server bundle" step
+  running `npm ci && npm run build` in `sync-server/` before the Tauri action:
+  `src-tauri/build.rs` embeds that bundle via `include_str!` and fails the
+  Rust build outright if it is missing, per
+  [ADR 0024](docs/adr/0024-deploy-the-sync-server-through-the-cloudflare-api.md).

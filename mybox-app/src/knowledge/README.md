@@ -6,7 +6,11 @@ Implements the first vertical slice of the `knowledge` App described in
 - `domain.js`: runtime-neutral Project, Page, Block, PageLink, Tag, Trash,
   revision, history, and search rules.
 - `app.js`: public App manifest and Operation handlers backed by App storage.
-- `client.js`: User-facing Host client used by the React surface.
+- `client.js`: User-facing Host client used by the React surface. It is the
+  only file in this directory allowed to import a `../desktop/*` bridge
+  module (profile preferences, sync endpoints, Tauri storage); `KnowledgeView`
+  and every other file here call its wrapper methods instead, per
+  `docs/app-authoring.md`.
 - `KnowledgeView.jsx`: accessible desktop knowledge workspace.
 - `editor-behavior.js`: pure Markdown conversion and grouped-list editing rules.
 - `yjs-document.js`: the shared representation of a Project. Applies the same

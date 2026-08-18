@@ -178,6 +178,24 @@
 .knowledge-project-row small { color: var(--subtle); font-size: 10px; text-transform: capitalize; }
 .knowledge-project-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 
+.knowledge-danger-link { width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 8px; color: var(--danger); background: transparent; font-size: 13px; }
+.knowledge-danger-link:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.knowledge-danger-link:disabled { color: var(--subtle); cursor: not-allowed; }
+
+.knowledge-settings-open { width: 100%; min-height: 40px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); display: inline-flex; align-items: center; gap: 8px; color: var(--muted); background: var(--surface); font-size: 13px; }
+.knowledge-settings-open:hover { color: var(--text); border-color: var(--line-strong); }
+
+.knowledge-settings-section { margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--line); }
+.knowledge-settings-section h3 { margin: 0 0 var(--space-2); color: var(--text); font-size: 12px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; }
+.knowledge-settings-section p { margin: 0 0 6px; color: var(--muted); font-size: 13px; }
+.knowledge-settings-section .form-note { display: block; margin-top: 4px; }
+
+.knowledge-member-list { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.knowledge-member-list li { min-height: 36px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); display: flex; align-items: center; gap: 8px; background: var(--surface); }
+.knowledge-member-id { flex: 1; min-width: 0; overflow: hidden; color: var(--text); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-member-role { flex-shrink: 0; color: var(--subtle); font-size: 11px; text-transform: capitalize; }
+.knowledge-member-list .knowledge-danger-link { width: auto; min-height: 30px; padding: 0 8px; flex-shrink: 0; }
+
 .knowledge-new-project { padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); display: grid; gap: var(--space-2); background: var(--surface); }
 .knowledge-new-project label { color: var(--muted); font-size: 11px; }
 .knowledge-new-project input { min-width: 0; height: 38px; padding: 0 9px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--text); background: #141618; }
@@ -200,7 +218,13 @@
 .knowledge-share-dialog label { display: block; margin-bottom: 6px; color: #c8cdd2; font-size: 12px; font-weight: 600; }
 .knowledge-share-dialog input { width: 100%; min-height: 44px; margin-bottom: var(--space-3); padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--text); background: #141618; }
 .knowledge-share-dialog input:focus { outline: 0; border-color: var(--accent); }
-.knowledge-share-dialog .form-note { display: block; color: var(--subtle); font-size: 11px; line-height: 1.6; }
+.knowledge-share-dialog input:disabled { opacity: .6; cursor: not-allowed; }
+.knowledge-share-dialog .form-note { display: block; margin: -4px 0 var(--space-3); color: var(--subtle); font-size: 11px; line-height: 1.6; }
+.knowledge-share-dialog .form-note-error { color: var(--danger); }
+.knowledge-share-dialog .knowledge-dialog-actions-split { align-items: center; justify-content: space-between; }
+.knowledge-share-dialog .knowledge-dialog-actions-split > div { display: flex; gap: var(--space-2); }
+.knowledge-share-dialog .knowledge-link-button { min-height: 0; padding: 0; border: 0; color: var(--accent); background: transparent; font-size: 12px; text-align: left; }
+.knowledge-share-dialog .knowledge-link-button:hover { text-decoration: underline; }
 .knowledge-share-roles { display: grid; gap: 8px; }
 .knowledge-share-roles button { min-height: 44px; padding: 0 12px 1px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--text); background: var(--surface-strong); line-height: 1; }
 .knowledge-share-roles button:not(:disabled):hover { border-color: var(--accent); color: var(--accent); }

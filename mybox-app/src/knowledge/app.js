@@ -5,6 +5,7 @@ import {
   createKnowledgeState,
   createPage,
   createProject,
+  deleteProject,
   getBacklinks,
   getProjectTags,
   listPages,
@@ -13,6 +14,7 @@ import {
   purgePage,
   readPage,
   readPageHistory,
+  renameProject,
   restorePage,
   restorePageHistory,
   searchPages,
@@ -83,7 +85,7 @@ export function createKnowledgeApp() {
     manifest: {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
-      name: "メモ",
+      name: "Note",
       version: "0.1.0",
       hostCapabilities: ["app-storage"],
       operations: [
@@ -99,6 +101,29 @@ export function createKnowledgeApp() {
             required: ["name"],
             properties: { name: { type: "string", minLength: 1, maxLength: 120 } },
           },
+        }),
+        operation({
+          id: "knowledge.project.rename",
+          title: "Projectをリネーム",
+          effect: "write",
+          confirmationClass: "recoverable",
+          callers: ["user"],
+          inputSchema: {
+            type: "object",
+            required: ["projectId", "name"],
+            properties: {
+              projectId: { type: "string", minLength: 1 },
+              name: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
+        }),
+        operation({
+          id: "knowledge.project.delete",
+          title: "Projectを削除",
+          effect: "destructive",
+          confirmationClass: "autonomous",
+          callers: ["user"],
+          inputSchema: projectInput,
         }),
         operation({ id: "knowledge.page.list", title: "Pageを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
         operation({ id: "knowledge.page.read", title: "Pageを読む", effect: "read", confirmationClass: "review", inputSchema: pageInput }),
@@ -182,6 +207,15 @@ export function createKnowledgeApp() {
           },
         },
         {
+          id: "knowledge.project.deleted",
+          title: "Projectが削除された",
+          payloadSchema: {
+            type: "object",
+            required: ["projectId"],
+            properties: { projectId: { type: "string" } },
+          },
+        },
+        {
           id: "knowledge.page.changed",
           title: "Pageが変更された",
           payloadSchema: {
@@ -221,6 +255,22 @@ export function createKnowledgeApp() {
         }));
         await emit("knowledge.project.created", { projectId: mutation.project.id });
         return { project: mutation.project };
+      },
+      async "knowledge.project.rename"({ projectId, name }, { actor, storage }) {
+        const mutation = await saveMutation(storage, renameProject(await loadState(storage), {
+          projectId,
+          name,
+          profileId: profileIdFor(actor),
+        }));
+        return { project: mutation.project };
+      },
+      async "knowledge.project.delete"({ projectId }, { actor, storage, emit }) {
+        const mutation = await saveMutation(storage, deleteProject(await loadState(storage), {
+          projectId,
+          profileId: profileIdFor(actor),
+        }));
+        await emit("knowledge.project.deleted", { projectId: mutation.projectId });
+        return { projectId: mutation.projectId };
       },
       async "knowledge.page.list"({ projectId, includeTrash = false }, { actor, storage }) {
         const state = await loadState(storage);

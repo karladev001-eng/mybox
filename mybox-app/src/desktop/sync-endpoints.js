@@ -36,3 +36,20 @@ export async function disconnectSyncEndpoint(projectId) {
   if (!isDesktopRuntime()) return;
   await invoke("disconnect_sync_endpoint", { projectId });
 }
+
+/** Lists a Project's members. Only its Owner may call this; the server enforces it. */
+export async function listSyncMembers(projectId) {
+  if (!isDesktopRuntime()) return [];
+  const members = await invoke("list_sync_members", { projectId });
+  return members.map((member) => ({
+    profileId: member.profile_id,
+    role: member.role,
+    joinedAt: member.joined_at,
+  }));
+}
+
+/** Removes a member. Closes their open sockets immediately; the Owner cannot be removed. */
+export async function removeSyncMember(projectId, profileId) {
+  if (!isDesktopRuntime()) unsupported();
+  await invoke("remove_sync_member", { projectId, profileId });
+}

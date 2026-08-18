@@ -318,6 +318,91 @@ pub fn disconnect_sync_endpoint(app: AppHandle, project_id: String) -> Result<()
     save_settings(&app, &settings)
 }
 
+fn endpoint_for(app: &AppHandle, project_id: &str) -> Result<(EndpointRecord, Zeroizing<String>), String> {
+    let settings = load_settings(app)?;
+    let record = settings
+        .endpoints
+        .iter()
+        .find(|item| item.project_id == project_id)
+        .ok_or_else(|| "このProjectは同期サーバーに接続されていません".to_string())?
+        .clone();
+    let token = read_token(project_id)?.ok_or_else(|| "同期トークンが見つかりません".to_string())?;
+    Ok((record, token))
+}
+
+/// Field names mirror the server's wire format (`profile_id`, `joined_at`)
+/// rather than this file's usual camelCase, because this struct round-trips
+/// the server's JSON response straight through to the JS caller, which maps
+/// them to camelCase itself.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MemberView {
+    profile_id: String,
+    role: String,
+    joined_at: i64,
+}
+
+#[derive(Debug, Deserialize)]
+struct MembersResponse {
+    #[serde(default)]
+    members: Option<Vec<MemberView>>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Lists a Project's members. Only its Owner may call this; the server enforces
+/// that independently of what this command's caller believes their role is.
+#[tauri::command]
+pub async fn list_sync_members(app: AppHandle, project_id: String) -> Result<Vec<MemberView>, String> {
+    let (record, token) = endpoint_for(&app, &project_id)?;
+    let response = http_client()?
+        .get(format!("{}/projects/{}/members", record.endpoint, project_id))
+        .header("Authorization", format!("Bearer {}", token.as_str()))
+        .send()
+        .await
+        .map_err(|error| format!("同期サーバーに接続できません：{error}"))?;
+
+    let body: MembersResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("同期サーバーの応答を解釈できません：{error}"))?;
+    body.members.ok_or_else(|| {
+        format!("メンバー一覧を取得できません：{}", body.error.unwrap_or_else(|| "不明なエラー".to_string()))
+    })
+}
+
+#[derive(Debug, Deserialize)]
+struct RemoveMemberResponse {
+    #[serde(default)]
+    removed: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Removes a member. The server refuses removing the Project's Owner and closes
+/// that member's open sockets immediately rather than waiting for their next
+/// request, so revocation takes effect during an open session.
+#[tauri::command]
+pub async fn remove_sync_member(app: AppHandle, project_id: String, profile_id: String) -> Result<(), String> {
+    let (record, token) = endpoint_for(&app, &project_id)?;
+    let response = http_client()?
+        .post(format!("{}/projects/{}/members/remove", record.endpoint, project_id))
+        .header("Authorization", format!("Bearer {}", token.as_str()))
+        .json(&serde_json::json!({ "profileId": profile_id }))
+        .send()
+        .await
+        .map_err(|error| format!("同期サーバーに接続できません：{error}"))?;
+
+    let body: RemoveMemberResponse = response
+        .json()
+        .await
+        .map_err(|error| format!("同期サーバーの応答を解釈できません：{error}"))?;
+    if body.removed.is_some() {
+        Ok(())
+    } else {
+        Err(format!("メンバーを削除できません：{}", body.error.unwrap_or_else(|| "不明なエラー".to_string())))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -742,9 +742,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .device-login { padding: 24px; display: grid; gap: 14px; }
 .device-login > p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.7; }
 .device-code { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); background: #141618; }
-.device-code code { color: var(--text); font: 700 24px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .18em; }
-.device-code button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: transparent; font-size: 12px; }
+.device-code code { min-width: 0; color: var(--text); font: 700 24px/1 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .18em; }
+.device-code button { min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: transparent; font-size: 12px; flex-shrink: 0; white-space: nowrap; }
 .device-code button:hover { border-color: var(--accent); color: var(--accent); }
+/* An invite code is far longer than a device-login code, so it needs to wrap rather than shrink the copy button. */
+.device-code.invite-code { align-items: flex-start; }
+.device-code.invite-code code { flex: 1 1 auto; font-size: 15px; letter-spacing: .03em; word-break: break-all; }
 /* Sits below the modal layer (z-index 40) so a dialog always covers it. */
 .update-prompt { position: fixed; right: 24px; bottom: 24px; z-index: 36; width: min(380px, calc(100vw - 48px)); padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: 14px; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px 12px; background: var(--surface-elevated); box-shadow: 0 20px 54px rgba(0, 0, 0, .46); }
 .update-prompt-icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }

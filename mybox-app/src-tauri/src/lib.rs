@@ -1,5 +1,6 @@
 mod accounts;
 mod agent_providers;
+mod cloudflare;
 mod codex;
 mod sync_endpoints;
 mod workspace;
@@ -21,6 +22,13 @@ pub fn run() {
             sync_endpoints::join_sync_endpoint,
             sync_endpoints::create_sync_invite,
             sync_endpoints::disconnect_sync_endpoint,
+            sync_endpoints::list_sync_members,
+            sync_endpoints::remove_sync_member,
+            cloudflare::cloudflare_status,
+            cloudflare::set_cloudflare_credentials,
+            cloudflare::clear_cloudflare_credentials,
+            cloudflare::deploy_sync_server,
+            cloudflare::delete_sync_server,
             agent_providers::agent_provider_settings,
             agent_providers::configure_openai_api_provider,
             agent_providers::disconnect_openai_api_provider,

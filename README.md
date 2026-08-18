@@ -10,10 +10,9 @@ are available to flows and authorized AI agents.
 - `FRONTEND.md`: mandatory visual, interaction, control, and UI review rules.
 - `docs/README.md`: architecture documentation and ADR index.
 - `mybox-app/README.md`: current React prototype and framework package.
-- [mybox-sync-server](https://github.com/karladev001-eng/mybox-sync-server): the
-  sync server a group deploys for its own shared Projects. MyBox operates none.
-  A separate repository because the Cloudflare deploy button this project relies
-  on does not reliably deploy from a subdirectory of a monorepo.
+- `sync-server/README.md`: the sync server a group deploys for its own shared
+  Projects. MyBox operates none; MyBox drives the deploy through the
+  Cloudflare API rather than hosting it ([ADR 0024](docs/adr/0024-deploy-the-sync-server-through-the-cloudflare-api.md)).
 - `AGENTS.md`: mandatory repository workflow.
 
 The `.agents/` directory is tool-managed reference material and is not part of the

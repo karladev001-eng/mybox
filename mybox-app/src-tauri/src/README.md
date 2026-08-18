@@ -10,9 +10,16 @@
   constrained OpenAI API/local-LLM HTTP adapters, including API token accounting.
 - `accounts.rs`: OAuth device-flow sign-in for the Linked account, with the access
   token in OS credential storage and only non-secret profile fields persisted.
-- `sync_endpoints.rs`: claims or joins a Project on its group's sync server and
-  keeps the member token in OS credential storage. The endpoint must be https
-  unless it is loopback, so a token never crosses the network in the clear.
+- `sync_endpoints.rs`: claims or joins a Project on its group's sync server,
+  keeps the member token in OS credential storage, and lists or removes
+  members for the Project's Owner. The endpoint must be https unless it is
+  loopback, so a token never crosses the network in the clear.
+- `cloudflare.rs`: deploys and manages the account's one sync-server Worker
+  through the Cloudflare API using a User-supplied API token, replacing the
+  GitHub-connected deploy button ([ADR 0024](../../../docs/adr/0024-deploy-the-sync-server-through-the-cloudflare-api.md)).
+  Embeds `sync-server/dist/worker.js`, a bundle `build.rs` produces before
+  this crate compiles. The token and the generated `SERVER_SECRET` live in OS
+  credential storage next to the other provider secrets this file governs.
 
 Native commands are host capabilities. Validate every app ID and relative key,
 reject symlinks and path traversal, and never accept an unrestricted path from an

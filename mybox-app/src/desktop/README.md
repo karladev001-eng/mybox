@@ -19,8 +19,13 @@ must only be called when `isDesktopRuntime()` returns true.
 - `accounts.js`: runs the OAuth device flow and reports the signed-in profile,
   staying signed out in the Web preview. Access tokens never cross this bridge.
 - `sync-endpoints.js`: connects a Project to the sync server its group runs,
-  joins one by invite, and issues invites. Unlike an account token, the member
-  token does cross this bridge, because the sync socket carries it in its URL.
+  joins one by invite, issues invites, and lists or removes members. Unlike an
+  account token, the member token does cross this bridge, because the sync
+  socket carries it in its URL.
+- `cloudflare.js`: stores the User's Cloudflare API token and drives deploying,
+  redeploying, or deleting the group's sync server Worker. The token never
+  crosses back over this bridge once stored, staying unsupported in the Web
+  preview like the other native-only credential flows here.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

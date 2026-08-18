@@ -49,6 +49,14 @@ a shared Project. The server exchanges it once for a recorded membership, so
 access is revoked per member instead of by changing a shared secret.
 _Avoid_: password, shared key, room key
 
+**Cloudflare API token** — A credential the User pastes into MyBox, scoped to
+Workers Scripts and Durable Objects edit permissions, that lets MyBox deploy
+and manage their group's sync endpoint directly instead of through a
+GitHub-connected dashboard flow. Distinct from an Invite token: it can create
+or delete the sync endpoint itself, not just join one Project on it, and it
+never leaves the native host once stored.
+_Avoid_: secret key, deploy key
+
 **Profile ID** — The stable value a Project membership stores to identify a User.
 It is `local-user` on a profile with no Linked account, and
 `<provider>:<subject>` once linked, built from the provider's immutable subject

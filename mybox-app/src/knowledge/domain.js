@@ -274,6 +274,34 @@ export function createProject(state, {
   return { state: next, project: copy(project) };
 }
 
+export function renameProject(state, {
+  projectId,
+  name,
+  profileId = LOCAL_PROFILE_ID,
+  now = new Date(),
+} = {}) {
+  const next = copy(validateKnowledgeState(state));
+  const project = findProject(next, projectId);
+  assertRole(project, profileId, "owner");
+  project.name = requireText(name, "INVALID_PROJECT_NAME", "Project name");
+  project.updatedAt = isoNow(now);
+  return { state: next, project: copy(project) };
+}
+
+export function deleteProject(state, {
+  projectId,
+  profileId = LOCAL_PROFILE_ID,
+} = {}) {
+  const next = copy(validateKnowledgeState(state));
+  const project = findProject(next, projectId);
+  assertRole(project, profileId, "owner");
+  next.projects = next.projects.filter((item) => item.id !== projectId);
+  next.pages = next.pages.filter((page) => page.projectId !== projectId);
+  next.tags = next.tags.filter((tag) => tag.projectId !== projectId);
+  next.history = next.history.filter((entry) => entry.projectId !== projectId);
+  return { state: next, projectId };
+}
+
 export function listPages(state, {
   projectId,
   profileId = LOCAL_PROFILE_ID,

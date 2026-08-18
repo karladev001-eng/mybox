@@ -1,0 +1,20 @@
+{
+  "name": "mybox-sync-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "build": "esbuild src/index.js --bundle --format=esm --platform=neutral --target=es2022 --external:cloudflare:workers --outfile=dist/worker.js",
+    "test": "node --test test/*.test.mjs",
+    "test:live": "node test/integration.mjs"
+  },
+  "dependencies": {
+    "yjs": "13.6.29"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.0",
+    "wrangler": "^4.45.0"
+  }
+}
