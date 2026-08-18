@@ -1,4 +1,5 @@
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
+import { registerAgentHost } from "../core/agent-host-registry.js";
 import { AppHost } from "../core/app-host.js";
 import { MemoryStorageDriver } from "../core/storage.js";
 import {
@@ -32,6 +33,9 @@ const webDriver = new MemoryStorageDriver();
 export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID } = {}) {
   const host = new AppHost({ storageDriver: desktop ? new TauriStorageDriver() : webDriver });
   host.register(createKnowledgeApp());
+  // Lets the assistant panel invoke this App's Operations (ADR 0025) without
+  // holding a private reference to Knowledge's client.
+  registerAgentHost("knowledge", host);
   const invoke = (operationId, input = {}) => host.invoke(operationId, input, {
     actor: { type: "user", id: getProfileId() || LOCAL_PROFILE_ID },
   });

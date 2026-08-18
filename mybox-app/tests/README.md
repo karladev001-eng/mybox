@@ -9,6 +9,13 @@ Contains Node tests for framework behavior and Sites packaging.
 
 - `app-host.test.mjs`: operation/event contracts, agent authorization, auditing,
   app removal, and state isolation.
+- `agent-runtime.test.mjs`: the provider decision loop, Operation grants, and
+  the Confirmation-level approval gate — denied by default above a caller's
+  level, granted through the `onApprovalNeeded` callback with the model's own
+  input previewed first.
+- `agent-host-registry.test.mjs`: registering and forgetting an App's host by
+  ID, and the aggregate host that unions Operations across every registered
+  App and routes a call by its ID's App-prefix.
 - `chat-history.test.mjs`: provider-neutral chat session state, bounded context,
   app-scoped persistence, validated skill/generated-image references, and safe
   model/reasoning/token-usage metadata.

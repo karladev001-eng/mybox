@@ -12,6 +12,9 @@ import {
   sumSessionTokenUsage,
 } from "./core/chat-history.js";
 import { getChatHistoryStore } from "./desktop/chat-history.js";
+import { createAggregateAgentHost, hasRegisteredAgentHosts } from "./core/agent-host-registry.js";
+import { AgentRuntime } from "./core/agent-runtime.js";
+import { getProfilePreferencesStore } from "./desktop/profile-preferences.js";
 import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
 import { createDeviceAppInstallationsStore } from "./desktop/app-installations.js";
 import { getHostUpdaterClient } from "./desktop/app-updater.js";
@@ -454,6 +457,28 @@ function DeviceLoginModal({ login, onClose }) {
 }
 
 /**
+ * The Confirmation-level gate `AgentRuntime` pauses at (ADR 0025) before a
+ * write beyond the User's current level. Shows the exact Operation and input
+ * the model chose, not just its name, so approval is an informed decision.
+ */
+function AgentApprovalModal({ request, onApprove, onReject }) {
+  return (
+    <Modal title="AIがProjectを更新しようとしています" onClose={onReject} className="confirm-modal">
+      <div className="confirm-body">
+        <Robot size={40} weight="duotone" aria-hidden="true" />
+        <p><strong>{request.title}</strong></p>
+        <p className="form-note">{request.reason}</p>
+        <pre className="agent-approval-preview">{JSON.stringify(request.input, null, 2)}</pre>
+        <div className="confirm-actions">
+          <button onClick={onReject}>却下</button>
+          <button className="danger-button" onClick={onApprove}><Robot size={19} />承認して実行</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/**
  * Owns update state once so the Settings row and the corner prompt cannot
  * disagree about what is downloading or ready.
  */
@@ -742,7 +767,8 @@ export function App() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
-  const [surfaceContext, setSurfaceContext] = useState("");
+  const [surfaceContext, setSurfaceContext] = useState(null);
+  const [pendingApproval, setPendingApproval] = useState(null);
   const [aiText, setAiText] = useState("");
   const [toast, setToast] = useState("");
   const [workspace, setWorkspace] = useState(null);
@@ -772,7 +798,7 @@ export function App() {
   const hostUpdater = useHostUpdater(desktop);
 
   const pageTitle = useMemo(() => view === "apps" ? "アプリ" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
-  const assistantContextLabel = surfaceContext || selectedApp?.name || pageTitle || "MyBox";
+  const assistantContextLabel = surfaceContext?.label || selectedApp?.name || pageTitle || "MyBox";
   const activeProviderId = providerSettings.activeProviderId;
   const activeProvider = nativeAgentProviders[activeProviderId] ?? codexSubscriptionProvider;
   const activeProviderName = activeProvider.descriptor.name;
@@ -834,7 +860,7 @@ export function App() {
   }, [toast]);
 
   useEffect(() => {
-    setSurfaceContext(selectedApp?.name ?? "");
+    setSurfaceContext(selectedApp ? { label: selectedApp.name, appId: null, operationContext: null } : null);
   }, [selectedApp]);
 
   useEffect(() => {
@@ -1259,6 +1285,48 @@ export function App() {
     setReasoningSelections((current) => ({ ...current, [activeProviderId]: effort }));
   };
 
+  /** Pauses `AgentRuntime` for a write beyond the User's Confirmation level (ADR 0025). */
+  const requestApproval = (details) => new Promise((resolve) => {
+    setPendingApproval({ ...details, resolve });
+  });
+
+  const resolveApproval = (granted) => {
+    pendingApproval?.resolve(granted);
+    setPendingApproval(null);
+  };
+
+  /**
+   * Runs one chat turn through the Operation-invoking decision loop instead
+   * of free-form generation. Available whenever any installed App has
+   * registered its host (ADR 0025) — not gated to whichever App's View
+   * happens to be open. An open record's identity (Project/Page IDs, current
+   * Blocks) is folded in as additive context when present, not a gate: the
+   * model can still discover one itself through a read Operation.
+   */
+  const runAgentTurn = async ({ request, contextLabel, operationContext }) => {
+    const preferences = await getProfilePreferencesStore().load();
+    const agentHost = createAggregateAgentHost();
+    const runtime = new AgentRuntime({ host: agentHost, providers: { get: () => activeProvider } });
+    const goal = [
+      request,
+      "",
+      `Current MyBox screen: ${contextLabel}.`,
+      operationContext
+        ? [
+          `Open record: Project ID "${operationContext.projectId}", Page ID "${operationContext.pageId}", title "${operationContext.title}", current revision ${operationContext.revision}.`,
+          `Current Blocks (id, type, text): ${JSON.stringify(operationContext.blocks)}`,
+          "When an Operation needs projectId/pageId/expectedRevision for this open record, use exactly the values above. Prefer editing or adding a Block over guessing a new ID that does not exist.",
+        ].join("\n")
+        : "No specific record is open right now. If the request needs one, use a read Operation (list or search) to find it first.",
+    ].join("\n");
+    const runResult = await runtime.run(goal, {
+      confirmationLevel: preferences.confirmationLevel,
+      onApprovalNeeded: requestApproval,
+      grant: { operationIds: ["*"] },
+    });
+    return { text: runResult.message };
+  };
+
   const sendChatMessage = async (text, { openChat = true, contextLabel = null } = {}) => {
     const request = text.trim();
     if (!request || agentBusy) return;
@@ -1305,16 +1373,24 @@ export function App() {
       }
       const session = workingHistory.sessions.find((item) => item.id === sessionId);
       const conversationPrompt = buildConversationPrompt(session);
-      const result = await activeProvider.generate({
-        prompt: contextLabel
-          ? `Current MyBox screen: ${contextLabel}. Use this label only as interface context; do not assume access to data or operations that were not explicitly provided.\n\n${conversationPrompt}`
-          : conversationPrompt,
-        model: selectedModelId || undefined,
-        reasoningEffort: selectedReasoningEffort || undefined,
-        webSearch: webSearchSupported && webSearchEnabled && !imageGenerationEnabled,
-        imageGeneration: imageGenerationSupported && imageGenerationEnabled,
-        skillIds: skillsSupported ? selectedSkillIds : [],
-      });
+
+      // Available once any installed App has registered its host (ADR
+      // 0025), regardless of which screen is open. Image generation is an
+      // explicit per-turn opt-in the Operation loop cannot serve, so a User
+      // who turned it on for this message keeps the free-form path instead.
+      const useAgentTurn = hasRegisteredAgentHosts() && !(imageGenerationSupported && imageGenerationEnabled);
+      const result = useAgentTurn
+        ? await runAgentTurn({ request, contextLabel: assistantContextLabel, operationContext: surfaceContext?.operationContext ?? null })
+        : await activeProvider.generate({
+          prompt: contextLabel
+            ? `Current MyBox screen: ${contextLabel}. Use this label only as interface context; do not assume access to data or operations that were not explicitly provided.\n\n${conversationPrompt}`
+            : conversationPrompt,
+          model: selectedModelId || undefined,
+          reasoningEffort: selectedReasoningEffort || undefined,
+          webSearch: webSearchSupported && webSearchEnabled && !imageGenerationEnabled,
+          imageGeneration: imageGenerationSupported && imageGenerationEnabled,
+          skillIds: skillsSupported ? selectedSkillIds : [],
+        });
       workingHistory = appendChatMessage(workingHistory, sessionId, {
         role: "assistant",
         content: result.text,
@@ -1488,6 +1564,7 @@ export function App() {
         onSend={(text) => sendChatMessage(text, { openChat: false, contextLabel: assistantContextLabel })}
       />}
       {pendingDelete && <Modal title="アプリを削除" onClose={() => setPendingDelete(null)} className="confirm-modal"><div className="confirm-body"><AppGlyph icon={pendingDelete.icon} color={pendingDelete.color} size={52} /><p><strong>{pendingDelete.name}</strong>をMyBoxから削除しますか？</p><div className="confirm-actions"><button onClick={() => setPendingDelete(null)}>キャンセル</button><button className="danger-button" onClick={deleteApp}><Trash size={19} />削除</button></div></div></Modal>}
+      {pendingApproval && <AgentApprovalModal request={pendingApproval} onApprove={() => resolveApproval(true)} onReject={() => resolveApproval(false)} />}
       <UpdatePrompt updater={hostUpdater} />
       {deviceLogin && <DeviceLoginModal login={deviceLogin} onClose={cancelSignIn} />}
       {providerModal === "openai" && <OpenAiConfigModal settings={providerSettings.openaiApi} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveOpenAi} onDisconnect={removeOpenAi} />}

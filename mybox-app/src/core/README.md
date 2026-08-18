@@ -9,7 +9,15 @@ contract described in `../../../docs/app-framework.md`.
 - `agent-provider.js`: provider descriptor validation and replaceable provider
   registry.
 - `agent-runtime.js`: structured agent loop that invokes apps only through the
-  host operation boundary.
+  host operation boundary, gating a write against the caller-supplied
+  Confirmation level and pausing for approval before it runs
+  ([ADR 0025](../../../docs/adr/0025-agent-operations-from-the-assistant-panel.md)).
+- `agent-host-registry.js`: maps an App ID to the live `AppHost` its own
+  `client.js` already constructed, so the assistant panel can invoke that
+  App's Operations without holding a private reference to every App.
+  `createAggregateAgentHost()` unions every registered host's Operations and
+  routes a call by its ID's App-prefix, so all of them are available from any
+  screen rather than only while that App's own View is open.
 - `chat-history.js`: provider-neutral AI chat sessions, bounded context building,
   and the app-scoped persistence contract.
 - `profile-preferences.js`: validated device-local profile preferences, including

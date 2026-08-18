@@ -26,6 +26,18 @@ export const CONFIRMATION_CLASSES = Object.freeze([
   "always-confirm",
 ]);
 
+/**
+ * Whether a non-user caller needs fresh, per-call approval before an
+ * Operation of this Confirmation class runs at this Confirmation level.
+ * Mirrors the comparison `app-host.js`'s `defaultAuthorize` already makes, so
+ * a caller (such as `agent-runtime.js`) can ask before attempting a call
+ * instead of only learning it needed approval from a thrown error.
+ */
+export function operationNeedsApproval(confirmationClass, confirmationLevel) {
+  if (confirmationClass === "always-confirm") return true;
+  return CONFIRMATION_LEVELS.indexOf(confirmationClass) > CONFIRMATION_LEVELS.indexOf(confirmationLevel);
+}
+
 const APP_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 const CAPABILITY_ID_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/;
 

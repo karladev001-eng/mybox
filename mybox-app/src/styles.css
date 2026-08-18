@@ -840,6 +840,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .confirm-actions button { min-height: 44px; padding: 0 16px; border: 1px solid #42474e; border-radius: 10px; background: #292d31; }
 .confirm-actions .danger-button { display: inline-flex; align-items: center; gap: 8px; border-color: #8f403e; color: #fff; background: #9e4542; }
+.agent-approval-preview { max-height: 220px; margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); overflow: auto; color: var(--text); background: #141618; font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
 
 .toast { position: fixed; right: 24px; bottom: 126px; z-index: 60; max-width: min(460px, calc(100vw - 48px)); min-height: 48px; padding: 11px 16px; border: 1px solid #39645c; border-radius: 12px; background: #20342f; color: #eafbf7; display: flex; align-items: center; gap: 9px; box-shadow: 0 16px 42px rgba(0,0,0,.35); }
 

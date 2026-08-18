@@ -1,4 +1,5 @@
 import { AgentProviderError } from "./agent-provider.js";
+import { operationNeedsApproval } from "./app-contract.js";
 
 const DECISION_SCHEMA = Object.freeze({
   type: "object",
@@ -67,18 +68,22 @@ export class AgentRuntime {
     agentId = "mybox-assistant",
     grant,
     approval,
+    confirmationLevel = "review",
+    onApprovalNeeded,
     maxSteps = 8,
   } = {}) {
     if (typeof goal !== "string" || !goal.trim()) throw new TypeError("Agent goal is required");
     if (!Number.isInteger(maxSteps) || maxSteps < 1 || maxSteps > 32) throw new TypeError("maxSteps must be between 1 and 32");
 
     const provider = this.#providers.get(providerId);
-    const operations = this.#host.listOperations({ callerType: "agent" }).map((operation) => ({
+    const declarations = this.#host.listOperations({ callerType: "agent" });
+    const operations = declarations.map((operation) => ({
       id: operation.id,
       title: operation.title,
       effect: operation.effect,
       inputSchema: operation.inputSchema,
     }));
+    const declarationById = new Map(declarations.map((operation) => [operation.id, operation]));
     const allowedIds = new Set(operations.map(({ id }) => id));
     const observations = [];
 
@@ -96,11 +101,34 @@ export class AgentRuntime {
         throw new AgentProviderError("INVALID_AGENT_DECISION", "Provider requested an unavailable or malformed operation", { decision });
       }
 
+      const declaration = declarationById.get(decision.operationId);
+      const reason = typeof decision.reason === "string" ? decision.reason : goal.trim();
+
+      // Ask before attempting the call, not only after AppHost's own
+      // authorization rejects it — the panel can then show the exact input
+      // the model chose rather than a bare "confirmation required" error.
+      let stepApproval = approval;
+      if (operationNeedsApproval(declaration.confirmationClass, confirmationLevel)) {
+        const granted = typeof onApprovalNeeded === "function" && await onApprovalNeeded({
+          operationId: decision.operationId,
+          title: declaration.title,
+          effect: declaration.effect,
+          confirmationClass: declaration.confirmationClass,
+          input: decision.input,
+          reason,
+        });
+        if (!granted) {
+          observations.push({ operationId: decision.operationId, output: { error: "APPROVAL_DENIED" } });
+          continue;
+        }
+        stepApproval = { granted: true, fresh: true };
+      }
+
       const output = await this.#host.invoke(decision.operationId, decision.input, {
         actor: { type: "agent", id: agentId },
         grant,
-        approval,
-        reason: typeof decision.reason === "string" ? decision.reason : goal.trim(),
+        approval: stepApproval,
+        reason,
       });
       observations.push({ operationId: decision.operationId, output });
     }

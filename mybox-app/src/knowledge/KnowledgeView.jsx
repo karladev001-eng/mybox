@@ -1575,10 +1575,22 @@ export function KnowledgeView({
   const selectedListPage = pages.find((page) => page.id === selectedPageId);
 
   useEffect(() => {
-    onContextChange?.(pageData?.page
-      ? `${currentProject?.name ?? "Project"} / ${pageData.page.title}`
-      : currentProject?.name ?? "Note");
-  }, [currentProject?.name, onContextChange, pageData?.page?.title]);
+    const page = pageData?.page;
+    onContextChange?.({
+      label: page ? `${currentProject?.name ?? "Project"} / ${page.title}` : currentProject?.name ?? "Note",
+      // Only a specific open Page carries enough identity (Project ID, Page
+      // ID, revision) for the assistant to construct valid Operation input;
+      // browsing a Project list alone reports a label but no context (ADR 0025).
+      appId: page ? "knowledge" : null,
+      operationContext: page ? {
+        projectId: page.projectId,
+        pageId: page.id,
+        title: page.title,
+        revision: page.revision,
+        blocks: page.blocks.map((block) => ({ id: block.id, type: block.type, text: block.text })),
+      } : null,
+    });
+  }, [currentProject?.name, onContextChange, pageData?.page?.id, pageData?.page?.title, pageData?.page?.revision, pageData?.page?.blocks]);
 
   if (!persistenceReady) {
     return (

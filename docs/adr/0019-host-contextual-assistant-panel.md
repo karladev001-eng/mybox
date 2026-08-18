@@ -35,6 +35,9 @@ AI assistance stays available without replacing the current App workflow, while
 chat ownership and authority remain centralized. Future operation-aware context
 can extend the Host contract without giving the panel or provider direct access
 to App storage.
+[ADR 0025](0025-agent-operations-from-the-assistant-panel.md) is that
+extension: the label this ADR introduced grows into a structured context an
+App can opt into, gated by the User's Confirmation level.
 
 ## Implementation notes
 

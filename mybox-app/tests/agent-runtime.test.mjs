@@ -12,30 +12,54 @@ function createEchoApp() {
       id: "echo",
       name: "Echo",
       version: "0.1.0",
-      operations: [{
-        id: "echo.read",
-        title: "Read a value",
-        effect: "read",
-        confirmationClass: "review",
-        callers: ["agent"],
-        inputSchema: {
-          type: "object",
-          required: ["value"],
-          additionalProperties: false,
-          properties: { value: { type: "string" } },
+      operations: [
+        {
+          id: "echo.read",
+          title: "Read a value",
+          effect: "read",
+          confirmationClass: "review",
+          callers: ["agent"],
+          inputSchema: {
+            type: "object",
+            required: ["value"],
+            additionalProperties: false,
+            properties: { value: { type: "string" } },
+          },
+          outputSchema: {
+            type: "object",
+            required: ["value"],
+            additionalProperties: false,
+            properties: { value: { type: "string" } },
+          },
         },
-        outputSchema: {
-          type: "object",
-          required: ["value"],
-          additionalProperties: false,
-          properties: { value: { type: "string" } },
+        {
+          id: "echo.write",
+          title: "Write a value",
+          effect: "write",
+          confirmationClass: "recoverable",
+          callers: ["agent"],
+          inputSchema: {
+            type: "object",
+            required: ["value"],
+            additionalProperties: false,
+            properties: { value: { type: "string" } },
+          },
+          outputSchema: {
+            type: "object",
+            required: ["written"],
+            additionalProperties: false,
+            properties: { written: { type: "boolean" } },
+          },
         },
-      }],
+      ],
       events: [],
     },
     handlers: {
       async "echo.read"(input) {
         return input;
+      },
+      async "echo.write"() {
+        return { written: true };
       },
     },
   });
@@ -110,4 +134,74 @@ test("rejects a provider decision that is not exposed to agents", async () => {
     runtime.run("private file", { providerId: "unsafe-fixture" }),
     (error) => error.code === "INVALID_AGENT_DECISION",
   );
+});
+
+test("a write beyond the Confirmation level is denied without an approval callback, and the agent can still respond", async () => {
+  const host = new AppHost();
+  host.register(createEchoApp());
+  const decisions = [
+    { type: "invoke", operationId: "echo.write", input: { value: "hello" }, reason: "try to write" },
+    { type: "respond", message: "書き込みは許可されませんでした" },
+  ];
+  const registry = new AgentProviderRegistry();
+  registry.register({
+    descriptor: {
+      id: "subscription-fixture",
+      name: "Subscription fixture",
+      kind: "subscription",
+      authMode: "chatgpt",
+      capabilities: { text: true, structuredOutput: true },
+    },
+    getStatus: async () => ({ connected: true, planType: "plus" }),
+    generate: async () => ({ data: decisions.shift() }),
+  });
+
+  const runtime = new AgentRuntime({ host, providers: registry });
+  const result = await runtime.run("値を書き込む", {
+    providerId: "subscription-fixture",
+    grant: { operationIds: ["*"] },
+    // confirmationLevel defaults to "review", below echo.write's "recoverable"
+  });
+
+  assert.equal(result.message, "書き込みは許可されませんでした");
+  assert.deepEqual(result.observations, [{ operationId: "echo.write", output: { error: "APPROVAL_DENIED" } }]);
+});
+
+test("a write beyond the Confirmation level runs once the approval callback grants it, with the model's own input previewed", async () => {
+  const host = new AppHost();
+  host.register(createEchoApp());
+  const decisions = [
+    { type: "invoke", operationId: "echo.write", input: { value: "hello" }, reason: "try to write" },
+    { type: "respond", message: "書き込みました" },
+  ];
+  const registry = new AgentProviderRegistry();
+  registry.register({
+    descriptor: {
+      id: "subscription-fixture",
+      name: "Subscription fixture",
+      kind: "subscription",
+      authMode: "chatgpt",
+      capabilities: { text: true, structuredOutput: true },
+    },
+    getStatus: async () => ({ connected: true, planType: "plus" }),
+    generate: async () => ({ data: decisions.shift() }),
+  });
+
+  const seenApprovalRequests = [];
+  const runtime = new AgentRuntime({ host, providers: registry });
+  const result = await runtime.run("値を書き込む", {
+    providerId: "subscription-fixture",
+    grant: { operationIds: ["*"] },
+    onApprovalNeeded: async (details) => {
+      seenApprovalRequests.push(details);
+      return true;
+    },
+  });
+
+  assert.equal(result.message, "書き込みました");
+  assert.deepEqual(result.observations, [{ operationId: "echo.write", output: { written: true } }]);
+  assert.equal(seenApprovalRequests.length, 1);
+  assert.equal(seenApprovalRequests[0].operationId, "echo.write");
+  assert.deepEqual(seenApprovalRequests[0].input, { value: "hello" });
+  assert.equal(seenApprovalRequests[0].confirmationClass, "recoverable");
 });

@@ -10,7 +10,9 @@ Implements the first vertical slice of the `knowledge` App described in
   only file in this directory allowed to import a `../desktop/*` bridge
   module (profile preferences, sync endpoints, Tauri storage); `KnowledgeView`
   and every other file here call its wrapper methods instead, per
-  `docs/app-authoring.md`.
+  `docs/app-authoring.md`. Also registers its `AppHost` into
+  `core/agent-host-registry.js` so the assistant panel can invoke this App's
+  Operations ([ADR 0025](../../../docs/adr/0025-agent-operations-from-the-assistant-panel.md)).
 - `KnowledgeView.jsx`: accessible desktop knowledge workspace.
 - `editor-behavior.js`: pure Markdown conversion and grouped-list editing rules.
 - `yjs-document.js`: the shared representation of a Project. Applies the same
