@@ -845,12 +845,17 @@ function BlockRow({
     <article
       className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}`}
       onDragOver={(event) => {
-        if (readOnly) return;
+        // A real OS file drag also fires this on every Block underneath it;
+        // claiming it here (as reorder-drag handling already did
+        // unconditionally) tells the WebView the drop is handled and Tauri's
+        // native file-drop event never fires. Only intercept an in-page
+        // reorder drag, which carries no "Files" type.
+        if (readOnly || event.dataTransfer?.types?.includes("Files")) return;
         event.preventDefault();
         onDragEnterBlock?.(block.id);
       }}
       onDrop={(event) => {
-        if (readOnly) return;
+        if (readOnly || event.dataTransfer?.types?.includes("Files")) return;
         event.preventDefault();
         onDropBlock?.(block.id);
       }}
@@ -1369,6 +1374,17 @@ export function KnowledgeView({
       setError(String(nextError?.message ?? nextError));
     }
   };
+
+  useEffect(() => {
+    // `paste` only reaches a listener on the DOM subtree the focused element
+    // bubbles through; with no Block focused there may be nothing under
+    // `.knowledge-blocks` to bubble from at all. A document-level listener,
+    // active only while an editable Page is actually open, catches a paste
+    // regardless of what (if anything) currently has focus.
+    if (!desktop || readOnly || !pageData?.page) return undefined;
+    document.addEventListener("paste", pasteImage);
+    return () => document.removeEventListener("paste", pasteImage);
+  }, [desktop, readOnly, pageData?.page, pasteImage]);
 
   useEffect(() => {
     if (!desktop) return undefined;
@@ -1895,7 +1911,7 @@ export function KnowledgeView({
 
               {pageState === "trash" && <div className="knowledge-trash-notice"><Trash size={19} aria-hidden="true" /><div><strong>このPageはTrashにあります</strong><p>内容は読み取り専用です。編集するには復元してください。</p></div></div>}
 
-              <div className="knowledge-blocks" aria-label={`${pageTitle}のBlocks`} onPaste={desktop && !readOnly ? pasteImage : undefined}>
+              <div className="knowledge-blocks" aria-label={`${pageTitle}のBlocks`}>
                 {pageData.page.blocks.map((block, index) => (
                   <BlockRow
                     key={block.id}
