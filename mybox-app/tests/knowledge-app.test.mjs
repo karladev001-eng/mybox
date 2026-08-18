@@ -300,6 +300,15 @@ test("converts a $$ marker into an empty math Block", () => {
   assert.deepEqual(markdownConversion("$$"), { text: "", blockType: "math", checked: false });
 });
 
+test("converts a bare URL into a url-embed Block, but not a sentence merely containing one", () => {
+  assert.deepEqual(
+    markdownConversion("https://example.com/path?x=1"),
+    { text: "https://example.com/path?x=1", blockType: "url-embed", checked: false },
+  );
+  assert.equal(markdownConversion("https://example.com is a great site"), null);
+  assert.equal(markdownConversion("see https://example.com"), null);
+});
+
 test("tokenizes bold, italic, underline, strike, color, math, and PageLink segments", () => {
   const nodes = buildInlineNodes(
     "start **bold** *italic* __under__ ~~gone~~ %%#ff0000;red%% $x^2$ [[Target Page]] end",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowSquareOut,
   ArrowUDownLeft,
   CaretRight,
   Check,
@@ -93,6 +94,7 @@ const blockLabels = Object.freeze({
   code: "コード",
   divider: "区切り",
   math: "数式",
+  "url-embed": "URL",
 });
 
 function displayError(error) {
@@ -108,6 +110,15 @@ function displayError(error) {
 
 function normalized(value) {
   return value.trim().normalize("NFKC").toLocaleLowerCase("ja-JP");
+}
+
+/** The card shows a hostname even for a URL too malformed to open; `text` is untrusted input. */
+function urlHost(value) {
+  try {
+    return new URL(value).host;
+  } catch {
+    return value;
+  }
 }
 
 function formatDate(value) {
@@ -596,6 +607,7 @@ function BlockRow({
   onAddAfter,
   onRemove,
   onOpenPage,
+  onOpenUrl,
   onAutoEditHandled,
   isDragging,
   isDragOver,
@@ -613,7 +625,7 @@ function BlockRow({
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 });
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const textareaRef = useRef(null);
-  const canFormat = editing && !readOnly && blockType !== "code" && blockType !== "math" && blockType !== "divider";
+  const canFormat = editing && !readOnly && blockType !== "code" && blockType !== "math" && blockType !== "divider" && blockType !== "url-embed";
   const hasSelection = canFormat && selectionRange.end > selectionRange.start;
 
   useEffect(() => {
@@ -784,7 +796,16 @@ function BlockRow({
       ? <pre>{block.text || "code"}</pre>
       : blockType === "math"
         ? <InlineMath source={block.text} display />
-        : blockType === "bulleted-list"
+        : blockType === "url-embed"
+          ? (block.text
+            ? (
+              <button type="button" className="knowledge-url-embed" onClick={() => onOpenUrl(block.text)}>
+                <ArrowSquareOut size={16} aria-hidden="true" />
+                <span><strong>{urlHost(block.text)}</strong><small>{block.text}</small></span>
+              </button>
+            )
+            : <span className="knowledge-empty-copy">URLを入力</span>)
+          : blockType === "bulleted-list"
           ? <ul className="knowledge-structured-list">{listItems.map(renderListItem)}</ul>
           : blockType === "numbered-list"
             ? <ol className="knowledge-structured-list">{listItems.map(renderListItem)}</ol>
@@ -943,6 +964,7 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
   const [labels, setLabels] = useState(tags);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const inputRef = useRef(null);
 
   const commitLabels = (nextLabels) => {
@@ -984,39 +1006,65 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
               ref={inputRef}
               value={draft}
               placeholder={labels.length ? "" : "例：設計, アイデア"}
+              role="combobox"
+              aria-expanded={open && filteredCandidates.length > 0}
+              aria-controls="knowledge-tag-picker"
               onChange={(event) => {
                 setDraft(event.target.value);
                 setOpen(true);
+                setHighlightedIndex(-1);
               }}
               onFocus={() => setOpen(true)}
               onKeyDown={(event) => {
+                const hasHighlight = open && highlightedIndex >= 0 && filteredCandidates[highlightedIndex];
+                if (event.key === "Tab" && open && filteredCandidates.length > 0) {
+                  // Cycles the picker so an existing Tag can be reached without the mouse; Space commits it below.
+                  event.preventDefault();
+                  setHighlightedIndex((current) => (event.shiftKey
+                    ? (current <= 0 ? filteredCandidates.length - 1 : current - 1)
+                    : (current + 1) % filteredCandidates.length));
+                  return;
+                }
+                if (event.key === " ") {
+                  if (!draft.trim() && !hasHighlight) return;
+                  event.preventDefault();
+                  addLabel(hasHighlight ? filteredCandidates[highlightedIndex].label : draft);
+                  setHighlightedIndex(-1);
+                  return;
+                }
                 if (event.key === "Enter" || event.key === ",") {
                   event.preventDefault();
-                  addLabel(draft);
+                  addLabel(hasHighlight ? filteredCandidates[highlightedIndex].label : draft);
+                  setHighlightedIndex(-1);
                 } else if (event.key === "Backspace" && !draft && labels.length) {
                   removeLabel(labels[labels.length - 1]);
                 } else if (event.key === "Escape") {
                   setOpen(false);
+                  setHighlightedIndex(-1);
                 }
               }}
               onBlur={(event) => {
                 if (event.relatedTarget?.closest?.(".knowledge-tag-picker")) return;
                 if (draft.trim()) addLabel(draft);
                 setOpen(false);
+                setHighlightedIndex(-1);
               }}
             />
           )}
         </div>
         {!readOnly && open && filteredCandidates.length > 0 && (
-          <div className="knowledge-tag-picker" role="listbox" aria-label="既存のTag">
-            {filteredCandidates.map((tag) => (
+          <div id="knowledge-tag-picker" className="knowledge-tag-picker" role="listbox" aria-label="既存のTag">
+            {filteredCandidates.map((tag, index) => (
               <button
                 key={tag.id}
                 type="button"
                 role="option"
+                aria-selected={index === highlightedIndex}
                 onMouseDown={(event) => event.preventDefault()}
+                onMouseEnter={() => setHighlightedIndex(index)}
                 onClick={() => {
                   addLabel(tag.label);
+                  setHighlightedIndex(-1);
                   inputRef.current?.focus();
                 }}
               >
@@ -1790,6 +1838,7 @@ export function KnowledgeView({
                     onAddAfter={addBlockAfter}
                     onRemove={(blockId) => runMutation({ type: "block-remove", blockId })}
                     onOpenPage={(targetId) => selectPage(projectId, targetId)}
+                    onOpenUrl={(url) => client.openExternalUrl(url)}
                     onAutoEditHandled={() => setAutoEditBlockId(null)}
                     isDragging={dragBlockId === block.id}
                     isDragOver={dragOverBlockId === block.id && dragBlockId !== block.id}

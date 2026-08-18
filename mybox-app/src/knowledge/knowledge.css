@@ -332,6 +332,13 @@
 .knowledge-inline-link { min-height: 26px; margin: 0 2px; padding: 1px 5px; border: 0; border-radius: 5px; display: inline-flex; align-items: center; gap: 3px; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); vertical-align: baseline; }
 .knowledge-inline-link:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); text-decoration: underline; }
 
+.knowledge-url-embed { width: 100%; min-height: 52px; padding: 10px 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); display: flex; align-items: center; gap: 10px; color: var(--text); background: var(--surface); text-align: left; }
+.knowledge-url-embed:hover { border-color: var(--accent); background: var(--surface-hover); }
+.knowledge-url-embed svg { flex-shrink: 0; color: var(--accent); }
+.knowledge-url-embed > span { min-width: 0; display: grid; gap: 2px; }
+.knowledge-url-embed strong { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.knowledge-url-embed small { overflow: hidden; color: var(--subtle); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+
 .knowledge-block.type-heading-1 .knowledge-block-preview,
 .knowledge-block.type-heading-1 textarea { font-size: 27px; font-weight: 700; line-height: 1.35; letter-spacing: -.025em; }
 .knowledge-block.type-heading-2 .knowledge-block-preview,
@@ -498,7 +505,8 @@
 .knowledge-tag-chip button:hover { color: var(--text); background: color-mix(in srgb, var(--danger) 30%, transparent); }
 .knowledge-tag-picker { position: absolute; left: 0; top: calc(100% + 4px); z-index: 25; width: min(320px, 100%); max-height: 260px; padding: 5px; border: 1px solid var(--line-strong); border-radius: var(--radius-popup); background: var(--surface-elevated); box-shadow: var(--shadow-popup); overflow: auto; }
 .knowledge-tag-picker > button { width: 100%; min-height: 36px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm); display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; align-items: center; gap: 8px; color: var(--muted); background: transparent; text-align: left; font-size: 12px; }
-.knowledge-tag-picker > button:hover { color: var(--text); background: var(--surface-strong); }
+.knowledge-tag-picker > button:hover,
+.knowledge-tag-picker > button[aria-selected="true"] { color: var(--text); background: var(--surface-strong); }
 .knowledge-tag-picker small { color: var(--subtle); font-size: 10px; }
 
 @media (prefers-reduced-motion: reduce) {

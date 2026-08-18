@@ -26,6 +26,10 @@ must only be called when `isDesktopRuntime()` returns true.
   redeploying, or deleting the group's sync server Worker. The token never
   crosses back over this bridge once stored, staying unsupported in the Web
   preview like the other native-only credential flows here.
+- `open-url.js`: opens a link in the User's own browser through Tauri's opener
+  plugin, since the WebView ignores `target="_blank"`. Falls back to
+  `window.open` in the Web preview rather than staying unsupported, because it
+  has no credential or native-only concern to gate on.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

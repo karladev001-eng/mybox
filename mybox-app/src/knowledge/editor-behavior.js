@@ -1,4 +1,7 @@
 const groupedListTypes = new Set(["bulleted-list", "numbered-list"]);
+// Deliberately permissive on the domain/path shape; this only decides when to
+// switch the Block into an embed card, not whether the URL is reachable.
+const BARE_URL_PATTERN = /^https?:\/\/\S+$/;
 
 export function markdownConversion(value) {
   const rules = [
@@ -17,6 +20,10 @@ export function markdownConversion(value) {
   }
   if (value === "---") return { text: "", blockType: "divider", checked: false };
   if (value === "$$") return { text: "", blockType: "math", checked: false };
+  // Exact match, like the two rules above: only the whole field being a bare
+  // URL converts it, so typing a sentence that happens to start with one
+  // never triggers this mid-word.
+  if (BARE_URL_PATTERN.test(value.trim())) return { text: value.trim(), blockType: "url-embed", checked: false };
   return null;
 }
 

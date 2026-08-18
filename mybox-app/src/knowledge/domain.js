@@ -15,6 +15,7 @@ export const BLOCK_TYPES = Object.freeze([
   "code",
   "divider",
   "math",
+  "url-embed",
 ]);
 
 const ROLE_RANK = Object.freeze({ viewer: 1, editor: 2, owner: 3 });

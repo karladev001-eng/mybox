@@ -9,6 +9,7 @@ import {
   deploySyncServer,
   setCloudflareCredentials,
 } from "../desktop/cloudflare.js";
+import { openExternalUrl } from "../desktop/open-url.js";
 import { getProfilePreferencesStore } from "../desktop/profile-preferences.js";
 import {
   connectSyncEndpoint,
@@ -83,5 +84,6 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     clearCloudflareCredentials: () => clearCloudflareCredentials(),
     deploySyncServer: () => deploySyncServer(),
     deleteSyncServer: () => deleteSyncServer(),
+    openExternalUrl: (url) => openExternalUrl(url),
   });
 }
