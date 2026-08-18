@@ -30,11 +30,13 @@ must only be called when `isDesktopRuntime()` returns true.
   plugin, since the WebView ignores `target="_blank"`. Falls back to
   `window.open` in the Web preview rather than staying unsupported, because it
   has no credential or native-only concern to gate on.
-- `knowledge-images.js`: opens a native file picker limited to images and
-  stores the chosen file under the Knowledge App's own private resource
-  namespace, mirroring how the AI chat's generated images are stored
-  (`src-tauri/src/knowledge_resources.rs`, `codex.rs`). The frontend only ever
-  sees an opaque resource ID, never a filesystem path.
+- `knowledge-images.js`: opens a native file picker limited to images, stores
+  a chosen, dropped, or pasted image under the Knowledge App's own private
+  resource namespace, and watches window-wide native drag-drop events for
+  images while a caller keeps the watch active — mirroring how the AI chat's
+  generated images are stored (`src-tauri/src/knowledge_resources.rs`,
+  `codex.rs`). The frontend only ever sees an opaque resource ID, never a
+  filesystem path.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

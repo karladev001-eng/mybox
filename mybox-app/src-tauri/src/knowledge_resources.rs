@@ -21,22 +21,20 @@ fn validate_image_resource_id(resource_id: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Reads the file at the path the User's own OS file dialog returned — the
-/// same pattern `open_workspace` already uses for a chosen directory — and
-/// copies its bytes into this App's private resource namespace, returning an
-/// opaque resource ID rather than the path. The frontend never receives a
-/// filesystem path for a stored image, only this ID.
-#[tauri::command]
-pub fn store_knowledge_image(app: AppHandle, path: String) -> Result<String, String> {
-    let bytes = fs::read(&path).map_err(|error| format!("画像を読み込めません：{error}"))?;
+/// Validates and copies image bytes into this App's private resource
+/// namespace, returning an opaque resource ID rather than a path. Shared by
+/// the path-based and bytes-based commands below so a picked file, a
+/// dropped file, and a pasted clipboard image all land through the same
+/// checks.
+fn persist_image_bytes(app: &AppHandle, bytes: &[u8]) -> Result<String, String> {
     if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
         return Err("画像のサイズが大きすぎます（上限25MB）".to_string());
     }
     let (_, extension) =
-        detect_image(&bytes).ok_or_else(|| "対応していない画像形式です（PNG・JPEG・WebPのみ）".to_string())?;
+        detect_image(bytes).ok_or_else(|| "対応していない画像形式です（PNG・JPEG・WebPのみ）".to_string())?;
     let resource_id = format!("{}.{extension}", uuid::Uuid::new_v4());
     let key = format!("resources/images/{resource_id}");
-    let destination = crate::workspace::app_value_path(&app, APP_ID, &key)?;
+    let destination = crate::workspace::app_value_path(app, APP_ID, &key)?;
     let parent = destination
         .parent()
         .ok_or_else(|| "画像の保存先が不正です".to_string())?;
@@ -44,7 +42,7 @@ pub fn store_knowledge_image(app: AppHandle, path: String) -> Result<String, Str
     let mut temporary = tempfile::NamedTempFile::new_in(parent)
         .map_err(|error| format!("画像の一時ファイルを作成できません：{error}"))?;
     temporary
-        .write_all(&bytes)
+        .write_all(bytes)
         .map_err(|error| format!("画像を保存できません：{error}"))?;
     temporary
         .as_file()
@@ -54,6 +52,27 @@ pub fn store_knowledge_image(app: AppHandle, path: String) -> Result<String, Str
         .persist(&destination)
         .map_err(|error| format!("画像を確定できません：{}", error.error))?;
     Ok(resource_id)
+}
+
+/// Reads the file at the path the User's own OS file dialog or a native
+/// drag-drop event returned — the same pattern `open_workspace` already
+/// uses for a chosen directory — and stores it. The frontend never receives
+/// a filesystem path for a stored image, only its resource ID.
+#[tauri::command]
+pub fn store_knowledge_image(app: AppHandle, path: String) -> Result<String, String> {
+    let bytes = fs::read(&path).map_err(|error| format!("画像を読み込めません：{error}"))?;
+    persist_image_bytes(&app, &bytes)
+}
+
+/// Stores a pasted clipboard image, which has no filesystem path to read —
+/// the WebView already decoded it to bytes before this call. `data` is a
+/// plain base64 payload, not a `data:` URI.
+#[tauri::command]
+pub fn store_knowledge_image_bytes(app: AppHandle, data: String) -> Result<String, String> {
+    let bytes = BASE64_STANDARD
+        .decode(data.as_bytes())
+        .map_err(|error| format!("画像データを解釈できません：{error}"))?;
+    persist_image_bytes(&app, &bytes)
 }
 
 /// Returns a stored image as a data URI. Never a path: the WebView loads the

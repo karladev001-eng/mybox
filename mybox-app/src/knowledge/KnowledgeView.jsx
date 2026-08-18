@@ -1334,16 +1334,51 @@ export function KnowledgeView({
     if (added) setAutoEditBlockId(added.id);
   };
 
+  /** Shared by the picker, native OS drop, and clipboard paste — each only differs in how it gets a resource ID. */
+  const insertImageBlock = (resourceId) => {
+    const afterBlockId = pageRef.current?.blocks.at(-1)?.id;
+    return runMutation({ type: "block-add", afterBlockId, blockType: "image", text: resourceId }, "画像を追加しました");
+  };
+
   const addImageBlock = async () => {
     try {
       const resourceId = await client.pickImage();
       if (!resourceId) return;
-      const afterBlockId = pageRef.current?.blocks.at(-1)?.id;
-      await runMutation({ type: "block-add", afterBlockId, blockType: "image", text: resourceId }, "画像を追加しました");
+      await insertImageBlock(resourceId);
     } catch (nextError) {
       setError(String(nextError?.message ?? nextError));
     }
   };
+
+  const pasteImage = async (event) => {
+    const item = [...(event.clipboardData?.items ?? [])].find((entry) => entry.type.startsWith("image/"));
+    if (!item) return;
+    event.preventDefault();
+    try {
+      const file = item.getAsFile();
+      if (!file) return;
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(file);
+      });
+      const resourceId = await client.storeImageBytes(base64);
+      await insertImageBlock(resourceId);
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    }
+  };
+
+  useEffect(() => {
+    if (!desktop) return undefined;
+    // Native drag-drop is webview-wide, not scoped to the blocks list, so
+    // this only watches for as long as Knowledge itself is open.
+    return client.watchDroppedImages(
+      (resourceId) => { insertImageBlock(resourceId); },
+      (dropError) => setError(String(dropError?.message ?? dropError)),
+    );
+  }, [desktop, client]);
 
   const refreshSyncEndpoints = async () => {
     const endpoints = await client.listSync();
@@ -1860,7 +1895,7 @@ export function KnowledgeView({
 
               {pageState === "trash" && <div className="knowledge-trash-notice"><Trash size={19} aria-hidden="true" /><div><strong>このPageはTrashにあります</strong><p>内容は読み取り専用です。編集するには復元してください。</p></div></div>}
 
-              <div className="knowledge-blocks" aria-label={`${pageTitle}のBlocks`}>
+              <div className="knowledge-blocks" aria-label={`${pageTitle}のBlocks`} onPaste={desktop && !readOnly ? pasteImage : undefined}>
                 {pageData.page.blocks.map((block, index) => (
                   <BlockRow
                     key={block.id}

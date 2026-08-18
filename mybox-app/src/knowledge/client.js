@@ -9,7 +9,12 @@ import {
   deploySyncServer,
   setCloudflareCredentials,
 } from "../desktop/cloudflare.js";
-import { pickKnowledgeImage, readKnowledgeImage } from "../desktop/knowledge-images.js";
+import {
+  pickKnowledgeImage,
+  readKnowledgeImage,
+  storeKnowledgeImageBytes,
+  watchDroppedKnowledgeImages,
+} from "../desktop/knowledge-images.js";
 import { openExternalUrl } from "../desktop/open-url.js";
 import { getProfilePreferencesStore } from "../desktop/profile-preferences.js";
 import {
@@ -88,5 +93,7 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     openExternalUrl: (url) => openExternalUrl(url),
     pickImage: () => pickKnowledgeImage(),
     readImage: (resourceId) => readKnowledgeImage(resourceId),
+    storeImageBytes: (base64Data) => storeKnowledgeImageBytes(base64Data),
+    watchDroppedImages: (onStored, onError) => watchDroppedKnowledgeImages(onStored, onError),
   });
 }

@@ -46,6 +46,7 @@ pub fn run() {
             codex::codex_subscription_generate,
             codex::read_chat_image,
             knowledge_resources::store_knowledge_image,
+            knowledge_resources::store_knowledge_image_bytes,
             knowledge_resources::read_knowledge_image,
             workspace::current_workspace,
             workspace::open_workspace,
