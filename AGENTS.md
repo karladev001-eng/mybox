@@ -14,6 +14,16 @@ area-specific rules, but it must not weaken these rules.
    task specifically concerns it. This includes `.agents/`, `node_modules/`,
    `dist/`, coverage output, screenshots, and media assets.
 
+**If the task is scoped to creating or changing one App under
+`mybox-app/src/<app-id>/`** — not the host framework, the desktop shell, or
+another App — read only `docs/app-authoring.md` and that App's own
+`README.md`. That document is self-contained: it restates the manifest,
+storage, registration, and testing contract an App needs, and lists exactly
+what you do not have to open. Fall back to the rest of this file and the
+broader repository only if the task turns out to need `src-tauri/`, the
+`desktop/` bridge beyond one App's storage driver, another App's internals,
+or a release.
+
 ## Design work
 
 - Before creating, changing, or reviewing any user-visible interface, read the
