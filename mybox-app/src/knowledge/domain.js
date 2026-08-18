@@ -3,6 +3,9 @@ import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 export const KNOWLEDGE_SCHEMA_VERSION = 1;
 export const PAGE_STATES = Object.freeze(["active", "trash"]);
 export const PROJECT_ROLES = Object.freeze(["viewer", "editor", "owner"]);
+// `url-embed` and `image` reuse `text` for their payload (a URL, or an opaque
+// resource ID from `desktop/knowledge-images.js`) rather than adding fields
+// only they use; every Block still has the same shape.
 export const BLOCK_TYPES = Object.freeze([
   "paragraph",
   "heading-1",
@@ -16,6 +19,7 @@ export const BLOCK_TYPES = Object.freeze([
   "divider",
   "math",
   "url-embed",
+  "image",
 ]);
 
 const ROLE_RANK = Object.freeze({ viewer: 1, editor: 2, owner: 3 });

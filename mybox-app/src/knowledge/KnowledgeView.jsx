@@ -10,6 +10,7 @@ import {
   FileText,
   FolderSimplePlus,
   Gear,
+  Image as ImageIcon,
   Link as LinkIcon,
   ListBullets,
   ListNumbers,
@@ -95,6 +96,7 @@ const blockLabels = Object.freeze({
   divider: "区切り",
   math: "数式",
   "url-embed": "URL",
+  image: "画像",
 });
 
 function displayError(error) {
@@ -608,6 +610,7 @@ function BlockRow({
   onRemove,
   onOpenPage,
   onOpenUrl,
+  onReadImage,
   onAutoEditHandled,
   isDragging,
   isDragOver,
@@ -624,8 +627,24 @@ function BlockRow({
   const [dismissedMarker, setDismissedMarker] = useState(null);
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 });
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const [imageDataUri, setImageDataUri] = useState(null);
+  const [imageError, setImageError] = useState(false);
   const textareaRef = useRef(null);
-  const canFormat = editing && !readOnly && blockType !== "code" && blockType !== "math" && blockType !== "divider" && blockType !== "url-embed";
+
+  useEffect(() => {
+    if (block.type !== "image" || !block.text) {
+      setImageDataUri(null);
+      return undefined;
+    }
+    let active = true;
+    setImageError(false);
+    onReadImage(block.text)
+      .then((dataUri) => { if (active) setImageDataUri(dataUri); })
+      .catch(() => { if (active) setImageError(true); });
+    return () => { active = false; };
+  }, [block.type, block.text, onReadImage]);
+  const noFormatTypes = new Set(["code", "math", "divider", "url-embed", "image"]);
+  const canFormat = editing && !readOnly && !noFormatTypes.has(blockType);
   const hasSelection = canFormat && selectionRange.end > selectionRange.start;
 
   useEffect(() => {
@@ -805,6 +824,12 @@ function BlockRow({
               </button>
             )
             : <span className="knowledge-empty-copy">URLを入力</span>)
+          : blockType === "image"
+            ? (imageError
+              ? <span className="knowledge-empty-copy">画像を読み込めません</span>
+              : imageDataUri
+                ? <img className="knowledge-image-embed" src={imageDataUri} alt="埋め込み画像" />
+                : <span className="knowledge-empty-copy">読み込み中…</span>)
           : blockType === "bulleted-list"
           ? <ul className="knowledge-structured-list">{listItems.map(renderListItem)}</ul>
           : blockType === "numbered-list"
@@ -945,10 +970,10 @@ function BlockRow({
         <div
           className="knowledge-block-preview"
           onClick={(event) => {
-            if (!readOnly && !event.target.closest("button")) setEditing(true);
+            if (!readOnly && blockType !== "image" && !event.target.closest("button")) setEditing(true);
           }}
         >
-          {!readOnly && (
+          {!readOnly && blockType !== "image" && (
             <button type="button" className="knowledge-block-edit-trigger" aria-label={`${blockLabels[blockType]}を編集`} onClick={() => setEditing(true)}>
               <PencilSimple size={14} aria-hidden="true" />
             </button>
@@ -1307,6 +1332,17 @@ export function KnowledgeView({
     const result = await runMutation({ type: "block-add", afterBlockId, blockType });
     const added = result?.page.blocks.find((block) => !previousIds.has(block.id));
     if (added) setAutoEditBlockId(added.id);
+  };
+
+  const addImageBlock = async () => {
+    try {
+      const resourceId = await client.pickImage();
+      if (!resourceId) return;
+      const afterBlockId = pageRef.current?.blocks.at(-1)?.id;
+      await runMutation({ type: "block-add", afterBlockId, blockType: "image", text: resourceId }, "画像を追加しました");
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    }
   };
 
   const refreshSyncEndpoints = async () => {
@@ -1839,6 +1875,7 @@ export function KnowledgeView({
                     onRemove={(blockId) => runMutation({ type: "block-remove", blockId })}
                     onOpenPage={(targetId) => selectPage(projectId, targetId)}
                     onOpenUrl={(url) => client.openExternalUrl(url)}
+                    onReadImage={(resourceId) => client.readImage(resourceId)}
                     onAutoEditHandled={() => setAutoEditBlockId(null)}
                     isDragging={dragBlockId === block.id}
                     isDragOver={dragOverBlockId === block.id && dragBlockId !== block.id}
@@ -1864,7 +1901,12 @@ export function KnowledgeView({
                     }}
                   />
                 )}
-                {!readOnly && <button type="button" className="knowledge-add-block" onClick={() => addBlockAfter(pageData.page.blocks.at(-1)?.id)}><Plus size={17} />Blockを追加</button>}
+                {!readOnly && (
+                  <div className="knowledge-add-block-row">
+                    <button type="button" className="knowledge-add-block" onClick={() => addBlockAfter(pageData.page.blocks.at(-1)?.id)}><Plus size={17} />Blockを追加</button>
+                    <button type="button" className="knowledge-add-block" disabled={!desktop} title={desktop ? undefined : "画像の追加はデスクトップ版で利用できます"} onClick={addImageBlock}><ImageIcon size={17} />画像を追加</button>
+                  </div>
+                )}
               </div>
 
               <section className="knowledge-backlinks" aria-labelledby="knowledge-backlinks-title">

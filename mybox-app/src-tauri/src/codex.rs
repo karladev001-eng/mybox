@@ -813,7 +813,10 @@ fn completed_image_generation(message: &Value) -> Option<&Value> {
     (item.get("type").and_then(Value::as_str) == Some("imageGeneration")).then_some(item)
 }
 
-fn detect_image(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
+/// Shared with `knowledge_resources.rs`, which sniffs a User-picked file the
+/// same way this module sniffs a generated one, rather than trusting its
+/// extension.
+pub(crate) fn detect_image(bytes: &[u8]) -> Option<(&'static str, &'static str)> {
     if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
         Some(("image/png", "png"))
     } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {

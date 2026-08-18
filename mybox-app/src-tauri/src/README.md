@@ -20,6 +20,11 @@
   Embeds `sync-server/dist/worker.js`, a bundle `build.rs` produces before
   this crate compiles. The token and the generated `SERVER_SECRET` live in OS
   credential storage next to the other provider secrets this file governs.
+- `knowledge_resources.rs`: copies a User-picked image (path supplied by their
+  own OS file dialog, the same trusted precedent `open_workspace` already
+  sets) into the Knowledge App's private resource namespace and returns an
+  opaque resource ID, reusing `codex.rs`'s `detect_image` byte-sniffing so a
+  renamed non-image file is refused rather than trusted by its extension.
 
 Native commands are host capabilities. Validate every app ID and relative key,
 reject symlinks and path traversal, and never accept an unrestricted path from an
