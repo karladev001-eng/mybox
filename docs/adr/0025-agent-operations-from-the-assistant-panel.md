@@ -149,3 +149,64 @@ bare string, `operationContext` only while a specific Page is open.
 requested for that turn, composes the goal from the current context (with or
 without an open record), and renders an approval dialog backed by a Promise
 the runtime awaits.
+
+`AgentRuntime`'s decision schema is shaped by OpenAI Structured Outputs, which
+the Codex backend enforces on whatever schema it is handed: `oneOf` is refused
+outright, every property must appear in `required`, and no object may be
+free-form. The original respond/invoke union was therefore rejected with
+`invalid_json_schema` before any turn ran. The two decision shapes now share one
+flat object whose inapplicable fields are null, and the Operation payload
+travels as a JSON string (`inputJson`) that the runtime parses, since a
+free-form `input` object is not expressible under those rules. `readDecisionInput`
+still accepts a real object so provider adapters and tests that can express one
+keep working. Do not fold this back into a union without checking the provider
+that will receive it.
+
+The runtime also forwards `confirmationLevel` to `AppHost.invoke`. The Host
+applies the level itself and defaults to `"review"` when it is not told, so the
+proactive check passing was not sufficient: raising the level to Recoverable or
+Autonomous made the Host reject the very writes the level was chosen to permit,
+while `"review"` happened to work because its approval round-trip set
+`approval.fresh` and short-circuited the comparison. The two checks must be
+given the same level.
+
+An Operation's `inputSchema` is the only description of its payload an agent
+receives, since `agent-runtime.js` serialises it into the prompt. That makes a
+loose schema a functional gap rather than a stylistic one:
+`knowledge.page.update` declared `mutation: { type: "object" }`, so the model
+could reach the Operation but had to guess the mutation vocabulary and failed
+validation in the domain. The schema now names the seven mutation types and
+documents each variant's fields in a `description`. It deliberately stops short
+of a per-type union — Structured Outputs disallows `oneOf`, and the editor also
+posts these same mutations — so `type` is the only hard requirement. An App
+exposing an Operation to `agent` callers should assume the schema is the whole
+briefing.
+
+A View whose App the assistant can write to must subscribe to that App's
+Events. `KnowledgeView` did not, so an assistant edit landed in storage while
+the open editor kept rendering the previous revision — indistinguishable, to
+the User, from the edit never happening. It now subscribes through
+`client.js` to `knowledge.page.changed`, `knowledge.page.purged`, and the two
+Project Events, and reloads on any change whose revision it does not already
+hold. The revision comparison, behind a short debounce, is what stops the
+View's own writes from reloading twice. Shared Projects are excluded because
+their document already streams updates.
+
+Reporting is also guarded: a turn in which every attempted Operation was
+rejected raises the underlying error instead of returning the model's message,
+so "編集しました" cannot be shown for a turn that changed nothing. An approval
+denial is exempt, since that is the User's own decision.
+
+A rejected Operation is recorded as an observation and the loop continues,
+exactly as an approval denial already was, instead of throwing out of `run()`
+and ending the turn. A malformed input or a stale revision is precisely what
+the next step can correct, and `maxSteps` still bounds the retries; failing the
+whole turn on the first rejection meant every schema mismatch above surfaced to
+the User as a dead end rather than self-correcting.
+
+Because Operations became reachable from the assistant regardless of which App
+is open, the Confirmation-level control that gates them moved out of the
+Knowledge sidebar and into the assistant composer alongside the other per-turn
+controls; see [ADR 0016](0016-separate-profile-confirmation-levels-from-operation-grants.md)'s
+implementation notes. Knowledge's own Project sharing and settings entry points
+moved to its topbar in the same pass, leaving its sidebar to Pages and Projects.
