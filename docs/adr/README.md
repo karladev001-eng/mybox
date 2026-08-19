@@ -31,3 +31,4 @@ notes of the ADR it realizes.
 - [0023 — Merge shared Projects with Yjs over a sync server each group runs](0023-user-operated-sync-servers-with-yjs.md)
 - [0024 — Deploy the sync server through the Cloudflare API instead of a GitHub-connected button](0024-deploy-the-sync-server-through-the-cloudflare-api.md)
 - [0025 — Let the assistant panel invoke App Operations, gated by Confirmation level](0025-agent-operations-from-the-assistant-panel.md)
+- [0026 — Embed images and URLs in Knowledge Blocks through opaque resource IDs](0026-embed-images-and-urls-in-knowledge-blocks.md)

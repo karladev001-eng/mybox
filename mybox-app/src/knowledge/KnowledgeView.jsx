@@ -123,6 +123,18 @@ function urlHost(value) {
   }
 }
 
+const IMAGE_MIN_WIDTH_PERCENT = 10;
+
+/** An image Block reuses `text` for an opaque resource ID, optionally suffixed with `?w=<percent>` to record a chosen display width. */
+function parseImageBlockText(text) {
+  const [resourceId, widthQuery] = (text || "").split("?w=");
+  const parsed = Number(widthQuery);
+  const widthPercent = Number.isFinite(parsed) && parsed > 0
+    ? Math.min(100, Math.max(IMAGE_MIN_WIDTH_PERCENT, Math.round(parsed)))
+    : 100;
+  return { resourceId, widthPercent };
+}
+
 function formatDate(value) {
   return new Intl.DateTimeFormat("ja-JP", {
     month: "short",
@@ -629,20 +641,55 @@ function BlockRow({
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const [imageDataUri, setImageDataUri] = useState(null);
   const [imageError, setImageError] = useState(false);
+  const [resizingWidthPercent, setResizingWidthPercent] = useState(null);
   const textareaRef = useRef(null);
+  const imageWrapRef = useRef(null);
+
+  const { resourceId: imageResourceId, widthPercent: imageWidthPercent } = block.type === "image"
+    ? parseImageBlockText(block.text)
+    : { resourceId: null, widthPercent: 100 };
+  const displayWidthPercent = resizingWidthPercent ?? imageWidthPercent;
+
+  /** Tracks the corner handle drag with window-level listeners so the pointer can leave the image while resizing, and commits once on release rather than on every pixel of movement. */
+  const startImageResize = (event) => {
+    if (readOnly || !imageResourceId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const wrap = imageWrapRef.current;
+    const container = wrap?.parentElement;
+    if (!wrap || !container) return;
+    const containerWidth = container.getBoundingClientRect().width;
+    const startWidth = wrap.getBoundingClientRect().width;
+    const startX = event.clientX;
+    const onMove = (moveEvent) => {
+      const nextWidth = startWidth + (moveEvent.clientX - startX);
+      const percent = Math.round(Math.min(100, Math.max(IMAGE_MIN_WIDTH_PERCENT, (nextWidth / containerWidth) * 100)));
+      setResizingWidthPercent(percent);
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      setResizingWidthPercent((current) => {
+        if (current !== null) commit({ text: current === 100 ? imageResourceId : `${imageResourceId}?w=${current}` });
+        return null;
+      });
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
 
   useEffect(() => {
-    if (block.type !== "image" || !block.text) {
+    if (block.type !== "image" || !imageResourceId) {
       setImageDataUri(null);
       return undefined;
     }
     let active = true;
     setImageError(false);
-    onReadImage(block.text)
+    onReadImage(imageResourceId)
       .then((dataUri) => { if (active) setImageDataUri(dataUri); })
       .catch(() => { if (active) setImageError(true); });
     return () => { active = false; };
-  }, [block.type, block.text, onReadImage]);
+  }, [block.type, imageResourceId, onReadImage]);
   const noFormatTypes = new Set(["code", "math", "divider", "url-embed", "image"]);
   const canFormat = editing && !readOnly && !noFormatTypes.has(blockType);
   const hasSelection = canFormat && selectionRange.end > selectionRange.start;
@@ -828,7 +875,19 @@ function BlockRow({
             ? (imageError
               ? <span className="knowledge-empty-copy">画像を読み込めません</span>
               : imageDataUri
-                ? <img className="knowledge-image-embed" src={imageDataUri} alt="埋め込み画像" />
+                ? (
+                  <div ref={imageWrapRef} className="knowledge-image-embed-wrap" style={{ width: `${displayWidthPercent}%` }}>
+                    <img className="knowledge-image-embed" src={imageDataUri} alt="埋め込み画像" draggable={false} />
+                    {!readOnly && (
+                      <button
+                        type="button"
+                        className="knowledge-image-resize-handle"
+                        aria-label="画像の大きさを変更"
+                        onMouseDown={startImageResize}
+                      />
+                    )}
+                  </div>
+                )
                 : <span className="knowledge-empty-copy">読み込み中…</span>)
           : blockType === "bulleted-list"
           ? <ul className="knowledge-structured-list">{listItems.map(renderListItem)}</ul>
@@ -845,18 +904,21 @@ function BlockRow({
     <article
       className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}`}
       onDragOver={(event) => {
-        // A real OS file drag also fires this on every Block underneath it;
-        // claiming it here (as reorder-drag handling already did
-        // unconditionally) tells the WebView the drop is handled and Tauri's
-        // native file-drop event never fires. Only intercept an in-page
-        // reorder drag, which carries no "Files" type.
+        // A real OS file drag also fires this on every Block underneath it; leave
+        // it unhandled here (readable by `.knowledge-blocks`' own file-drop
+        // handler) and only claim an in-page reorder drag, which carries no
+        // "Files" type. `stopPropagation` keeps that container-level handler —
+        // which exists to keep the cursor valid over the gaps *between*
+        // Blocks — from re-handling a drag that is already over one.
         if (readOnly || event.dataTransfer?.types?.includes("Files")) return;
         event.preventDefault();
+        event.stopPropagation();
         onDragEnterBlock?.(block.id);
       }}
       onDrop={(event) => {
         if (readOnly || event.dataTransfer?.types?.includes("Files")) return;
         event.preventDefault();
+        event.stopPropagation();
         onDropBlock?.(block.id);
       }}
     >
@@ -1355,23 +1417,41 @@ export function KnowledgeView({
     }
   };
 
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+  const storeImageFile = async (file) => {
+    try {
+      const resourceId = await client.storeImageBytes(await fileToBase64(file));
+      await insertImageBlock(resourceId);
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    }
+  };
+
   const pasteImage = async (event) => {
     const item = [...(event.clipboardData?.items ?? [])].find((entry) => entry.type.startsWith("image/"));
     if (!item) return;
     event.preventDefault();
-    try {
-      const file = item.getAsFile();
-      if (!file) return;
-      const base64 = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-        reader.onerror = () => reject(reader.error);
-        reader.readAsDataURL(file);
-      });
-      const resourceId = await client.storeImageBytes(base64);
-      await insertImageBlock(resourceId);
-    } catch (nextError) {
-      setError(String(nextError?.message ?? nextError));
+    const file = item.getAsFile();
+    if (!file) return;
+    await storeImageFile(file);
+  };
+
+  /**
+   * The window disables Tauri's native `dragDropEnabled` (see
+   * `tauri.conf.json`) so it never intercepts HTML5 drag-and-drop out from
+   * under Block reordering, which means a dropped file arrives here as an
+   * ordinary `dataTransfer.files` list instead of a native path event.
+   */
+  const dropImageFiles = async (fileList) => {
+    const files = [...fileList].filter((file) => file.type.startsWith("image/"));
+    for (const file of files) {
+      await storeImageFile(file);
     }
   };
 
@@ -1385,16 +1465,6 @@ export function KnowledgeView({
     document.addEventListener("paste", pasteImage);
     return () => document.removeEventListener("paste", pasteImage);
   }, [desktop, readOnly, pageData?.page, pasteImage]);
-
-  useEffect(() => {
-    if (!desktop) return undefined;
-    // Native drag-drop is webview-wide, not scoped to the blocks list, so
-    // this only watches for as long as Knowledge itself is open.
-    return client.watchDroppedImages(
-      (resourceId) => { insertImageBlock(resourceId); },
-      (dropError) => setError(String(dropError?.message ?? dropError)),
-    );
-  }, [desktop, client]);
 
   const refreshSyncEndpoints = async () => {
     const endpoints = await client.listSync();
@@ -1911,7 +1981,37 @@ export function KnowledgeView({
 
               {pageState === "trash" && <div className="knowledge-trash-notice"><Trash size={19} aria-hidden="true" /><div><strong>このPageはTrashにあります</strong><p>内容は読み取り専用です。編集するには復元してください。</p></div></div>}
 
-              <div className="knowledge-blocks" aria-label={`${pageTitle}のBlocks`}>
+              <div
+                className="knowledge-blocks"
+                aria-label={`${pageTitle}のBlocks`}
+                onDragOver={(event) => {
+                  if (readOnly) return;
+                  // Each Block claims its own dragover and stops it from bubbling
+                  // here, so an event reaching this container is over a gap
+                  // *between* Blocks (their margins) rather than over one. Without
+                  // claiming it too, the browser falls back to a "not allowed"
+                  // cursor the instant the pointer crosses that gap during an
+                  // in-page reorder drag, even though dropping is still valid.
+                  if (event.dataTransfer?.types?.includes("Files")) {
+                    if (desktop) event.preventDefault();
+                    return;
+                  }
+                  if (dragBlockId) event.preventDefault();
+                }}
+                onDrop={(event) => {
+                  if (readOnly) return;
+                  if (event.dataTransfer?.types?.includes("Files")) {
+                    if (!desktop) return;
+                    event.preventDefault();
+                    dropImageFiles(event.dataTransfer.files);
+                    return;
+                  }
+                  if (dragBlockId) {
+                    event.preventDefault();
+                    dropBlock(dragOverBlockId === "__end__" ? null : dragOverBlockId);
+                  }
+                }}
+              >
                 {pageData.page.blocks.map((block, index) => (
                   <BlockRow
                     key={block.id}
@@ -1925,7 +2025,7 @@ export function KnowledgeView({
                     onAddAfter={addBlockAfter}
                     onRemove={(blockId) => runMutation({ type: "block-remove", blockId })}
                     onOpenPage={(targetId) => selectPage(projectId, targetId)}
-                    onOpenUrl={(url) => client.openExternalUrl(url)}
+                    onOpenUrl={(url) => client.openExternalUrl(url).catch((nextError) => setError(String(nextError?.message ?? nextError)))}
                     onReadImage={(resourceId) => client.readImage(resourceId)}
                     onAutoEditHandled={() => setAutoEditBlockId(null)}
                     isDragging={dragBlockId === block.id}
@@ -1944,10 +2044,12 @@ export function KnowledgeView({
                     className={`knowledge-block-dropzone${dragOverBlockId === "__end__" ? " drag-over" : ""}`}
                     onDragOver={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       setDragOverBlockId("__end__");
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
+                      event.stopPropagation();
                       dropBlock(null);
                     }}
                   />

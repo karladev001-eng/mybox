@@ -85,6 +85,9 @@ Checklist, Quote, Code block, and Divider Blocks. Inline content supports bold,
 italic, strikethrough, inline code, external links, Page links, and Tag input.
 Tables, images, attachments, and embedded content are deferred until the host has
 the required resource-storage support and their round-trip behavior is decided.
+Images and URL embeds have since been decided in
+[ADR 0026](0026-embed-images-and-urls-in-knowledge-blocks.md); tables and
+non-image attachments remain deferred.
 
 ## Consequences
 
