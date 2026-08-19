@@ -8,6 +8,42 @@ import {
 } from "./yjs-document.js";
 
 /**
+ * Mutations the document can apply today. Tags and PageLink creation still run
+ * through the local model, so they are refused with an explanation rather than
+ * silently dropped.
+ */
+const SHARED_MUTATIONS = new Set(["rename", "block-update", "block-add", "block-remove", "block-move"]);
+
+export class SharedProjectError extends Error {
+  constructor(code, message, details = {}) {
+    super(message);
+    this.name = "SharedProjectError";
+    this.code = code;
+    this.details = details;
+  }
+}
+
+function newBlockId() {
+  return `block-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
+/** The document wants a whole Block where the domain names a type and text. */
+function toDocumentMutation(mutation) {
+  if (mutation.type !== "block-add") return mutation;
+  return {
+    type: "block-add",
+    afterBlockId: mutation.afterBlockId,
+    block: {
+      id: newBlockId(),
+      type: mutation.blockType ?? "paragraph",
+      text: mutation.text ?? "",
+      checked: false,
+      links: [],
+    },
+  };
+}
+
+/**
  * A shared Project's live state: one Yjs document plus the client keeping it in
  * step with the group's server.
  *
@@ -91,8 +127,20 @@ export function createSharedProject({
       return { page: { ...page, projectId, revision: 0 }, tags: [], backlinks };
     },
 
+    /**
+     * Takes the same mutation vocabulary `domain.js` does, so every caller —
+     * the editor, the assistant, a future Flow — speaks one language and the
+     * document is not a second, parallel write path with its own shapes.
+     */
     mutate(pageId, mutation) {
-      return applyPageMutation(doc, pageId, mutation);
+      if (!SHARED_MUTATIONS.has(mutation.type)) {
+        throw new SharedProjectError(
+          "MUTATION_UNSUPPORTED_WHEN_SHARED",
+          "この操作は共有Projectではまだ利用できません。",
+          { type: mutation.type },
+        );
+      }
+      return applyPageMutation(doc, pageId, toDocumentMutation(mutation));
     },
 
     createPage(page) {

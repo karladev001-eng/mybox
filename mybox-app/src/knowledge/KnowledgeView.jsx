@@ -50,39 +50,6 @@ import "./knowledge.css";
 
 const TEXT_COLOR_PRESETS = Object.freeze(["ff6b6b", "ffa94d", "ffd43b", "69db7c", "4dabf7", "748ffc", "b197fc", "f783ac"]);
 
-/**
- * Mutations a shared Project accepts today. Tags and PageLink creation still
- * run through the local model, so they are refused with an explanation rather
- * than silently dropped.
- */
-const SHARED_MUTATIONS = new Set(["rename", "block-update", "block-add", "block-remove", "block-move"]);
-
-function newBlockId() {
-  return `block-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
-}
-
-/** The editor's mutation vocabulary, adapted to what the document expects. */
-function toSharedMutation(mutation) {
-  if (mutation.type !== "block-add") return mutation;
-  return {
-    type: "block-add",
-    afterBlockId: mutation.afterBlockId,
-    block: {
-      id: newBlockId(),
-      type: mutation.blockType ?? "paragraph",
-      text: mutation.text ?? "",
-      checked: false,
-      links: [],
-    },
-  };
-}
-
-const confirmationLevels = [
-  { id: "review", label: "確認", description: "Review：変更案を確認" },
-  { id: "recoverable", label: "復旧可能", description: "Recoverable：復元可能な変更" },
-  { id: "autonomous", label: "自律", description: "Autonomous：破壊的操作も許可" },
-];
-
 const blockLabels = Object.freeze({
   paragraph: "本文",
   "heading-1": "見出し1",
@@ -1282,10 +1249,8 @@ export function KnowledgeView({
       setPageData(null);
       return null;
     }
-    const shared = sharedRef.current;
-    const result = shared && nextProjectId === projectId
-      ? shared.readPage(pageId)
-      : await client.readPage(nextProjectId, pageId);
+    // knowledge.page.read resolves a shared Project from its document itself.
+    const result = await client.readPage(nextProjectId, pageId);
     setPageData(result);
     setSelectedPageId(pageId);
     return result;
@@ -1293,20 +1258,18 @@ export function KnowledgeView({
 
   const loadPageLists = async (nextProjectId = projectId, nextProjects = projects) => {
     if (!nextProjectId) return;
-    const shared = sharedRef.current;
-    if (shared && nextProjectId === projectId) {
-      // A shared Project's Pages live in its document, so the list and the
-      // link picker read from there rather than the local store.
-      const sharedPages = shared.listPages();
-      setLinkCandidates(sharedPages);
-      const needle = normalized(query);
-      setPages(query.trim()
-        ? sharedPages.filter((page) => normalized(page.title).includes(needle) || normalized(page.excerpt).includes(needle))
-        : sharedPages);
-      return;
-    }
+    // knowledge.page.list resolves a shared Project from its document itself.
     const candidatesResult = await client.listPages(nextProjectId, true);
     setLinkCandidates(candidatesResult.pages);
+    if (sharedRef.current && nextProjectId === projectId) {
+      // Tags and cross-Project search still read the local model, which a
+      // shared document does not populate, so filter the list here instead.
+      const needle = normalized(query);
+      setPages(query.trim()
+        ? candidatesResult.pages.filter((page) => normalized(page.title).includes(needle) || normalized(page.excerpt).includes(needle))
+        : candidatesResult.pages);
+      return;
+    }
     const tagsResult = await client.listTags(nextProjectId);
     setTagCandidates(tagsResult.tags);
     if (query.trim()) {
@@ -1358,28 +1321,57 @@ export function KnowledgeView({
     return () => window.clearTimeout(timer);
   }, [projectId, query, includeTrash, searchScope]);
 
-  const runMutation = (mutation, successMessage) => {
-    const shared = sharedRef.current;
-    if (shared) {
-      const current = pageRef.current;
-      if (!current) return Promise.resolve(null);
-      if (!SHARED_MUTATIONS.has(mutation.type)) {
-        setError("この操作は共有Projectではまだ利用できません。");
-        return Promise.resolve(null);
-      }
-      try {
-        // A CRDT converges instead of rejecting, so there is no revision to
-        // carry and no conflict to report.
-        shared.mutate(current.id, toSharedMutation(mutation));
-        setError("");
-        if (successMessage) onToast(successMessage);
-        return Promise.resolve(shared.readPage(current.id));
-      } catch (nextError) {
-        setError(displayError(nextError));
-        return Promise.resolve(null);
-      }
-    }
+  // Kept current so the event subscription below never closes over a stale
+  // loader, without resubscribing on every render.
+  const reloadAfterExternalChangeRef = useRef(() => {});
+  reloadAfterExternalChangeRef.current = async () => {
+    const current = pageRef.current;
+    const loaded = await loadProjects(projectId);
+    await loadPageLists(loaded.projectId, loaded.projects);
+    if (current) await loadPage(current.projectId, current.id);
+  };
 
+  /**
+   * The assistant invokes the same AppHost this View does (ADR 0025), so a
+   * Page it edits changes underneath an open editor. Without this the write
+   * lands in storage while the screen keeps showing the previous revision,
+   * which reads as "the AI said it edited but nothing happened".
+   *
+   * A shared Project is excluded: its document already streams its own updates.
+   */
+  useEffect(() => {
+    if (!persistenceReady) return undefined;
+    let timer = null;
+    const onExternalChange = (envelope) => {
+      if (sharedRef.current) return;
+      const { pageId, revision } = envelope.payload ?? {};
+      window.clearTimeout(timer);
+      // Debounced so this View's own writes, which reload themselves, settle
+      // first and are then recognised as already-applied rather than redone.
+      timer = window.setTimeout(() => {
+        const current = pageRef.current;
+        if (current && pageId === current.id && revision === current.revision) return;
+        reloadAfterExternalChangeRef.current().catch((nextError) => setError(displayError(nextError)));
+      }, 180);
+    };
+    const unsubscribes = [
+      "knowledge.page.changed",
+      "knowledge.page.purged",
+      "knowledge.project.created",
+      "knowledge.project.deleted",
+    ].map((eventId) => client.subscribe(eventId, onExternalChange));
+    return () => {
+      window.clearTimeout(timer);
+      unsubscribes.forEach((unsubscribe) => unsubscribe());
+    };
+  }, [client, persistenceReady]);
+
+  /**
+   * One write path for every caller. A shared Project is handled inside the
+   * Operation now, so the editor no longer reaches past the Host to the
+   * document — which is what left the assistant's writes invisible here.
+   */
+  const runMutation = (mutation, successMessage) => {
     setSaving(true);
     setError("");
     const queued = operationQueue.current.then(async () => {
@@ -1506,6 +1498,7 @@ export function KnowledgeView({
     if (!endpoint?.token) {
       sharedRef.current?.dispose();
       sharedRef.current = null;
+      client.setSharedSession(projectId, null);
       setSyncStatus("idle");
       return undefined;
     }
@@ -1525,6 +1518,9 @@ export function KnowledgeView({
       onError: (nextError) => setError(`同期エラー：${nextError.message}`),
     });
     sharedRef.current = shared;
+    // Every caller of knowledge.page.* now reaches this document, the assistant
+    // included, instead of writing to the JSON store the editor stopped reading.
+    client.setSharedSession(projectId, shared);
     // Pages written before this Project was shared must reach the others.
     client.listPages(projectId, false)
       .then(async ({ pages }) => {
@@ -1537,6 +1533,7 @@ export function KnowledgeView({
     return () => {
       shared.dispose();
       sharedRef.current = null;
+      client.setSharedSession(projectId, null);
       setSyncStatus("idle");
     };
   }, [projectId, syncByProject[projectId]?.token, syncByProject[projectId]?.endpoint]);

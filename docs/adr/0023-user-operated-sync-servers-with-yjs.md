@@ -125,3 +125,18 @@ creation still run through the local model and are refused with an explanation
 rather than silently dropped. Presence is relayed but not yet drawn in the
 editor, and two-device editing has been verified through the sync engine rather
 than through the desktop UI.
+
+As of 2026-08-19 the document sits behind the Operation boundary rather than
+beside it. `KnowledgeView` originally called `shared.mutate()` and
+`shared.readPage()` directly, bypassing `AppHost` whenever a Project was
+shared. That made two write paths, and
+[ADR 0025](0025-agent-operations-from-the-assistant-panel.md) then connected
+the assistant to the other one: an assistant edit to a shared Project was
+written to the JSON store, which the editor had stopped reading, so it
+persisted correctly and was invisible forever. The live session is now injected
+into `createKnowledgeApp({ sharedSessions })` as a port — the App cannot build
+it, because it needs a socket — and `knowledge.page.read`, `page.list`, and
+`page.update` resolve a shared Project through it. Every caller, the editor and
+the assistant alike, goes through one path. `expectedRevision` accepts 0 for
+this reason: a shared Page reports no revision, because a CRDT converges rather
+than rejecting.

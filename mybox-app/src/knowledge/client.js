@@ -13,10 +13,8 @@ import {
   pickKnowledgeImage,
   readKnowledgeImage,
   storeKnowledgeImageBytes,
-  watchDroppedKnowledgeImages,
 } from "../desktop/knowledge-images.js";
 import { openExternalUrl } from "../desktop/open-url.js";
-import { getProfilePreferencesStore } from "../desktop/profile-preferences.js";
 import {
   connectSyncEndpoint,
   createSyncInvite,
@@ -39,14 +37,17 @@ const webDriver = new MemoryStorageDriver();
  */
 export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID } = {}) {
   const host = new AppHost({ storageDriver: desktop ? new TauriStorageDriver() : webDriver });
-  host.register(createKnowledgeApp());
+  // The View owns the live shared session (it needs a socket), but every write
+  // has to reach it through Operations, or the assistant writes to the JSON
+  // store while the editor reads the document and neither sees the other.
+  const sharedSessions = new Map();
+  host.register(createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } }));
   // Lets the assistant panel invoke this App's Operations (ADR 0025) without
   // holding a private reference to Knowledge's client.
   registerAgentHost("knowledge", host);
   const invoke = (operationId, input = {}) => host.invoke(operationId, input, {
     actor: { type: "user", id: getProfileId() || LOCAL_PROFILE_ID },
   });
-  const preferences = getProfilePreferencesStore();
   const resolvedProfileId = () => getProfileId() || LOCAL_PROFILE_ID;
 
   return Object.freeze({
@@ -76,8 +77,6 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     }),
     listTags: (projectId) => invoke("knowledge.tag.list", { projectId }),
     linkAccount: (accountId) => invoke("knowledge.profile.link-account", { accountId }),
-    loadPreferences: () => preferences.load(),
-    setConfirmationLevel: (current, confirmationLevel) => preferences.setConfirmationLevel(current, confirmationLevel),
     listSync: () => listSyncEndpoints(),
     connectSync: ({ projectId, endpoint, secret }) => connectSyncEndpoint({ projectId, endpoint, secret, profileId: resolvedProfileId() }),
     joinSync: ({ projectId, endpoint, invite }) => joinSyncEndpoint({ projectId, endpoint, invite, profileId: resolvedProfileId() }),
@@ -94,6 +93,13 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     pickImage: () => pickKnowledgeImage(),
     readImage: (resourceId) => readKnowledgeImage(resourceId),
     storeImageBytes: (base64Data) => storeKnowledgeImageBytes(base64Data),
-    watchDroppedImages: (onStored, onError) => watchDroppedKnowledgeImages(onStored, onError),
+    // The assistant invokes this same host (ADR 0025), so the View has to learn
+    // about writes it did not make itself. Returns an unsubscribe function.
+    subscribe: (eventId, handler) => host.subscribe(eventId, handler),
+    /** The View hands over its live shared session so Operations write to it. */
+    setSharedSession: (projectId, session) => {
+      if (session) sharedSessions.set(projectId, session);
+      else sharedSessions.delete(projectId);
+    },
   });
 }
