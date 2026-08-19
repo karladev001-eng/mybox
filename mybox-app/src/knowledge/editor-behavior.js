@@ -27,6 +27,103 @@ export function markdownConversion(value) {
   return null;
 }
 
+const BULLET_ITEM = /^[-*+] (?!\[[ xX]\])/;
+const NUMBERED_ITEM = /^\d+\. /;
+const THEMATIC_BREAK = /^(?:-{3,}|\*{3,}|_{3,})$/;
+
+/** A line that would open a Block of its own, so a paragraph must stop before it. */
+function startsNewBlock(trimmed) {
+  return !trimmed || THEMATIC_BREAK.test(trimmed) || markdownConversion(trimmed) !== null;
+}
+
+function readFenced(lines, index, closes) {
+  const body = [];
+  let cursor = index + 1;
+  while (cursor < lines.length && !closes(lines[cursor].trim())) {
+    body.push(lines[cursor]);
+    cursor += 1;
+  }
+  // An unterminated fence still ends the document rather than dropping its text.
+  return { text: body.join("\n"), next: Math.min(cursor + 1, lines.length) };
+}
+
+/**
+ * Parses a whole Markdown document into Blocks.
+ *
+ * `markdownConversion` decides one line at a time while the User types; this is
+ * its document-level counterpart, for a caller handing over a finished text.
+ * An agent writing a Page through one operation is the reason it exists: asked
+ * to add Blocks one call at a time, it spends its whole step budget and settles
+ * for a single Block holding a hand-drawn document.
+ *
+ * Consecutive bullets or numbers become one list Block, matching how the editor
+ * stores list items as newline-separated text. Checklists do not group, because
+ * a checklist Block carries one `checked` flag.
+ */
+export function parseMarkdownBlocks(markdown) {
+  const lines = String(markdown ?? "").replace(/\r\n?/g, "\n").split("\n");
+  const blocks = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const trimmed = lines[index].trim();
+    if (!trimmed) {
+      index += 1;
+      continue;
+    }
+
+    if (/^```/.test(trimmed)) {
+      const { text, next } = readFenced(lines, index, (line) => line === "```");
+      blocks.push({ type: "code", text, checked: false });
+      index = next;
+      continue;
+    }
+    if (trimmed === "$$") {
+      const { text, next } = readFenced(lines, index, (line) => line === "$$");
+      blocks.push({ type: "math", text, checked: false });
+      index = next;
+      continue;
+    }
+    if (THEMATIC_BREAK.test(trimmed)) {
+      blocks.push({ type: "divider", text: "", checked: false });
+      index += 1;
+      continue;
+    }
+
+    const list = BULLET_ITEM.test(trimmed)
+      ? { pattern: BULLET_ITEM, blockType: "bulleted-list" }
+      : NUMBERED_ITEM.test(trimmed)
+        ? { pattern: NUMBERED_ITEM, blockType: "numbered-list" }
+        : null;
+    if (list) {
+      const items = [];
+      while (index < lines.length && list.pattern.test(lines[index].trim())) {
+        items.push(lines[index].trim().replace(list.pattern, ""));
+        index += 1;
+      }
+      blocks.push({ type: list.blockType, text: items.join("\n"), checked: false });
+      continue;
+    }
+
+    const conversion = markdownConversion(trimmed);
+    if (conversion) {
+      blocks.push({ type: conversion.blockType, text: conversion.text, checked: conversion.checked === true });
+      index += 1;
+      continue;
+    }
+
+    // Consecutive plain lines are one paragraph, as in Markdown itself.
+    const paragraph = [];
+    while (index < lines.length && !startsNewBlock(lines[index].trim())) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push({ type: "paragraph", text: paragraph.join("\n"), checked: false });
+  }
+
+  return blocks;
+}
+
 const INLINE_MARK_PATTERN = /\*\*(?<bold>[^*]+)\*\*|\*(?<italic>[^*]+)\*|__(?<underline>[^_]+)__|~~(?<strike>[^~]+)~~|%%#(?<colorHex>[0-9a-fA-F]{6});(?<colorText>[^%]+)%%|\$(?<math>[^$\n]+)\$/g;
 
 const INLINE_WRAP_MARKERS = Object.freeze({

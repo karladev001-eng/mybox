@@ -9,6 +9,7 @@ import {
   buildInlineNodes,
   groupedListEnter,
   markdownConversion,
+  parseMarkdownBlocks,
   splitListItems,
   toggleInlineWrap,
 } from "../src/knowledge/editor-behavior.js";
@@ -285,6 +286,54 @@ test("routes Knowledge Operations through AppHost and persists them", async () =
   assert.equal(host.listOperations({ callerType: "agent" }).some((item) => item.id === "knowledge.page.search"), true);
 });
 
+test("describes the Page mutation vocabulary to agents while still accepting the editor's own shapes", async () => {
+  const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
+  host.register(createKnowledgeApp());
+  const actor = { type: "user", id: "local-user" };
+
+  // The Operation's input schema is the only description of a mutation an agent
+  // sees, so an opaque `{ type: "object" }` left it guessing the vocabulary.
+  const update = host.listOperations({ callerType: "agent" }).find((item) => item.id === "knowledge.page.update");
+  const mutation = update.inputSchema.properties.mutation;
+  assert.deepEqual(mutation.required, ["type"]);
+  assert.deepEqual(
+    [...mutation.properties.type.enum].sort(),
+    ["block-add", "block-move", "block-remove", "block-update", "link-add", "markdown-set", "rename", "tags-set"],
+  );
+  assert.ok(mutation.description.includes("block-add"));
+  // Without these an agent writes a whole document into one paragraph Block,
+  // drawing headings and bullets as characters instead of using Block types.
+  assert.ok(mutation.description.includes("A Page is a list of Blocks"));
+  // Writing prose Block by Block exhausts the agent's step budget, so the
+  // schema has to point at markdown-set as the way to write a document.
+  assert.ok(mutation.description.includes("markdown-set"));
+  assert.ok(mutation.description.includes("Prefer this over repeated block-add"));
+
+  const { projects } = await host.invoke("knowledge.project.list", {}, { actor });
+  const projectId = projects[0].id;
+  const { page } = await host.invoke("knowledge.page.create", { projectId, title: "Mutation Page" }, { actor });
+
+  // The editor omits afterBlockId entirely when the Page has no Blocks yet.
+  const added = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: page.revision,
+    mutation: { type: "block-add", afterBlockId: undefined, blockType: "quote", text: "引用" },
+  }, { actor });
+  assert.equal(added.page.blocks.at(-1).type, "quote");
+
+  // A mutation with no type is now refused by the schema, before the domain sees it.
+  await assert.rejects(
+    () => host.invoke("knowledge.page.update", {
+      projectId,
+      pageId: page.id,
+      expectedRevision: added.page.revision,
+      mutation: { blockId: "block-1", text: "hi" },
+    }, { actor }),
+    (error) => error.code === "INVALID_OPERATION_INPUT",
+  );
+});
+
 test("persists the device confirmation level through the profile storage port", async () => {
   const driver = new MemoryStorageDriver();
   const firstStore = createProfilePreferencesStore(createAppStorage("mybox-host", driver));
@@ -411,4 +460,188 @@ test("block-update accepts the math Block type", () => {
   });
   assert.equal(updated.page.blocks[0].type, "math");
   assert.equal(updated.page.blocks[0].text, "E = mc^2");
+});
+
+test("announces an agent's Page write to subscribers, so an open editor can catch up", async () => {
+  const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
+  host.register(createKnowledgeApp());
+  const actor = { type: "user", id: "local-user" };
+  const { projects } = await host.invoke("knowledge.project.list", {}, { actor });
+  const projectId = projects[0].id;
+  const { page } = await host.invoke("knowledge.page.create", { projectId, title: "Watched Page" }, { actor });
+
+  // KnowledgeView subscribes to exactly these and reloads, so every one of them
+  // must stay declared or `subscribe` throws EVENT_NOT_FOUND and the View dies.
+  const seen = [];
+  const unsubscribes = ["knowledge.page.changed", "knowledge.page.purged", "knowledge.project.created", "knowledge.project.deleted"]
+    .map((eventId) => host.subscribe(eventId, (envelope) => seen.push(envelope)));
+
+  const renamed = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: page.revision,
+    mutation: { type: "rename", title: "日常のツールボックス" },
+  }, { actor });
+
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].type, "knowledge.page.changed");
+  // The View compares these two against the Page it holds to tell an external
+  // write apart from the one it just made itself.
+  assert.equal(seen[0].payload.pageId, page.id);
+  assert.equal(seen[0].payload.revision, renamed.page.revision);
+  assert.notEqual(renamed.page.revision, page.revision);
+
+  unsubscribes.forEach((unsubscribe) => unsubscribe());
+  await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: renamed.page.revision,
+    mutation: { type: "rename", title: "戻した" },
+  }, { actor });
+  assert.equal(seen.length, 1);
+});
+
+test("routes a shared Project's writes to its document, so the assistant and the editor see one Page", async () => {
+  const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
+  // Stands in for the live Yjs session the View owns; the App only ever sees
+  // this port, never the socket behind it.
+  const document = new Map();
+  const session = {
+    listPages: () => [...document.values()].map(({ id, title }) => ({ id, title, state: "active", excerpt: "" })),
+    readPage: (pageId) => (document.has(pageId)
+      ? { page: { ...document.get(pageId), revision: 0, state: "active" }, tags: [], backlinks: [] }
+      : null),
+    mutate: (pageId, mutation) => {
+      if (mutation.type !== "rename") throw new Error(`unsupported: ${mutation.type}`);
+      document.set(pageId, { ...document.get(pageId), title: mutation.title });
+    },
+  };
+  const sharedProjectIds = new Set();
+  host.register(createKnowledgeApp({
+    sharedSessions: { get: (projectId) => (sharedProjectIds.has(projectId) ? session : null) },
+  }));
+
+  const actor = { type: "user", id: "local-user" };
+  const { projects } = await host.invoke("knowledge.project.list", {}, { actor });
+  const projectId = projects[0].id;
+  const { page } = await host.invoke("knowledge.page.create", { projectId, title: "共有前" }, { actor });
+
+  // The Project becomes shared: its document is now what the editor renders.
+  document.set(page.id, { id: page.id, projectId, title: "共有前", blocks: [], tagIds: [] });
+  sharedProjectIds.add(projectId);
+
+  // An assistant write. Before the write paths were unified this landed in the
+  // JSON store while the editor kept reading the document, so it was invisible.
+  const updated = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: 0,
+    mutation: { type: "rename", title: "日常のツールボックス" },
+  }, { actor });
+
+  assert.equal(updated.page.title, "日常のツールボックス");
+  assert.equal(document.get(page.id).title, "日常のツールボックス");
+  // The same Operation the editor reads through now returns the document too.
+  const read = await host.invoke("knowledge.page.read", { projectId, pageId: page.id }, { actor });
+  assert.equal(read.page.title, "日常のツールボックス");
+  assert.deepEqual((await host.invoke("knowledge.page.list", { projectId }, { actor })).pages.map((p) => p.title), ["日常のツールボックス"]);
+
+  // A local Project still goes to the JSON store, untouched by any of this.
+  const { project: localProject } = await host.invoke("knowledge.project.create", { name: "ローカル" }, { actor });
+  const local = await host.invoke("knowledge.page.create", { projectId: localProject.id, title: "ローカルPage" }, { actor });
+  const localRead = await host.invoke("knowledge.page.read", { projectId: localProject.id, pageId: local.page.id }, { actor });
+  assert.equal(localRead.page.title, "ローカルPage");
+});
+
+test("parses a Markdown document into typed Blocks, grouping list items into one Block", () => {
+  const blocks = parseMarkdownBlocks([
+    "# 日常のツールボックス",
+    "",
+    "毎日の作業を少し便利にするため、",
+    "次のアプリをまとめておくと役立ちます。",
+    "",
+    "## メモ・情報整理",
+    "- Notion",
+    "- Obsidian",
+    "* Apple メモ",
+    "",
+    "1. 今日の予定",
+    "2. ToDoリスト",
+    "",
+    "- [x] 済んだこと",
+    "- [ ] これから",
+    "",
+    "> 引用文",
+    "",
+    "```js",
+    "const a = 1;",
+    "",
+    "const b = 2;",
+    "```",
+    "",
+    "---",
+    "https://example.com",
+  ].join("\n"));
+
+  assert.deepEqual(blocks, [
+    { type: "heading-1", text: "日常のツールボックス", checked: false },
+    { type: "paragraph", text: "毎日の作業を少し便利にするため、\n次のアプリをまとめておくと役立ちます。", checked: false },
+    { type: "heading-2", text: "メモ・情報整理", checked: false },
+    // One Block, newline-separated, exactly how the editor stores a list.
+    { type: "bulleted-list", text: "Notion\nObsidian\nApple メモ", checked: false },
+    { type: "numbered-list", text: "今日の予定\nToDoリスト", checked: false },
+    // A checklist Block carries one flag, so items stay separate.
+    { type: "checklist", text: "済んだこと", checked: true },
+    { type: "checklist", text: "これから", checked: false },
+    { type: "quote", text: "引用文", checked: false },
+    // A blank line inside a fence belongs to the code, not to the document.
+    { type: "code", text: "const a = 1;\n\nconst b = 2;", checked: false },
+    { type: "divider", text: "", checked: false },
+    { type: "url-embed", text: "https://example.com", checked: false },
+  ]);
+});
+
+test("writes a whole document through one markdown-set mutation", async () => {
+  const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
+  host.register(createKnowledgeApp());
+  const actor = { type: "user", id: "local-user" };
+  const { projects } = await host.invoke("knowledge.project.list", {}, { actor });
+  const projectId = projects[0].id;
+  const { page } = await host.invoke("knowledge.page.create", { projectId, title: "文書" }, { actor });
+
+  const written = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: page.revision,
+    mutation: { type: "markdown-set", markdown: "# 見出し\n\n本文です。\n\n- 一つ目\n- 二つ目\n" },
+  }, { actor });
+
+  // The new Page's single empty Block is replaced rather than left above the document.
+  assert.deepEqual(
+    written.page.blocks.map(({ type, text }) => ({ type, text })),
+    [
+      { type: "heading-1", text: "見出し" },
+      { type: "paragraph", text: "本文です。" },
+      { type: "bulleted-list", text: "一つ目\n二つ目" },
+    ],
+  );
+  assert.ok(written.page.blocks.every((block) => block.id && block.revision === 1));
+
+  // Appending is the default, so existing work is not discarded.
+  const appended = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: written.page.revision,
+    mutation: { type: "markdown-set", markdown: "## 追記" },
+  }, { actor });
+  assert.equal(appended.page.blocks.length, 4);
+  assert.equal(appended.page.blocks.at(-1).type, "heading-2");
+
+  const replaced = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: appended.page.revision,
+    mutation: { type: "markdown-set", markdown: "書き直し", mode: "replace" },
+  }, { actor });
+  assert.deepEqual(replaced.page.blocks.map(({ text }) => text), ["書き直し"]);
 });

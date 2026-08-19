@@ -1,4 +1,5 @@
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
+import { parseMarkdownBlocks } from "./editor-behavior.js";
 
 export const KNOWLEDGE_SCHEMA_VERSION = 1;
 export const PAGE_STATES = Object.freeze(["active", "trash"]);
@@ -543,6 +544,30 @@ export function updatePage(state, {
       block.links = block.links.filter((link) => block.text.includes(link.token));
       block.links.push({ targetPageId: target.id, token });
       block.revision += 1;
+      break;
+    }
+    /**
+     * Writes a whole document at once, parsed into Blocks here rather than
+     * assembled by the caller a Block at a time. `append` is the default
+     * because replacing silently discards work; the previous revision is kept
+     * in history either way.
+     */
+    case "markdown-set": {
+      const parsed = parseMarkdownBlocks(mutation.markdown).map((block) => ({
+        id: idFactory("block"),
+        type: BLOCK_TYPES.includes(block.type) ? block.type : "paragraph",
+        text: block.text,
+        checked: block.checked === true,
+        revision: 1,
+        links: [],
+      }));
+      if (!parsed.length) throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "Markdown produced no Blocks");
+      // A Page created moments ago holds one empty placeholder Block; appending
+      // after it would leave an empty line above every generated document.
+      const onlyPlaceholder = page.blocks.length === 1
+        && page.blocks[0].type === "paragraph"
+        && !page.blocks[0].text.trim();
+      page.blocks = mutation.mode === "replace" || onlyPlaceholder ? parsed : [...page.blocks, ...parsed];
       break;
     }
     case "tags-set": {
