@@ -19,6 +19,7 @@ import {
   PaperPlaneTilt,
   Plus,
   Robot,
+  ShieldCheck,
   SidebarSimple,
   Sparkle,
   Trash,
@@ -187,6 +188,9 @@ export function ChatView({
   onDeleteSession,
   onChange,
   onSend,
+  confirmationLevels = [],
+  confirmationLevel,
+  onSelectConfirmationLevel,
   variant = "full",
   contextLabel = "MyBox",
   onClose,
@@ -599,31 +603,6 @@ export function ChatView({
             }}
           />
           <div className="chat-composer-footer">
-            <div className="composer-context-controls">
-              <span>{providerName}</span>
-              {models.length > 0 && (
-                <ThemedSelect
-                  id="chat-model-picker"
-                  label="使用するモデル"
-                  options={models.map((model) => ({ id: model.id, label: model.displayName, description: model.description }))}
-                  value={selectedModelId}
-                  disabled={busy}
-                  onChange={onSelectModel}
-                />
-              )}
-              {reasoningEfforts.length > 0 && (
-                <ThemedSelect
-                  id="chat-reasoning-picker"
-                  label="Thinkingレベル"
-                  icon={Brain}
-                  compact
-                  options={reasoningEfforts.map((effort) => ({ id: effort.id, label: reasoningLabel(effort.id), description: effort.description }))}
-                  value={selectedReasoningEffort}
-                  disabled={busy}
-                  onChange={onSelectReasoningEffort}
-                />
-              )}
-            </div>
             <button
               type="button"
               className={`tool-picker-toggle${selectedToolCount ? " active" : ""}`}
@@ -650,6 +629,43 @@ export function ChatView({
               <GlobeHemisphereWest size={18} weight={webSearchEnabled && webSearchSupported ? "fill" : "regular"} aria-hidden="true" />
               <span>Web</span>
             </button>
+            {confirmationLevels.length > 0 && onSelectConfirmationLevel && (
+              <ThemedSelect
+                id="chat-confirmation-picker"
+                label="Agent権限"
+                icon={ShieldCheck}
+                className="composer-confirmation-picker"
+                options={confirmationLevels}
+                value={confirmationLevel}
+                disabled={busy}
+                onChange={onSelectConfirmationLevel}
+              />
+            )}
+            <div className="composer-context-controls">
+              <span>{providerName}</span>
+              {models.length > 0 && (
+                <ThemedSelect
+                  id="chat-model-picker"
+                  label="使用するモデル"
+                  options={models.map((model) => ({ id: model.id, label: model.displayName, description: model.description }))}
+                  value={selectedModelId}
+                  disabled={busy}
+                  onChange={onSelectModel}
+                />
+              )}
+              {reasoningEfforts.length > 0 && (
+                <ThemedSelect
+                  id="chat-reasoning-picker"
+                  label="Thinkingレベル"
+                  icon={Brain}
+                  compact
+                  options={reasoningEfforts.map((effort) => ({ id: effort.id, label: reasoningLabel(effort.id), description: effort.description }))}
+                  value={selectedReasoningEffort}
+                  disabled={busy}
+                  onChange={onSelectReasoningEffort}
+                />
+              )}
+            </div>
             <span className="composer-hint">Shift + Enterで改行</span>
             {!providerReady && <button type="button" className="chat-provider-settings" aria-label="AIプロバイダーを設定" title="AIプロバイダーを設定" onClick={onOpenSettings}><GearSix size={19} /><span>接続</span></button>}
             <button type="submit" aria-label="メッセージを送信" disabled={busy || !value.trim() || !persistenceReady}>

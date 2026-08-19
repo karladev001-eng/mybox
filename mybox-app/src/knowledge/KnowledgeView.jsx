@@ -1226,11 +1226,33 @@ export function KnowledgeView({
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [projectSettingsBusy, setProjectSettingsBusy] = useState(false);
   const [autoEditBlockId, setAutoEditBlockId] = useState(null);
-  const [preferences, setPreferences] = useState({ schemaVersion: 1, confirmationLevel: "review" });
+  const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
+  const shareMenuRef = useRef(null);
 
   pageRef.current = pageData?.page ?? null;
   const currentProject = projects.find((project) => project.id === projectId) ?? null;
   const readOnly = currentProject?.role === "viewer" || pageData?.page.state === "trash";
+  const isCurrentProjectShared = Boolean(syncByProject[projectId]);
+
+  // A popup closes on outside pointer input and on Escape, returning focus to
+  // its trigger, per the popup rules in FRONTEND.md.
+  useEffect(() => {
+    if (!sharePopoverOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (!shareMenuRef.current?.contains(event.target)) setSharePopoverOpen(false);
+    };
+    const onKeyDown = (event) => {
+      if (event.key !== "Escape") return;
+      setSharePopoverOpen(false);
+      shareMenuRef.current?.querySelector("button")?.focus();
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sharePopoverOpen]);
 
   const projectOptions = projects.map((project) => ({
     id: project.id,
@@ -1318,10 +1340,9 @@ export function KnowledgeView({
       ? Promise.resolve()
       : client.linkAccount(profileId);
     ready
-      .then(() => Promise.all([loadProjects(), client.loadPreferences()]))
-      .then(async ([projectResult, loadedPreferences]) => {
+      .then(() => loadProjects())
+      .then(async (projectResult) => {
         if (!active) return;
-        setPreferences(loadedPreferences);
         await loadPageLists(projectResult.projectId, projectResult.projects);
       })
       .catch((nextError) => active && setError(displayError(nextError)))
@@ -1764,16 +1785,6 @@ export function KnowledgeView({
     }
   };
 
-  const changeConfirmationLevel = async (confirmationLevel) => {
-    try {
-      const next = await client.setConfirmationLevel(preferences, confirmationLevel);
-      setPreferences(next);
-      onToast(`Confirmation levelを${confirmationLevels.find((item) => item.id === confirmationLevel).label}へ変更しました`);
-    } catch (nextError) {
-      setError(displayError(nextError));
-    }
-  };
-
   const activeTagLabels = pageData?.tags.map((tag) => tag.label) ?? [];
   const pageTitle = pageData?.page.title ?? "Pageを選択";
   const pageState = pageData?.page.state ?? null;
@@ -1827,8 +1838,52 @@ export function KnowledgeView({
           {query && <button type="button" aria-label="検索をクリア" onClick={() => setQuery("")}><X size={16} /></button>}
         </label>
         <span className={`knowledge-save-state${saving ? " saving" : ""}`} role="status">{saving ? "保存中…" : "保存済み"}</span>
+        {/* One grid track holds every trailing control, so adding or removing an
+            action never rewrites the topbar's responsive column lists. */}
+        <div className="knowledge-topbar-actions">
+        <div className="knowledge-share-menu" ref={shareMenuRef}>
+          <button
+            type="button"
+            className={`knowledge-icon-button${sharePopoverOpen ? " active" : ""}`}
+            aria-label={isCurrentProjectShared ? `共有設定（共有中・${syncByProject[projectId].role}）` : "共有"}
+            aria-haspopup="menu"
+            aria-expanded={sharePopoverOpen}
+            data-tooltip="共有"
+            onClick={() => setSharePopoverOpen((open) => !open)}
+          >
+            <UsersThree size={21} weight={isCurrentProjectShared ? "fill" : "regular"} />
+            {isCurrentProjectShared && <span className="knowledge-share-dot" aria-hidden="true" />}
+          </button>
+          {sharePopoverOpen && (
+            <div className="knowledge-share-popover" role="menu" aria-label="共有">
+              {isCurrentProjectShared ? (
+                <>
+                  <p><UsersThree size={16} aria-hidden="true" />共有中・{syncByProject[projectId].role}</p>
+                  <small className={syncStatus === "connected" ? "knowledge-sync-live" : undefined}>
+                    {syncStatus === "connected" ? "同期中" : syncStatus === "connecting" ? "接続中…" : "オフライン（編集はこの端末に保存されます）"}
+                  </small>
+                  <small>{syncByProject[projectId].endpoint}</small>
+                  <div>
+                    <button type="button" role="menuitem" disabled={shareBusy || syncByProject[projectId].role !== "owner"} onClick={() => { setShareInvite(""); setShareMode("invite"); setSharePopoverOpen(false); }}>招待</button>
+                    <button type="button" role="menuitem" disabled={shareBusy} onClick={() => { stopSharing(); setSharePopoverOpen(false); }}>停止</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <small>{desktop ? "このProjectはこの端末だけにあります。" : "共有はデスクトップ版で利用できます。"}</small>
+                  <div>
+                    <button type="button" role="menuitem" disabled={!desktop || shareBusy} onClick={() => { setShareMode("connect"); setSharePopoverOpen(false); }}>共有を開始</button>
+                    <button type="button" role="menuitem" disabled={!desktop || shareBusy} onClick={() => { setShareMode("join"); setSharePopoverOpen(false); }}>招待から参加</button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+        <button type="button" className="knowledge-icon-button" aria-label="Project設定" data-tooltip="Project設定" disabled={!currentProject} onClick={() => setProjectSettingsOpen(true)}><Gear size={21} /></button>
         <button type="button" className={`knowledge-icon-button knowledge-assistant-toggle${assistantOpen ? " active" : ""}`} aria-label={assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} aria-pressed={assistantOpen} aria-controls="assistant-panel" data-tooltip="AIアシスタント" onClick={onToggleAssistant}><Robot size={21} weight={assistantOpen ? "fill" : "regular"} /></button>
         <button type="button" className="knowledge-icon-button knowledge-close" aria-label="閉じる" data-tooltip="閉じる" onClick={onClose}><X size={22} /></button>
+        </div>
       </header>
 
       <aside className="knowledge-sidebar" aria-label="Projectナビゲーション">
@@ -1867,47 +1922,6 @@ export function KnowledgeView({
           )}
         </div>
 
-        <div className="knowledge-sidebar-section">
-          <div className="knowledge-sidebar-heading"><span>共有</span></div>
-          {syncByProject[projectId] ? (
-            <div className="knowledge-share-state">
-              <p><UsersThree size={16} aria-hidden="true" />共有中・{syncByProject[projectId].role}</p>
-              <small className={syncStatus === "connected" ? "knowledge-sync-live" : undefined}>
-                {syncStatus === "connected" ? "同期中" : syncStatus === "connecting" ? "接続中…" : "オフライン（編集はこの端末に保存されます）"}
-              </small>
-              <small>{syncByProject[projectId].endpoint}</small>
-              <div>
-                <button type="button" disabled={shareBusy || syncByProject[projectId].role !== "owner"} onClick={() => { setShareInvite(""); setShareMode("invite"); }}>招待</button>
-                <button type="button" disabled={shareBusy} onClick={stopSharing}>停止</button>
-              </div>
-            </div>
-          ) : (
-            <div className="knowledge-share-state">
-              <small>{desktop ? "このProjectはこの端末だけにあります。" : "共有はデスクトップ版で利用できます。"}</small>
-              <div>
-                <button type="button" disabled={!desktop || shareBusy} onClick={() => setShareMode("connect")}>共有を開始</button>
-                <button type="button" disabled={!desktop || shareBusy} onClick={() => setShareMode("join")}>招待から参加</button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {currentProject && (
-          <div className="knowledge-sidebar-section">
-            <button type="button" className="knowledge-settings-open" onClick={() => setProjectSettingsOpen(true)}>
-              <Gear size={16} aria-hidden="true" />Project設定
-            </button>
-          </div>
-        )}
-
-        <div className="knowledge-permission">
-          <div><ShieldCheck size={18} aria-hidden="true" /><span><strong>Agent権限</strong><small>端末に保存</small></span></div>
-          <div className="knowledge-levels" aria-label="Confirmation level">
-            {confirmationLevels.map((level) => (
-              <button key={level.id} type="button" className={preferences.confirmationLevel === level.id ? "active" : ""} aria-pressed={preferences.confirmationLevel === level.id} onClick={() => changeConfirmationLevel(level.id)} title={level.description}>{level.label}</button>
-            ))}
-          </div>
-        </div>
       </aside>
 
       <section className="knowledge-page-list" aria-labelledby="knowledge-pages-title">

@@ -15,6 +15,7 @@ import { getChatHistoryStore } from "./desktop/chat-history.js";
 import { createAggregateAgentHost, hasRegisteredAgentHosts } from "./core/agent-host-registry.js";
 import { AgentRuntime } from "./core/agent-runtime.js";
 import { getProfilePreferencesStore } from "./desktop/profile-preferences.js";
+import { createDefaultProfilePreferences } from "./core/profile-preferences.js";
 import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
 import { createDeviceAppInstallationsStore } from "./desktop/app-installations.js";
 import { getHostUpdaterClient } from "./desktop/app-updater.js";
@@ -92,6 +93,17 @@ const initialProviderSettings = {
   openaiApi: { configured: false, model: "gpt-5.6" },
   localLlm: { configured: false, baseUrl: null, model: null },
 };
+
+/** How far the assistant may act before asking (ADR 0016), shown in the composer beside the other per-turn controls. */
+const confirmationLevelOptions = [
+  { id: "review", label: "確認", description: "Review：変更案を確認" },
+  { id: "recoverable", label: "復旧可能", description: "Recoverable：復元可能な変更" },
+  { id: "autonomous", label: "自律", description: "Autonomous：破壊的操作も許可" },
+];
+
+function confirmationLabel(levelId) {
+  return confirmationLevelOptions.find((level) => level.id === levelId)?.label ?? levelId;
+}
 
 const providerLabels = Object.fromEntries(
   Object.entries(nativeAgentProviders).map(([id, provider]) => [id, provider.descriptor.name]),
@@ -769,6 +781,11 @@ export function App() {
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [surfaceContext, setSurfaceContext] = useState(null);
   const [pendingApproval, setPendingApproval] = useState(null);
+  // The Confirmation level governs every App's agent writes (ADR 0016), and
+  // ADR 0025 made those Operations reachable from the assistant panel
+  // regardless of which App is open, so the Host owns this control rather than
+  // any one App's sidebar.
+  const [profilePreferences, setProfilePreferences] = useState(createDefaultProfilePreferences);
   const [aiText, setAiText] = useState("");
   const [toast, setToast] = useState("");
   const [workspace, setWorkspace] = useState(null);
@@ -862,6 +879,23 @@ export function App() {
   useEffect(() => {
     setSurfaceContext(selectedApp ? { label: selectedApp.name, appId: null, operationContext: null } : null);
   }, [selectedApp]);
+
+  useEffect(() => {
+    let active = true;
+    getProfilePreferencesStore().load()
+      .then((loaded) => active && setProfilePreferences(loaded))
+      .catch(() => {});
+    return () => { active = false; };
+  }, [desktop, workspace]);
+
+  const changeConfirmationLevel = async (confirmationLevel) => {
+    try {
+      setProfilePreferences(await getProfilePreferencesStore().setConfirmationLevel(profilePreferences, confirmationLevel));
+      setToast(`Agent権限を「${confirmationLabel(confirmationLevel)}」へ変更しました`);
+    } catch (error) {
+      setToast(`Agent権限を変更できません：${String(error?.message ?? error)}`);
+    }
+  };
 
   useEffect(() => {
     if (!desktop) return;
@@ -1473,6 +1507,9 @@ export function App() {
     onRenameSession: updateChatTitle,
     onDeleteSession: removeChatSession,
     onChange: setAiText,
+    confirmationLevels: confirmationLevelOptions,
+    confirmationLevel: profilePreferences.confirmationLevel,
+    onSelectConfirmationLevel: changeConfirmationLevel,
   };
 
   return (

@@ -66,8 +66,18 @@ the profile level and the narrower grants that still apply.
 As of 2026-08-16, manifests declare and validate the four Confirmation classes,
 the Host evaluates Agent invocations against the three cumulative levels and
 fresh approval, and audit records include the selected level and Operation class.
-The selected level is immediately switchable in the Knowledge editor and is
-stored in the current device's host-profile namespace across restarts.
+The selected level is immediately switchable and is stored in the current
+device's host-profile namespace across restarts.
+
+As of 2026-08-18, that switch lives in the Host's assistant composer
+(`ChatView.jsx`'s footer, beside the model and Thinking pickers) rather than in
+the Knowledge editor's sidebar, and `App.jsx` owns the loaded preferences. The
+level was always device-wide, but hosting its only control inside one App
+implied it governed that App alone — misleading once
+[ADR 0025](0025-agent-operations-from-the-assistant-panel.md) made every
+registered App's Operations invocable from the assistant regardless of which
+App is open. It now sits next to the composer it actually governs, and
+`knowledge/client.js` no longer reaches the Host profile store at all.
 
 The current grant model still matches whole Operation IDs only. Declarative input
 constraints, grant-management UI, per-change audit for the profile setting, and
