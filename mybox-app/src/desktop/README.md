@@ -12,6 +12,8 @@ must only be called when `isDesktopRuntime()` returns true.
   workspace storage, with an in-memory Web preview fallback.
 - `profile-preferences.js`: binds host profile preferences to the same native
   app-scoped storage boundary, with an in-memory Web preview fallback.
+- `host-session.js`: binds the Host's last stable destination to app-scoped
+  storage, with an in-memory Web preview fallback.
 - `app-installations.js`: binds the installed App catalog to device-local Host
   storage, with an in-memory Web preview fallback.
 - `app-updater.js`: checks for, downloads, and installs a signed MyBox release

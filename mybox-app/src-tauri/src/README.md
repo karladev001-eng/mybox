@@ -1,11 +1,13 @@
 # Native Source
 
 - `main.rs`: thin executable entry point.
-- `lib.rs`: Tauri builder, plugins, and command registration.
+- `lib.rs`: Tauri builder, plugins, command registration, and the Windows
+  WebView2 policy that disables browser-only accelerator keys before MyBox
+  handles its own Host shortcuts.
 - `workspace.rs`: workspace selection plus app-scoped JSON persistence.
 - `codex.rs`: constrained Codex App Server client for ChatGPT subscription status,
-  sign-in, model/Thinking discovery, quota windows, inference, explicitly selected
-  skills, hosted Web search, and generated-image ingestion.
+  display identity, sign-in, model/Thinking discovery, quota windows, inference,
+  explicitly selected skills, hosted Web search, and generated-image ingestion.
 - `agent_providers.rs`: OS-backed API secrets, non-secret provider settings, and
   constrained OpenAI API/local-LLM HTTP adapters, including API token accounting.
 - `accounts.rs`: OAuth device-flow sign-in for the Linked account, with the access

@@ -11,6 +11,7 @@ import {
   getProjectTags,
   KnowledgeDomainError,
   listPages,
+  listProjectMembers,
   listProjects,
   movePageToTrash,
   purgePage,
@@ -20,6 +21,7 @@ import {
   restorePage,
   restorePageHistory,
   searchPages,
+  setProjectMemberColor,
   updatePage,
   validateKnowledgeState,
 } from "./domain.js";
@@ -151,10 +153,27 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.1.0",
+      version: "0.1.2",
       hostCapabilities: ["app-storage"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema }),
+        operation({ id: "knowledge.project.members.list", title: "Projectメンバー色を一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
+        operation({
+          id: "knowledge.project.member-color.set",
+          title: "Projectメンバーの基本色を設定",
+          effect: "write",
+          confirmationClass: "recoverable",
+          callers: ["user"],
+          inputSchema: {
+            type: "object",
+            required: ["projectId", "profileId", "color"],
+            properties: {
+              projectId: { type: "string", minLength: 1 },
+              profileId: { type: "string", minLength: 1 },
+              color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+            },
+          },
+        }),
         operation({
           id: "knowledge.project.create",
           title: "Projectを作成",
@@ -313,6 +332,22 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         const state = await loadState(storage);
         return { projects: listProjects(state, { profileId: profileIdFor(actor) }) };
       },
+      async "knowledge.project.members.list"({ projectId }, { actor, storage }) {
+        const session = sharedSessions.get(projectId);
+        if (session) return { members: session.listMemberColors() };
+        return { members: listProjectMembers(await loadState(storage), { projectId, profileId: profileIdFor(actor) }) };
+      },
+      async "knowledge.project.member-color.set"({ projectId, profileId, color }, { actor, storage }) {
+        const session = sharedSessions.get(projectId);
+        if (session) return { member: session.setMemberColor(profileId, color, actor.id) };
+        const mutation = await saveMutation(storage, setProjectMemberColor(await loadState(storage), {
+          projectId,
+          memberProfileId: profileId,
+          color,
+          profileId: profileIdFor(actor),
+        }));
+        return { member: mutation.member };
+      },
       async "knowledge.project.create"({ name }, { actor, storage, emit }) {
         const mutation = await saveMutation(storage, createProject(await loadState(storage), {
           name,
@@ -385,7 +420,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         // store, and carries no revision to conflict on.
         const session = sharedSessions.get(input.projectId);
         if (session) {
-          session.mutate(input.pageId, input.mutation);
+          session.mutate(input.pageId, input.mutation, actor.id);
           const shared = session.readPage(input.pageId);
           await emit("knowledge.page.changed", {
             projectId: input.projectId,

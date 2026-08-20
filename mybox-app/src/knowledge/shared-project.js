@@ -1,9 +1,14 @@
 import { createSyncClient } from "./sync-client.js";
+import { isAuthorColor } from "./author-color.js";
 import {
   applyPageMutation,
   createProjectDoc,
+  listMemberColors as listDocumentMemberColors,
+  listMemberProfiles as listDocumentMemberProfiles,
   listPageIds,
   readPage,
+  setMemberColor as setDocumentMemberColor,
+  setMemberProfile as setDocumentMemberProfile,
   seedPage,
 } from "./yjs-document.js";
 
@@ -12,7 +17,7 @@ import {
  * through the local model, so they are refused with an explanation rather than
  * silently dropped.
  */
-const SHARED_MUTATIONS = new Set(["rename", "block-update", "block-add", "block-remove", "block-move"]);
+const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-remove", "block-move"]);
 
 export class SharedProjectError extends Error {
   constructor(code, message, details = {}) {
@@ -132,7 +137,7 @@ export function createSharedProject({
      * the editor, the assistant, a future Flow — speaks one language and the
      * document is not a second, parallel write path with its own shapes.
      */
-    mutate(pageId, mutation) {
+    mutate(pageId, mutation, actorId) {
       if (!SHARED_MUTATIONS.has(mutation.type)) {
         throw new SharedProjectError(
           "MUTATION_UNSUPPORTED_WHEN_SHARED",
@@ -140,7 +145,31 @@ export function createSharedProject({
           { type: mutation.type },
         );
       }
-      return applyPageMutation(doc, pageId, toDocumentMutation(mutation));
+      return applyPageMutation(doc, pageId, toDocumentMutation(mutation), { actorId });
+    },
+
+    listMemberColors() {
+      return listDocumentMemberColors(doc);
+    },
+
+    setMemberColor(profileId, color, actorId) {
+      if (profileId !== actorId && client.role !== "owner") {
+        throw new SharedProjectError("PROJECT_ROLE_REQUIRED", "Owner Project role is required");
+      }
+      if (!isAuthorColor(color)) throw new SharedProjectError("INVALID_AUTHOR_COLOR", "Author color is invalid");
+      setDocumentMemberColor(doc, profileId, color);
+      return { profileId, color };
+    },
+
+    listMemberProfiles() {
+      return listDocumentMemberProfiles(doc);
+    },
+
+    setMemberProfile(profile, actorId) {
+      if (profile?.profileId !== actorId) {
+        throw new SharedProjectError("INVALID_MEMBER_PROFILE", "A profile can publish only its own presentation");
+      }
+      return setDocumentMemberProfile(doc, profile);
     },
 
     createPage(page) {

@@ -95,6 +95,12 @@ declare their authentication kind and capabilities but never receive direct app
 storage access. ChatGPT subscriptions, metered APIs, and local models are separate
 provider configurations.
 
+**Agent provider identity** — Display-only identity metadata returned by an
+official Agent provider client, such as the email for the ChatGPT subscription
+currently used through Codex. It identifies which inference account is active but
+is neither a MyBox Linked account nor a credential, and is not persisted by MyBox.
+_Avoid_: Linked account, API key, access token
+
 **Chat session** — A provider-neutral, locally stored conversation owned by the
 `ai-chat` app. It contains ordered user and assistant messages and may continue
 through a different provider without exposing another app's state.
@@ -143,6 +149,18 @@ _Avoid_: Registry refresh, silent downgrade
 tool or skill selection. It changes explicit per-turn intent but grants no new
 provider, operation, storage, or network authority.
 
+**Keyboard shortcut** — A Host-resolved key combination that invokes an existing
+visible navigation or action control while the MyBox window is focused. Host
+shortcuts are reserved globally; App shortcuts are declared in the Registry and
+active only while that App Surface is selected. Neither grants authority nor
+registers an operating-system-wide hotkey.
+
+**Shortcut menu** — The Host command palette that lists keyboard shortcuts,
+installed-App launch commands, and MyBox home navigation, and lets a User
+search or execute them with Tab and Enter. Each App's launch command and active
+Surface commands share one `<name> App` group. It is a discovery surface, not a
+separate privileged command path.
+
 **Reasoning effort** — A provider-advertised level controlling how much model work
 is requested for a turn. Available values belong to the selected model and must
 not be assumed across providers.
@@ -189,6 +207,22 @@ _Avoid_: Deleted Project, empty Project
 number of Pages in that Project. Tags do not determine Page ownership or access
 and do not form a parent-child hierarchy.
 _Avoid_: Project, folder
+
+**Author color** — A Project-scoped basic color assigned to an account and used
+with its display name to identify the last editor of shared Blocks and history
+entries. The immutable profile ID remains the internal attribution key. It is
+descriptive metadata, not a role or access control.
+_Avoid_: presence color, permission color, text color
+
+**Presence** — Ephemeral shared-Project state identifying accounts that are
+connected now. Note presents it as labelled profile icons; it disappears on
+disconnect and is neither membership nor Page history.
+_Avoid_: member directory, last editor, persisted activity
+
+**Last working surface** — The most recent stable Host destination or open App
+restored at startup. It excludes App-private navigation, transient overlays,
+input drafts, and pending actions.
+_Avoid_: full session snapshot, selected Page, reopened modal
 
 **Storage adapter** — A host implementation for local persistence or optional
 cloud synchronization. Apps use the storage port rather than provider SDKs or raw

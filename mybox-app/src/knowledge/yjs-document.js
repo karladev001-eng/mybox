@@ -20,6 +20,7 @@ import { BLOCK_TYPES } from "./domain.js";
  *       checked  boolean
  *       links    Y.Array<{ targetPageId, token }>
  *   tags: Y.Map<tagId, { label, normalizedLabel }>
+ *   memberProfiles: Y.Map<profileId, { displayName, avatarUrl }>
  */
 export function createProjectDoc() {
   return new Y.Doc();
@@ -27,6 +28,8 @@ export function createProjectDoc() {
 
 const pagesOf = (doc) => doc.getMap("pages");
 const tagsOf = (doc) => doc.getMap("tags");
+const memberColorsOf = (doc) => doc.getMap("memberColors");
+const memberProfilesOf = (doc) => doc.getMap("memberProfiles");
 
 function isHighSurrogate(code) {
   return code >= 0xd800 && code <= 0xdbff;
@@ -75,6 +78,7 @@ function newBlock(block = {}) {
   map.set("id", block.id);
   map.set("type", BLOCK_TYPES.includes(block.type) ? block.type : "paragraph");
   map.set("checked", block.checked === true);
+  if (block.updatedBy) map.set("updatedBy", block.updatedBy);
   const text = new Y.Text();
   if (block.text) text.insert(0, block.text);
   map.set("text", text);
@@ -97,6 +101,8 @@ export function seedPage(doc, page) {
     const map = new Y.Map();
     map.set("title", page.title);
     map.set("state", page.state ?? "active");
+    if (page.createdBy) map.set("createdBy", page.createdBy);
+    if (page.updatedBy) map.set("updatedBy", page.updatedBy);
     const tagIds = new Y.Array();
     if (page.tagIds?.length) tagIds.push([...page.tagIds]);
     map.set("tagIds", tagIds);
@@ -117,6 +123,35 @@ export function listPageIds(doc) {
   return [...pagesOf(doc).keys()];
 }
 
+export function listMemberColors(doc) {
+  return [...memberColorsOf(doc).entries()].map(([profileId, color]) => ({ profileId, color }));
+}
+
+export function setMemberColor(doc, profileId, color) {
+  doc.transact(() => memberColorsOf(doc).set(profileId, color));
+}
+
+/** Non-secret account presentation persists so an offline author's name remains readable. */
+export function listMemberProfiles(doc) {
+  return [...memberProfilesOf(doc).entries()].flatMap(([profileId, value]) => (
+    value && typeof value.displayName === "string" && value.displayName.trim()
+      ? [{ profileId, displayName: value.displayName, avatarUrl: value.avatarUrl ?? null }]
+      : []
+  ));
+}
+
+export function setMemberProfile(doc, profile) {
+  const profileId = typeof profile?.profileId === "string" ? profile.profileId.trim() : "";
+  const displayName = typeof profile?.displayName === "string" ? profile.displayName.trim() : "";
+  const avatarUrl = typeof profile?.avatarUrl === "string" && /^https:\/\//.test(profile.avatarUrl) && profile.avatarUrl.length <= 2048
+    ? profile.avatarUrl
+    : null;
+  if (!profileId || !displayName || displayName.length > 120) throw new Error("INVALID_MEMBER_PROFILE");
+  const value = { displayName, avatarUrl };
+  doc.transact(() => memberProfilesOf(doc).set(profileId, value));
+  return { profileId, ...value };
+}
+
 /** Projects a shared Page back into the shape the editor and Operations use. */
 export function readPage(doc, pageId) {
   const page = pagesOf(doc).get(pageId);
@@ -125,12 +160,15 @@ export function readPage(doc, pageId) {
     id: pageId,
     title: page.get("title"),
     state: page.get("state"),
+    ...(page.get("createdBy") ? { createdBy: page.get("createdBy") } : {}),
+    ...(page.get("updatedBy") ? { updatedBy: page.get("updatedBy") } : {}),
     tagIds: page.get("tagIds").toArray(),
     blocks: page.get("blocks").map((block) => ({
       id: block.get("id"),
       type: block.get("type"),
       text: block.get("text").toString(),
       checked: block.get("checked") === true,
+      ...(block.get("updatedBy") ? { updatedBy: block.get("updatedBy") } : {}),
       links: block.get("links").toArray().map((link) => ({ ...link })),
     })),
   };
@@ -143,7 +181,7 @@ export function readPage(doc, pageId) {
  * There is no expected revision: a CRDT converges instead of rejecting, which
  * is the whole reason a shared Project uses this path.
  */
-export function applyPageMutation(doc, pageId, mutation) {
+export function applyPageMutation(doc, pageId, mutation, { actorId } = {}) {
   const page = pagesOf(doc).get(pageId);
   if (!page) throw new Error(`PAGE_NOT_FOUND: ${pageId}`);
   const blocks = page.get("blocks");
@@ -172,12 +210,14 @@ export function applyPageMutation(doc, pageId, mutation) {
         if (mutation.blockType !== undefined) block.set("type", mutation.blockType);
         if (mutation.checked !== undefined) block.set("checked", mutation.checked === true);
         if (mutation.text !== undefined) applyText(block.get("text"), mutation.text);
+        if (actorId) block.set("updatedBy", actorId);
         break;
       }
 
       case "block-add": {
         const after = mutation.afterBlockId ? blockIndex(blocks, mutation.afterBlockId) : blocks.length - 1;
         blocks.insert(after < 0 ? blocks.length : after + 1, [newBlock(mutation.block ?? { id: mutation.blockId })]);
+        if (actorId) blocks.get(after < 0 ? blocks.length - 1 : after + 1)?.set("updatedBy", actorId);
         break;
       }
 
@@ -214,6 +254,7 @@ export function applyPageMutation(doc, pageId, mutation) {
       default:
         throw new Error(`INVALID_PAGE_MUTATION: ${mutation.type}`);
     }
+    if (actorId) page.set("updatedBy", actorId);
   });
 
   return readPage(doc, pageId);

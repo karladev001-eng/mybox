@@ -177,6 +177,14 @@ Add one entry to `mybox-app/src/apps/registry.js`'s `builtInDefinitions`:
   hint: "一覧に出る短い説明",
   builtIn: true,
   defaultInstalled: true,   // false if Users must add it explicitly
+  shortcuts: [{             // optional; active only while this App is selected
+    id: "find-item",
+    group: "My App",
+    label: "項目を検索",
+    key: "f",
+    code: "KeyF",
+    displayKeys: ["Ctrl", "F"],
+  }],
   surface: {
     kind: "module",
     load: () => import("../my-app/MyAppView.jsx"),
@@ -184,6 +192,12 @@ Add one entry to `mybox-app/src/apps/registry.js`'s `builtInDefinitions`:
   },
 }
 ```
+
+Shortcut IDs are unique lowercase slugs within the App. The Host keeps its
+reserved bindings, resolves the selected App's descriptors after Host commands,
+lists them in the command palette, and passes `{ shortcutId, sequence }` to the
+Surface as `shortcutCommand`. Handle that prop in the Surface; do not add a
+second window-global key listener.
 
 `AGENTS.md`'s release section applies from here: raise this `version` every
 time the App's behavior changes, or installed Users never see an update. That

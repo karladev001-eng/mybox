@@ -76,6 +76,9 @@ test("client messages are validated before reaching the document", () => {
   assert.equal(parseClientMessage("not json").error, "MALFORMED_MESSAGE");
   assert.equal(parseClientMessage('{"type":"update"}').error, "MALFORMED_UPDATE");
   assert.equal(parseClientMessage('{"type":"update","update":""}').error, "MALFORMED_UPDATE");
+  assert.equal(parseClientMessage('{"type":"awareness","state":null}').error, "MALFORMED_AWARENESS");
+  assert.equal(parseClientMessage('{"type":"awareness","state":[]}').error, "MALFORMED_AWARENESS");
+  assert.equal(parseClientMessage(JSON.stringify({ type: "awareness", state: { text: "x".repeat(5000) } })).error, "AWARENESS_TOO_LARGE");
   assert.equal(parseClientMessage('{"type":"drop-table"}').error, "UNKNOWN_MESSAGE_TYPE");
   assert.equal(parseClientMessage("null").error, "MALFORMED_MESSAGE");
 });

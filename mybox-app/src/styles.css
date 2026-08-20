@@ -135,10 +135,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 
 .icon-button:hover { background: #2b2f34; color: #fff; }
+.icon-button:active { background: var(--surface); color: var(--accent); }
+.icon-button:disabled { color: var(--subtle); background: transparent; cursor: default; opacity: .48; }
 
 .profile-button img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 1px solid #656c74; }
 .assistant-toggle { color: var(--muted); }
-.assistant-toggle.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong)); }
+.assistant-toggle.active,
+.shortcut-toggle.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong)); }
 
 [data-tooltip]::after {
   content: attr(data-tooltip);
@@ -751,7 +754,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .provider-row { min-height: 90px; padding: 0 8px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: var(--settings-row-columns); align-items: center; gap: var(--settings-row-gap); }
 .provider-row.active { background: linear-gradient(90deg, rgba(69, 201, 174, .08), transparent 62%); }
 .provider-select { min-width: 0; min-height: 88px; padding: 0; grid-column: 1 / 3; border: 0; background: transparent; display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: var(--settings-row-gap); text-align: left; }
-.provider-select small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.provider-select small { line-height: 1.55; overflow-wrap: anywhere; }
 .provider-select:disabled { cursor: default; opacity: .62; }
 .settings-row-status { min-width: 64px; justify-self: end; color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; white-space: nowrap; }
 .settings-row-status:empty { min-width: 0; }
@@ -810,6 +813,25 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .modal { width: min(100%, 510px); border: 1px solid #42484f; border-radius: 20px; background: #202326; box-shadow: 0 28px 90px rgba(0, 0, 0, .55); overflow: hidden; }
 .modal-header { min-height: 72px; padding: 0 16px 0 24px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
 .modal-header h2 { margin: 0; font-size: 20px; }
+.shortcut-backdrop { z-index: 50; }
+.shortcut-modal { width: min(100%, 620px); max-height: min(760px, calc(100dvh - 40px)); overflow: auto; scrollbar-color: var(--line-strong) transparent; }
+.shortcut-search { margin: var(--space-4) var(--space-6) 0; min-height: 48px; padding: 0 var(--space-3); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); color: var(--muted); background: var(--surface); }
+.shortcut-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent); }
+.shortcut-search input { min-width: 0; height: 44px; padding: 0; border: 0; outline: 0; color: var(--text); background: transparent; font: inherit; }
+.shortcut-search kbd { padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--subtle); background: var(--surface-strong); font-size: 10px; }
+.shortcut-intro { margin: 0; padding: var(--space-4) var(--space-6); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 13px; line-height: 1.7; }
+.shortcut-groups { padding: var(--space-4); display: grid; gap: var(--space-4); }
+.shortcut-group { display: grid; gap: var(--space-2); }
+.shortcut-group h3 { margin: 0; padding-inline: var(--space-2); color: var(--subtle); font-size: 11px; font-weight: 600; letter-spacing: .08em; }
+.shortcut-list { display: grid; gap: var(--space-1); }
+.shortcut-list button { width: 100%; min-height: 48px; padding: var(--space-2) var(--space-3); border: 1px solid transparent; border-radius: var(--radius-sm); background: transparent; color: var(--text); display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); text-align: left; transition: background-color var(--motion-fast) var(--ease-standard), border-color var(--motion-fast) var(--ease-standard); }
+.shortcut-list button > svg { color: var(--muted); }
+.shortcut-list button:hover { border-color: var(--line); background: var(--surface-hover); }
+.shortcut-list button:hover > svg { color: var(--accent); }
+.shortcut-list button:active { border-color: var(--line-strong); background: var(--surface); }
+.shortcut-keys { display: inline-flex; justify-content: flex-end; gap: var(--space-1); }
+.shortcut-keys kbd { min-width: 28px; min-height: 28px; padding: 3px 7px 4px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--surface-strong); color: var(--muted); display: grid; place-items: center; font: 500 11px/1 "Noto Sans JP", system-ui, sans-serif; box-shadow: inset 0 -1px 0 var(--line-strong); }
+.shortcut-empty { margin: 0; padding: var(--space-6); color: var(--subtle); text-align: center; }
 .add-app-modal { width: min(100%, 620px); max-height: min(860px, calc(100vh - 40px)); overflow: auto; scrollbar-color: var(--line-strong) transparent; }
 .app-catalog { padding: 20px 24px; border-bottom: 1px solid var(--line); display: grid; gap: 14px; }
 .app-catalog-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
@@ -913,8 +935,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .add-form { padding-inline: 18px; }
   .app-shell { padding-bottom: 96px; }
   .topbar { height: 68px; padding: 0 16px; }
+  .topbar-actions { gap: 4px; }
   .brand { font-size: 21px; }
-  .add-button { padding: 0 13px; }
+  .add-button { width: 44px; min-height: 44px; padding: 0; }
+  .add-button > span { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
   .main-content { width: calc(100% - 28px); }
   .main-content.chat-content { width: 100%; height: calc(100dvh - 68px); }
   .chat-view.assistant-panel { top: 68px; width: 100%; border-left: 0; }
@@ -940,6 +964,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .connection-builder > svg { rotate: 90deg; justify-self: center; }
   .history-row { grid-template-columns: 32px 74px 1fr; }
   .history-row time { grid-column: 3; }
+}
+
+@media (max-width: 420px) {
+  .brand > span { display: none; }
+  .shortcut-intro { padding-inline: var(--space-4); }
+  .shortcut-groups { padding-inline: var(--space-2); }
+  .shortcut-list button { padding-inline: var(--space-2); }
+  .shortcut-keys kbd { min-width: 25px; padding-inline: 5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -8,11 +8,13 @@ import {
   applyColorWrap,
   buildInlineNodes,
   groupedListEnter,
+  indentTextSelection,
   markdownConversion,
   parseMarkdownBlocks,
   splitListItems,
   toggleInlineWrap,
 } from "../src/knowledge/editor-behavior.js";
+import { AUTHOR_COLOR_PALETTE } from "../src/knowledge/author-color.js";
 import {
   createKnowledgeState,
   createPage,
@@ -21,6 +23,8 @@ import {
   purgePage,
   readPage,
   searchPages,
+  listProjectMembers,
+  setProjectMemberColor,
   updatePage,
 } from "../src/knowledge/domain.js";
 
@@ -51,6 +55,27 @@ test("keeps consecutive list items inside one structured Block", () => {
     text: firstItem,
     cursor: firstItem.length,
   });
+});
+
+test("Tab indents selected Note lines and Shift+Tab reverses it", () => {
+  const indented = indentTextSelection("first\nsecond", 0, 12);
+  assert.deepEqual(indented, { text: "  first\n  second", start: 2, end: 16 });
+  assert.deepEqual(indentTextSelection(indented.text, indented.start, indented.end, true), {
+    text: "first\nsecond",
+    start: 0,
+    end: 12,
+  });
+});
+
+test("stores an Owner-selected basic color for each Project member", () => {
+  const setup = fixture();
+  setup.state.projects[0].members.push({ profileId: "editor-user", role: "editor" });
+  const colored = setProjectMemberColor(setup.state, {
+    projectId: setup.projectId,
+    memberProfileId: "editor-user",
+    color: AUTHOR_COLOR_PALETTE[3],
+  });
+  assert.equal(listProjectMembers(colored.state, { projectId: setup.projectId }).find((member) => member.profileId === "editor-user").color, AUTHOR_COLOR_PALETTE[3]);
 });
 
 test("normalizes Page titles and reserves them while the Page is in Trash", () => {

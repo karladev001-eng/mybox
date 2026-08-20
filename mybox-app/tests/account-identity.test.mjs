@@ -5,6 +5,7 @@ import {
   accountProfileId,
   resolveAccountSession,
   resolveProfileId,
+  resolveProfilePresentation,
   signedOutSession,
 } from "../src/core/account-identity.js";
 import { AppHost } from "../src/core/app-host.js";
@@ -29,6 +30,26 @@ test("builds a profile ID from the provider subject and rejects malformed input"
   assert.throws(() => accountProfileId("gitlab", "1"), (error) => error.code === "UNSUPPORTED_ACCOUNT_PROVIDER");
   assert.throws(() => accountProfileId("github", "  "), (error) => error.code === "INVALID_ACCOUNT_SUBJECT");
   assert.throws(() => accountProfileId("github", "has space"), (error) => error.code === "INVALID_ACCOUNT_SUBJECT");
+});
+
+test("exposes a non-secret profile presentation to App surfaces", () => {
+  const signedIn = resolveAccountSession({
+    signedIn: true,
+    provider: "github",
+    subject: "42",
+    displayName: "Kan",
+    avatarUrl: "https://avatars.example/u/42.png",
+  });
+  assert.deepEqual(resolveProfilePresentation(signedIn), {
+    profileId: "github:42",
+    displayName: "Kan",
+    avatarUrl: "https://avatars.example/u/42.png",
+  });
+  assert.deepEqual(resolveProfilePresentation(signedOutSession()), {
+    profileId: LOCAL_PROFILE_ID,
+    displayName: "ローカルユーザー",
+    avatarUrl: null,
+  });
 });
 
 test("a signed-out or malformed account view resolves to the local profile", () => {

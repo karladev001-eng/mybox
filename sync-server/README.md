@@ -6,7 +6,9 @@ operates none, holds nobody's content, and pays for no hosting
 
 One Durable Object per Project gives that Project a single ordering point for
 updates, presence, and persistence. Content is merged with Yjs, so two people
-typing in one paragraph converge rather than collide.
+typing in one paragraph converge rather than collide. Presence is size-limited,
+kept only on live WebSocket attachments, replayed to newcomers, and discarded
+when a socket closes.
 
 ## Deploy your own
 

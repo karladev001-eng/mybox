@@ -6,8 +6,12 @@ import {
   applyUpdate,
   createProjectDoc,
   encodeState,
+  listMemberColors,
+  listMemberProfiles,
   readPage,
   seedPage,
+  setMemberColor,
+  setMemberProfile,
   textDelta,
 } from "../src/knowledge/yjs-document.js";
 
@@ -20,6 +24,31 @@ const PAGE = Object.freeze({
     { id: "block-1", type: "paragraph", text: "", checked: false, links: [] },
     { id: "block-2", type: "paragraph", text: "second", checked: false, links: [] },
   ],
+});
+
+test("shared account names and avatar URLs converge as non-secret profile metadata", () => {
+  const { a, b, sync } = twoPeers();
+  setMemberProfile(a, { profileId: "github:42", displayName: "Kan", avatarUrl: "https://avatars.example/u/42.png" });
+  sync();
+  assert.deepEqual(listMemberProfiles(b), [{
+    profileId: "github:42",
+    displayName: "Kan",
+    avatarUrl: "https://avatars.example/u/42.png",
+  }]);
+  assert.throws(
+    () => setMemberProfile(a, { profileId: "github:9", displayName: "", avatarUrl: "http://unsafe.example/avatar.png" }),
+    /INVALID_MEMBER_PROFILE/,
+  );
+});
+
+test("shared author colors and the last Block editor converge", () => {
+  const { a, b, sync } = twoPeers();
+  setMemberColor(a, "profile-a", "#67d7c4");
+  applyPageMutation(a, PAGE.id, { type: "block-update", blockId: "block-1", text: "owned" }, { actorId: "profile-a" });
+  sync();
+  assert.deepEqual(listMemberColors(b), [{ profileId: "profile-a", color: "#67d7c4" }]);
+  assert.equal(readPage(b, PAGE.id).updatedBy, "profile-a");
+  assert.equal(readPage(b, PAGE.id).blocks[0].updatedBy, "profile-a");
 });
 
 /** Two devices that have seen the same Page and can exchange updates. */

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowSquareOut,
@@ -34,6 +34,7 @@ import katex from "katex";
 import "katex/dist/katex.min.css";
 import { ThemedSelect } from "../ThemedSelect.jsx";
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
+import { AUTHOR_COLOR_PALETTE, authorColorFor } from "./author-color.js";
 import { createKnowledgeClient } from "./client.js";
 import { decodeInviteLink, encodeInviteLink } from "./invite-link.js";
 import { createSharedProject } from "./shared-project.js";
@@ -41,11 +42,14 @@ import {
   applyColorWrap,
   buildInlineNodes,
   groupedListEnter,
+  indentTextSelection,
   isGroupedListType,
   markdownConversion,
   splitListItems,
   toggleInlineWrap,
 } from "./editor-behavior.js";
+import { filterUsedTagCandidates, hasTagDelimiterAtEnd, isTagCommitKey, splitTagDraft } from "./tag-behavior.js";
+import { filterPageSearchCandidates, pageSearchKeyAction } from "./search-behavior.js";
 import "./knowledge.css";
 
 const TEXT_COLOR_PRESETS = Object.freeze(["ff6b6b", "ffa94d", "ffd43b", "69db7c", "4dabf7", "748ffc", "b197fc", "f783ac"]);
@@ -441,10 +445,11 @@ function ShareDialog({
  * only exposes the member list and removal to its Owner, so those stay
  * gated the same way here. Changing a member's role has no server route yet.
  */
-function ProjectSettingsDialog({ project, syncInfo, busy, onRename, onDeleteRequest, onListMembers, onRemoveMember, onClose }) {
+function ProjectSettingsDialog({ project, activeProfileId, syncInfo, busy, onSave, onDeleteRequest, onListMembers, onListMemberColors, onRemoveMember, onClose }) {
   const [name, setName] = useState(project.name);
   const [saved, setSaved] = useState(false);
   const [members, setMembers] = useState(null);
+  const [initialColors, setInitialColors] = useState({});
   const [membersError, setMembersError] = useState("");
   const [removingId, setRemovingId] = useState(null);
   const isOwner = project.role === "owner";
@@ -457,23 +462,39 @@ function ProjectSettingsDialog({ project, syncInfo, busy, onRename, onDeleteRequ
   }, [project.id, project.name]);
 
   useEffect(() => {
-    if (!canListMembers) {
-      setMembers(null);
-      return undefined;
-    }
     let active = true;
     setMembersError("");
-    onListMembers(project.id)
-      .then((result) => { if (active) setMembers(result); })
+    Promise.all([
+      canListMembers ? onListMembers(project.id) : Promise.resolve([]),
+      onListMemberColors(project.id),
+    ])
+      .then(([serverMembers, colorResult]) => {
+        if (!active) return;
+        const colorMembers = colorResult.members ?? [];
+        const knownColors = Object.fromEntries(colorMembers.map((member) => [member.profileId, member.color]));
+        const source = serverMembers.length
+          ? serverMembers
+          : colorMembers.some((member) => member.profileId === activeProfileId)
+            ? colorMembers
+            : [...colorMembers, { profileId: activeProfileId, role: project.role }];
+        const merged = source.map((member) => ({
+          ...member,
+          color: authorColorFor(member.profileId, knownColors[member.profileId] ?? member.color),
+        }));
+        setMembers(merged);
+        setInitialColors(Object.fromEntries(merged.map((member) => [member.profileId, member.color])));
+      })
       .catch((nextError) => { if (active) setMembersError(String(nextError?.message ?? nextError)); });
     return () => { active = false; };
-  }, [canListMembers, project.id, onListMembers]);
+  }, [activeProfileId, canListMembers, project.id, project.role, onListMemberColors, onListMembers]);
 
-  const submitRename = async (event) => {
+  const submitSettings = async (event) => {
     event.preventDefault();
     const trimmed = name.trim();
-    if (!trimmed || trimmed === project.name) return;
-    await onRename(trimmed);
+    if (!trimmed) return;
+    const colors = Object.fromEntries((members ?? []).map((member) => [member.profileId, member.color]));
+    await onSave({ name: trimmed, colors });
+    setInitialColors(colors);
     setSaved(true);
   };
 
@@ -490,95 +511,116 @@ function ProjectSettingsDialog({ project, syncInfo, busy, onRename, onDeleteRequ
     }
   };
 
+  const colorChanged = (members ?? []).some((member) => initialColors[member.profileId] !== member.color);
+  const hasChanges = name.trim() !== project.name || colorChanged;
+
   return (
     <div className="knowledge-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <section className="knowledge-dialog knowledge-share-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-project-settings-title">
+      <section className="knowledge-dialog knowledge-share-dialog knowledge-project-settings-dialog" role="dialog" aria-modal="true" aria-labelledby="knowledge-project-settings-title">
         <h2 id="knowledge-project-settings-title">Project設定</h2>
+        <form onSubmit={submitSettings} className="knowledge-project-settings-form">
+          <div className="knowledge-project-settings-body">
+            <div>
+              <label htmlFor="project-settings-name">Project名</label>
+              <input id="project-settings-name" value={name} onChange={(event) => { setName(event.target.value); setSaved(false); }} disabled={!isOwner || busy} maxLength={120} required />
+              {!isOwner && <small className="form-note">Owner権限がないため変更できません。</small>}
+            </div>
 
-        <form onSubmit={submitRename}>
-          <label htmlFor="project-settings-name">Project名</label>
-          <input
-            id="project-settings-name"
-            value={name}
-            onChange={(event) => { setName(event.target.value); setSaved(false); }}
-            disabled={!isOwner || busy}
-            maxLength={120}
-            required
-          />
-          {isOwner
-            ? <button type="submit" className="knowledge-primary-button" disabled={busy || !name.trim() || name.trim() === project.name}>{saved ? "保存しました" : "名前を保存"}</button>
-            : <small className="form-note">Owner権限がないため変更できません。</small>}
-        </form>
-
-        <div className="knowledge-settings-section">
-          <h3>メンバー</h3>
-          <p>自分のRole：{project.role}</p>
-          {isShared
-            ? <small className="form-note">接続先：{syncInfo.endpoint}</small>
-            : <small className="form-note">このProjectはこの端末だけにあります。</small>}
-          {canListMembers ? (
-            <>
+            <div className="knowledge-settings-section">
+              <h3>メンバーと基本色</h3>
+              <p>自分のRole：{project.role}</p>
+              {isShared
+                ? <small className="form-note">接続先：{syncInfo.endpoint}</small>
+                : <small className="form-note">このProjectはこの端末だけにあります。</small>}
               {membersError && <small className="form-note form-note-error">{membersError}</small>}
               {members === null && !membersError && <small className="form-note">読み込み中…</small>}
               {members && (members.length ? (
                 <ul className="knowledge-member-list">
                   {members.map((member) => (
                     <li key={member.profileId}>
-                      <span className="knowledge-member-id">{member.profileId}</span>
-                      <span className="knowledge-member-role">{member.role}</span>
-                      {member.role !== "owner" && (
-                        <button
-                          type="button"
-                          className="knowledge-danger-link"
-                          disabled={removingId === member.profileId}
-                          onClick={() => removeMember(member.profileId)}
-                        >
-                          {removingId === member.profileId ? "削除中…" : "削除"}
-                        </button>
-                      )}
+                      <div className="knowledge-member-summary">
+                        <span className="knowledge-author-dot" style={{ backgroundColor: member.color }} aria-hidden="true" />
+                        <span className="knowledge-member-id">{member.profileId}</span>
+                        <span className="knowledge-member-role">{member.role ?? "member"}</span>
+                        {canListMembers && member.role !== "owner" && (
+                          <button type="button" className="knowledge-danger-link" disabled={removingId === member.profileId} onClick={() => removeMember(member.profileId)}>
+                            {removingId === member.profileId ? "削除中…" : "削除"}
+                          </button>
+                        )}
+                      </div>
+                      <div className="knowledge-author-color-options" role="group" aria-label={`${member.profileId}の基本色`}>
+                        {AUTHOR_COLOR_PALETTE.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            className={member.color === color ? "selected" : ""}
+                            aria-label={`${member.profileId}の基本色 ${color}`}
+                            aria-pressed={member.color === color}
+                            disabled={(!isOwner && member.profileId !== activeProfileId) || busy}
+                            style={{ "--member-color": color }}
+                            onClick={() => {
+                              setMembers((current) => current.map((item) => item.profileId === member.profileId ? { ...item, color } : item));
+                              setSaved(false);
+                            }}
+                          />
+                        ))}
+                      </div>
                     </li>
                   ))}
                 </ul>
               ) : <small className="form-note">メンバーがいません。</small>)}
-              <small className="form-note">Roleの変更は今後のリリースで対応予定です。招待の発行・共有停止はサイドバーから行えます。</small>
-            </>
-          ) : (
-            <small className="form-note">
-              {isShared ? "メンバー一覧はOwnerのみ表示できます。" : "共有すると、ここにメンバー一覧が表示されます。"}
-            </small>
-          )}
-        </div>
+              <small className="form-note">基本色はNoteの最終編集者表示に使われます。Roleの変更、招待の発行、共有停止は別の操作です。</small>
+            </div>
 
-        <div className="knowledge-settings-section">
-          <h3>保存場所</h3>
-          <small className="form-note">現在のバージョンでは全ProjectがMyBoxアプリ内の共通ストレージに保存されます。Project専用フォルダの選択は今後のリリースで対応予定です。</small>
-        </div>
+            <div className="knowledge-settings-section">
+              <h3>保存場所</h3>
+              <small className="form-note">現在のバージョンでは全ProjectがMyBoxアプリ内の共通ストレージに保存されます。Project専用フォルダの選択は今後のリリースで対応予定です。</small>
+            </div>
 
-        {isOwner && (
-          <div className="knowledge-settings-section">
-            <h3>危険な操作</h3>
-            <button
-              type="button"
-              className="knowledge-danger-link"
-              disabled={isShared}
-              title={isShared ? "削除する前に共有を停止してください" : undefined}
-              onClick={onDeleteRequest}
-            >
-              <Trash size={15} aria-hidden="true" />Projectを削除
-            </button>
+            {isOwner && (
+              <div className="knowledge-settings-section">
+                <h3>危険な操作</h3>
+                <button type="button" className="knowledge-danger-link" disabled={isShared} title={isShared ? "削除する前に共有を停止してください" : undefined} onClick={onDeleteRequest}>
+                  <Trash size={15} aria-hidden="true" />Projectを削除
+                </button>
+              </div>
+            )}
           </div>
-        )}
 
-        <div className="knowledge-dialog-actions">
-          <button type="button" onClick={onClose}>閉じる</button>
-        </div>
+          <div className="knowledge-dialog-actions knowledge-project-settings-actions">
+            {saved && <span role="status">保存しました</span>}
+            <button type="button" onClick={onClose}>閉じる</button>
+            <button type="submit" className="knowledge-primary-button" disabled={busy || !name.trim() || !hasChanges}>{busy ? "保存中…" : "保存"}</button>
+          </div>
+        </form>
       </section>
     </div>
   );
 }
 
+function profileInitials(displayName) {
+  return [...String(displayName || "共同編集者").trim()].slice(0, 2).join("").toLocaleUpperCase("ja-JP");
+}
+
+function OnlineProfileAvatar({ profile }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [profile.avatarUrl]);
+  const label = `${profile.displayName}・オンライン`;
+  return (
+    <span className="knowledge-online-avatar" role="img" aria-label={label} title={label}>
+      {profile.avatarUrl && !imageFailed
+        ? <img src={profile.avatarUrl} alt="" referrerPolicy="no-referrer" onError={() => setImageFailed(true)} />
+        : <span aria-hidden="true">{profileInitials(profile.displayName)}</span>}
+      <i aria-hidden="true" />
+    </span>
+  );
+}
+
 function BlockRow({
   block,
+  authorColor,
+  authorName,
+  showAuthor,
   blockIndex,
   blockCount,
   autoEdit,
@@ -788,6 +830,23 @@ function BlockRow({
         return;
       }
     }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      const result = indentTextSelection(
+        text,
+        event.currentTarget.selectionStart,
+        event.currentTarget.selectionEnd,
+        event.shiftKey,
+      );
+      setText(result.text);
+      commit({ text: result.text });
+      window.setTimeout(() => {
+        textareaRef.current?.focus();
+        textareaRef.current?.setSelectionRange(result.start, result.end);
+        trackSelection();
+      }, 0);
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey && blockType !== "code") {
       if (isGroupedListType(blockType)) {
         event.preventDefault();
@@ -869,7 +928,8 @@ function BlockRow({
 
   return (
     <article
-      className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}`}
+      className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${showAuthor && block.updatedBy ? " authored" : ""}`}
+      style={showAuthor && block.updatedBy ? { "--author-color": authorColor } : undefined}
       onDragOver={(event) => {
         // A real OS file drag also fires this on every Block underneath it; leave
         // it unhandled here (readable by `.knowledge-blocks`' own file-drop
@@ -908,6 +968,12 @@ function BlockRow({
           <button type="button" aria-label="Blockを削除" onClick={() => onRemove(block.id)}><X size={15} /></button>
         </>}
       </div>
+      {showAuthor && block.updatedBy && (
+        <span className="knowledge-block-author" title={`最終編集：${authorName}`}>
+          <span className="knowledge-author-dot" aria-hidden="true" />
+          <span>{authorName}</span>
+        </span>
+      )}
       {editing && !readOnly ? (
         <div className="knowledge-block-editor-wrap">
           {blockType === "bulleted-list" && <span className="knowledge-list-editor-kind" title="箇条書き"><ListBullets size={18} aria-hidden="true" /></span>}
@@ -1025,29 +1091,45 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const inputRef = useRef(null);
+  const composingRef = useRef(false);
+  const skipBlurCommitRef = useRef(false);
+  const labelsRef = useRef(tags);
+  const tagsSignature = tags.map(normalized).join("\u0000");
+
+  useEffect(() => {
+    labelsRef.current = tags;
+    setLabels(tags);
+  }, [tagsSignature]);
 
   const commitLabels = (nextLabels) => {
+    labelsRef.current = nextLabels;
     setLabels(nextLabels);
     onCommit(nextLabels);
   };
 
-  const addLabel = (label) => {
-    const value = label.trim();
-    if (!value || labels.some((item) => normalized(item) === normalized(value))) {
-      setDraft("");
-      return;
+  const addLabels = (values) => {
+    const currentLabels = labelsRef.current;
+    const next = [...currentLabels];
+    const used = new Set(currentLabels.map(normalized));
+    for (const value of values.map((label) => label.trim()).filter(Boolean)) {
+      const key = normalized(value);
+      if (used.has(key)) continue;
+      used.add(key);
+      next.push(value);
     }
-    commitLabels([...labels, value]);
+    if (next.length !== currentLabels.length) commitLabels(next);
     setDraft("");
   };
 
+  const addLabel = (label) => addLabels([label]);
+
   const removeLabel = (label) => {
-    commitLabels(labels.filter((item) => item !== label));
+    commitLabels(labelsRef.current.filter((item) => item !== label));
   };
 
-  const filteredCandidates = draft.trim()
-    ? candidates.filter((tag) => normalized(tag.label).includes(normalized(draft)) && !labels.some((item) => normalized(item) === normalized(tag.label))).slice(0, 8)
-    : candidates.filter((tag) => !labels.some((item) => normalized(item) === normalized(tag.label))).slice(0, 8);
+  const keepInputFocused = () => window.setTimeout(() => inputRef.current?.focus(), 0);
+
+  const filteredCandidates = filterUsedTagCandidates(candidates, labels, draft);
 
   return (
     <div className="knowledge-tags-field">
@@ -1064,14 +1146,34 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
             <input
               ref={inputRef}
               value={draft}
-              placeholder={labels.length ? "" : "例：設計, アイデア"}
+              placeholder={labels.length ? "" : "例：設計 アイデア"}
               role="combobox"
+              aria-label="Tagを追加"
+              aria-autocomplete="list"
+              aria-describedby="knowledge-tags-hint"
               aria-expanded={open && filteredCandidates.length > 0}
               aria-controls="knowledge-tag-picker"
               onChange={(event) => {
-                setDraft(event.target.value);
+                const value = event.target.value;
+                if (!composingRef.current && hasTagDelimiterAtEnd(value)) {
+                  addLabels(splitTagDraft(value));
+                  keepInputFocused();
+                } else {
+                  setDraft(value);
+                }
                 setOpen(true);
                 setHighlightedIndex(-1);
+              }}
+              onCompositionStart={() => { composingRef.current = true; }}
+              onCompositionEnd={(event) => {
+                composingRef.current = false;
+                const value = event.currentTarget.value;
+                if (hasTagDelimiterAtEnd(value)) {
+                  addLabels(splitTagDraft(value));
+                  setOpen(true);
+                  setHighlightedIndex(-1);
+                  keepInputFocused();
+                }
               }}
               onFocus={() => setOpen(true)}
               onKeyDown={(event) => {
@@ -1084,17 +1186,31 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
                     : (current + 1) % filteredCandidates.length));
                   return;
                 }
-                if (event.key === " ") {
+                if ((event.key === " " || event.key === "　" || event.key === "Spacebar" || event.code === "Space") && isTagCommitKey(event)) {
                   if (!draft.trim() && !hasHighlight) return;
                   event.preventDefault();
-                  addLabel(hasHighlight ? filteredCandidates[highlightedIndex].label : draft);
+                  if (hasHighlight) addLabel(filteredCandidates[highlightedIndex].label);
+                  else addLabels(splitTagDraft(draft));
                   setHighlightedIndex(-1);
+                  keepInputFocused();
                   return;
                 }
-                if (event.key === "Enter" || event.key === ",") {
+                if (event.key === "Enter" && isTagCommitKey(event)) {
                   event.preventDefault();
-                  addLabel(hasHighlight ? filteredCandidates[highlightedIndex].label : draft);
+                  skipBlurCommitRef.current = true;
+                  if (hasHighlight) addLabel(filteredCandidates[highlightedIndex].label);
+                  else addLabels(splitTagDraft(draft));
                   setHighlightedIndex(-1);
+                  setOpen(false);
+                  window.setTimeout(() => inputRef.current?.blur(), 0);
+                  return;
+                }
+                if (event.key === "," && isTagCommitKey(event)) {
+                  event.preventDefault();
+                  if (hasHighlight) addLabel(filteredCandidates[highlightedIndex].label);
+                  else addLabels(splitTagDraft(draft));
+                  setHighlightedIndex(-1);
+                  keepInputFocused();
                 } else if (event.key === "Backspace" && !draft && labels.length) {
                   removeLabel(labels[labels.length - 1]);
                 } else if (event.key === "Escape") {
@@ -1104,13 +1220,15 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
               }}
               onBlur={(event) => {
                 if (event.relatedTarget?.closest?.(".knowledge-tag-picker")) return;
-                if (draft.trim()) addLabel(draft);
+                if (skipBlurCommitRef.current) skipBlurCommitRef.current = false;
+                else if (draft.trim()) addLabels(splitTagDraft(draft));
                 setOpen(false);
                 setHighlightedIndex(-1);
               }}
             />
           )}
         </div>
+        {!readOnly && <small id="knowledge-tags-hint" className="knowledge-tags-hint">Spaceで追加・Enterで入力を完了</small>}
         {!readOnly && open && filteredCandidates.length > 0 && (
           <div id="knowledge-tag-picker" className="knowledge-tag-picker" role="listbox" aria-label="既存のTag">
             {filteredCandidates.map((tag, index) => (
@@ -1142,6 +1260,8 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
 export function KnowledgeView({
   desktop = false,
   profileId = LOCAL_PROFILE_ID,
+  profile = null,
+  shortcutCommand = null,
   persistenceReady = true,
   onClose,
   onOpenSettings,
@@ -1159,6 +1279,11 @@ export function KnowledgeView({
     clientRef.current = createKnowledgeClient({ desktop, getProfileId: () => profileIdRef.current });
   }
   const client = clientRef.current;
+  const activeProfile = useMemo(() => ({
+    profileId,
+    displayName: typeof profile?.displayName === "string" && profile.displayName.trim() ? profile.displayName.trim() : "ローカルユーザー",
+    avatarUrl: typeof profile?.avatarUrl === "string" && /^https:\/\//.test(profile.avatarUrl) ? profile.avatarUrl : null,
+  }), [profileId, profile?.displayName, profile?.avatarUrl]);
   const pageRef = useRef(null);
   const operationQueue = useRef(Promise.resolve());
   const [projects, setProjects] = useState([]);
@@ -1166,6 +1291,9 @@ export function KnowledgeView({
   const [pages, setPages] = useState([]);
   const [linkCandidates, setLinkCandidates] = useState([]);
   const [tagCandidates, setTagCandidates] = useState([]);
+  const [memberColors, setMemberColors] = useState({});
+  const [memberProfiles, setMemberProfiles] = useState({});
+  const [onlineProfiles, setOnlineProfiles] = useState({});
   const [syncByProject, setSyncByProject] = useState({});
   const [shareMode, setShareMode] = useState(null);
   const [shareBusy, setShareBusy] = useState(false);
@@ -1179,6 +1307,8 @@ export function KnowledgeView({
   const [selectedPageId, setSelectedPageId] = useState(null);
   const [pageData, setPageData] = useState(null);
   const [query, setQuery] = useState("");
+  const [searchSuggestionsOpen, setSearchSuggestionsOpen] = useState(false);
+  const [activeSearchSuggestion, setActiveSearchSuggestion] = useState(0);
   const [includeTrash, setIncludeTrash] = useState(false);
   const [searchScope, setSearchScope] = useState("current");
   const [loading, setLoading] = useState(true);
@@ -1195,11 +1325,33 @@ export function KnowledgeView({
   const [autoEditBlockId, setAutoEditBlockId] = useState(null);
   const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
   const shareMenuRef = useRef(null);
+  const searchInputRef = useRef(null);
+  const presenceAcknowledgedRef = useRef(new Set());
 
   pageRef.current = pageData?.page ?? null;
   const currentProject = projects.find((project) => project.id === projectId) ?? null;
   const readOnly = currentProject?.role === "viewer" || pageData?.page.state === "trash";
   const isCurrentProjectShared = Boolean(syncByProject[projectId]);
+  const profileNameFor = (actorId) => (
+    onlineProfiles[actorId]?.displayName
+    ?? memberProfiles[actorId]?.displayName
+    ?? (actorId === activeProfile.profileId ? activeProfile.displayName : "共同編集者")
+  );
+  const visibleOnlineProfiles = Object.values(onlineProfiles)
+    .sort((left, right) => Number(right.profileId === activeProfile.profileId) - Number(left.profileId === activeProfile.profileId));
+  const searchCandidates = useMemo(() => filterPageSearchCandidates(pages, query), [pages, query]);
+  const searchSuggestionsVisible = searchSuggestionsOpen && Boolean(query.trim());
+
+  useEffect(() => {
+    setActiveSearchSuggestion((index) => Math.min(index, Math.max(searchCandidates.length - 1, 0)));
+  }, [searchCandidates.length]);
+
+  useEffect(() => {
+    if (shortcutCommand?.shortcutId !== "page-search") return;
+    searchInputRef.current?.focus();
+    searchInputRef.current?.select();
+    setSearchSuggestionsOpen(Boolean(query.trim()));
+  }, [shortcutCommand?.sequence, shortcutCommand?.shortcutId]);
 
   // A popup closes on outside pointer input and on Escape, returning focus to
   // its trigger, per the popup rules in FRONTEND.md.
@@ -1268,7 +1420,7 @@ export function KnowledgeView({
       setPages(query.trim()
         ? candidatesResult.pages.filter((page) => normalized(page.title).includes(needle) || normalized(page.excerpt).includes(needle))
         : candidatesResult.pages);
-      return;
+      return candidatesResult.pages;
     }
     const tagsResult = await client.listTags(nextProjectId);
     setTagCandidates(tagsResult.tags);
@@ -1288,6 +1440,18 @@ export function KnowledgeView({
       const result = await client.listPages(nextProjectId, includeTrash);
       setPages(result.pages);
     }
+    return candidatesResult.pages;
+  };
+
+  const loadMemberColors = async (nextProjectId = projectId) => {
+    if (!nextProjectId) {
+      setMemberColors({});
+      return {};
+    }
+    const result = await client.listMemberColors(nextProjectId);
+    const colors = Object.fromEntries((result.members ?? []).map((member) => [member.profileId, member.color]));
+    setMemberColors(colors);
+    return colors;
   };
 
   useEffect(() => {
@@ -1306,10 +1470,16 @@ export function KnowledgeView({
       .then(() => loadProjects())
       .then(async (projectResult) => {
         if (!active) return;
-        await loadPageLists(projectResult.projectId, projectResult.projects);
+        await Promise.all([
+          loadPageLists(projectResult.projectId, projectResult.projects),
+          loadMemberColors(projectResult.projectId),
+        ]);
       })
       .catch((nextError) => active && setError(displayError(nextError)))
-      .finally(() => active && setLoading(false));
+      .finally(() => {
+        if (!active) return;
+        setLoading(false);
+      });
     return () => { active = false; };
   }, [persistenceReady, profileId]);
 
@@ -1320,6 +1490,11 @@ export function KnowledgeView({
     }, query ? 160 : 0);
     return () => window.clearTimeout(timer);
   }, [projectId, query, includeTrash, searchScope]);
+
+  useEffect(() => {
+    if (!persistenceReady || !projectId) return;
+    loadMemberColors(projectId).catch(() => {});
+  }, [projectId, sharedRevision]);
 
   // Kept current so the event subscription below never closes over a stale
   // loader, without resubscribing on every render.
@@ -1500,9 +1675,13 @@ export function KnowledgeView({
       sharedRef.current = null;
       client.setSharedSession(projectId, null);
       setSyncStatus("idle");
+      setMemberProfiles({});
+      setOnlineProfiles({});
+      presenceAcknowledgedRef.current.clear();
       return undefined;
     }
 
+    presenceAcknowledgedRef.current.clear();
     const shared = createSharedProject({
       endpoint: endpoint.endpoint,
       projectId,
@@ -1513,14 +1692,46 @@ export function KnowledgeView({
         // A transient failure right after a fresh deploy (the workers.dev route
         // still propagating) recovers on the next automatic retry; do not leave
         // its banner up once the socket is actually connected again.
-        if (status === "connected") setError((current) => (current.startsWith("同期エラー") ? "" : current));
+        if (status === "connected") {
+          setError((current) => (current.startsWith("同期エラー") ? "" : current));
+          setOnlineProfiles((current) => ({ ...current, [activeProfile.profileId]: activeProfile }));
+          shared.sendPresence({ displayName: activeProfile.displayName, avatarUrl: activeProfile.avatarUrl });
+        } else if (status === "offline" || status === "idle") {
+          setOnlineProfiles({});
+        }
       },
       onError: (nextError) => setError(`同期エラー：${nextError.message}`),
+      onPresence: ({ profileId: peerProfileId, state }) => {
+        if (typeof peerProfileId !== "string" || !peerProfileId) return;
+        if (!state) presenceAcknowledgedRef.current.delete(peerProfileId);
+        setOnlineProfiles((current) => {
+          if (!state) {
+            const next = { ...current };
+            delete next[peerProfileId];
+            return next;
+          }
+          const displayName = typeof state.displayName === "string" && state.displayName.trim()
+            ? state.displayName.trim().slice(0, 120)
+            : "共同編集者";
+          const avatarUrl = typeof state.avatarUrl === "string" && /^https:\/\//.test(state.avatarUrl) && state.avatarUrl.length <= 2048
+            ? state.avatarUrl
+            : null;
+          return { ...current, [peerProfileId]: { profileId: peerProfileId, displayName, avatarUrl } };
+        });
+        // Older deployed Workers do not replay existing awareness to a
+        // newcomer. Answer each newly seen peer once so both sides become
+        // visible without creating an awareness echo loop.
+        if (state && peerProfileId !== activeProfile.profileId && !presenceAcknowledgedRef.current.has(peerProfileId)) {
+          presenceAcknowledgedRef.current.add(peerProfileId);
+          shared.sendPresence({ displayName: activeProfile.displayName, avatarUrl: activeProfile.avatarUrl });
+        }
+      },
     });
     sharedRef.current = shared;
     // Every caller of knowledge.page.* now reaches this document, the assistant
     // included, instead of writing to the JSON store the editor stopped reading.
     client.setSharedSession(projectId, shared);
+    shared.setMemberProfile(activeProfile, profileId);
     // Pages written before this Project was shared must reach the others.
     client.listPages(projectId, false)
       .then(async ({ pages }) => {
@@ -1535,8 +1746,10 @@ export function KnowledgeView({
       sharedRef.current = null;
       client.setSharedSession(projectId, null);
       setSyncStatus("idle");
+      setOnlineProfiles({});
+      presenceAcknowledgedRef.current.clear();
     };
-  }, [projectId, syncByProject[projectId]?.token, syncByProject[projectId]?.endpoint]);
+  }, [projectId, syncByProject[projectId]?.token, syncByProject[projectId]?.endpoint, activeProfile.displayName, activeProfile.avatarUrl, profileId]);
 
   /**
    * Re-reads the shared document after it moves, whether the edit came from
@@ -1547,6 +1760,7 @@ export function KnowledgeView({
     const shared = sharedRef.current;
     if (!shared || !sharedRevision) return;
     const sharedPages = shared.listPages();
+    setMemberProfiles(Object.fromEntries(shared.listMemberProfiles().map((item) => [item.profileId, item])));
     setLinkCandidates(sharedPages);
     setPages(sharedPages);
     if (selectedPageId) {
@@ -1663,20 +1877,27 @@ export function KnowledgeView({
     }
   };
 
-  const renameCurrentProject = async (name) => {
+  const saveProjectSettings = async ({ name, colors }) => {
     setProjectSettingsBusy(true);
+    setError("");
     try {
-      await client.renameProject(projectId, name);
-      await loadProjects(projectId);
-      onToast("Project名を変更しました");
+      if (name !== currentProject?.name) await client.renameProject(projectId, name);
+      const changedColors = Object.entries(colors).filter(([memberProfileId, color]) => memberColors[memberProfileId] !== color);
+      for (const [memberProfileId, color] of changedColors) {
+        await client.setMemberColor(projectId, memberProfileId, color);
+      }
+      await Promise.all([loadProjects(projectId), loadMemberColors(projectId)]);
+      onToast("Project設定を保存しました");
     } catch (nextError) {
       setError(displayError(nextError));
+      throw nextError;
     } finally {
       setProjectSettingsBusy(false);
     }
   };
 
-  const listProjectMembers = (targetProjectId) => client.listMembers(targetProjectId);
+  const listProjectMembers = useCallback((targetProjectId) => client.listMembers(targetProjectId), [client]);
+  const listProjectMemberColors = useCallback((targetProjectId) => client.listMemberColors(targetProjectId), [client]);
 
   const removeProjectMember = async (targetProjectId, memberProfileId) => {
     await client.removeMember(targetProjectId, memberProfileId);
@@ -1708,6 +1929,24 @@ export function KnowledgeView({
     } catch (nextError) {
       setError(displayError(nextError));
     }
+  };
+
+  const openSearchCandidate = async (candidate) => {
+    if (!candidate) return;
+    setSearchSuggestionsOpen(false);
+    setQuery("");
+    await selectPage(candidate.projectId ?? projectId, candidate.id);
+    window.setTimeout(() => document.getElementById("knowledge-editor")?.focus(), 0);
+  };
+
+  const handleSearchKeyDown = (event) => {
+    if (!searchSuggestionsVisible) return;
+    const action = pageSearchKeyAction(event, activeSearchSuggestion, searchCandidates.length);
+    if (!action) return;
+    event.preventDefault();
+    if (action.type === "move") setActiveSearchSuggestion(action.index);
+    if (action.type === "close") setSearchSuggestionsOpen(false);
+    if (action.type === "open") openSearchCandidate(searchCandidates[action.index]);
   };
 
   const moveToTrash = async () => {
@@ -1828,12 +2067,71 @@ export function KnowledgeView({
           setSelectedPageId(null);
           setPageData(null);
         }} placement="bottom" className="knowledge-project-select" />
-        <label className="knowledge-search">
-          <span className="sr-only">Pageを検索</span>
-          <MagnifyingGlass size={18} aria-hidden="true" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="PageとBlockを検索" />
-          {query && <button type="button" aria-label="検索をクリア" onClick={() => setQuery("")}><X size={16} /></button>}
-        </label>
+        <div className="knowledge-search-wrap">
+          <label className="knowledge-search">
+            <span className="sr-only">Pageを検索</span>
+            <MagnifyingGlass size={18} aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              role="combobox"
+              value={query}
+              onFocus={() => setSearchSuggestionsOpen(Boolean(query.trim()))}
+              onBlur={() => setSearchSuggestionsOpen(false)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActiveSearchSuggestion(0);
+                setSearchSuggestionsOpen(Boolean(event.target.value.trim()));
+              }}
+              onKeyDown={handleSearchKeyDown}
+              placeholder="PageとBlockを検索"
+              aria-keyshortcuts="Control+P"
+              aria-autocomplete="list"
+              aria-expanded={searchSuggestionsVisible}
+              aria-controls="knowledge-search-suggestions"
+              aria-activedescendant={searchSuggestionsVisible && searchCandidates.length ? `knowledge-search-option-${activeSearchSuggestion}` : undefined}
+              aria-describedby="knowledge-search-help"
+            />
+            {!query && <kbd aria-hidden="true">Ctrl P</kbd>}
+            {query && <button type="button" aria-label="検索をクリア" onMouseDown={(event) => event.preventDefault()} onClick={() => {
+              setQuery("");
+              setSearchSuggestionsOpen(false);
+              searchInputRef.current?.focus();
+            }}><X size={16} /></button>}
+          </label>
+          <span id="knowledge-search-help" className="sr-only">候補はTabで次へ、ShiftとTabで前へ移動し、EnterでPageを開きます。</span>
+          {searchSuggestionsVisible && (
+            <div id="knowledge-search-suggestions" className="knowledge-search-suggestions" role="listbox" aria-label="Page検索候補">
+              {searchCandidates.length ? searchCandidates.map((candidate, index) => {
+                const candidateProject = projects.find((project) => project.id === (candidate.projectId ?? projectId));
+                const selected = index === activeSearchSuggestion;
+                return (
+                  <button
+                    id={`knowledge-search-option-${index}`}
+                    key={`${candidate.projectId ?? projectId}-${candidate.id}`}
+                    type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={selected}
+                    className={selected ? "selected" : undefined}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => setActiveSearchSuggestion(index)}
+                    onClick={() => openSearchCandidate(candidate)}
+                  >
+                    <FileText size={17} weight={selected ? "fill" : "regular"} aria-hidden="true" />
+                    <span>
+                      <strong>{candidate.title}</strong>
+                      <small>{candidateProject?.name ?? currentProject?.name ?? "Project"}{candidate.state === "trash" ? " · Trash" : ""}{candidate.excerpt ? ` · ${candidate.excerpt}` : ""}</small>
+                    </span>
+                    {selected && <CaretRight size={16} weight="bold" aria-hidden="true" />}
+                  </button>
+                );
+              }) : (
+                <div className="knowledge-search-empty">一致するPageがありません</div>
+              )}
+              <div className="knowledge-search-keys" aria-hidden="true"><kbd>Tab</kbd> 選択 <kbd>Enter</kbd> 開く <kbd>Esc</kbd> 閉じる</div>
+            </div>
+          )}
+        </div>
         <span className={`knowledge-save-state${saving ? " saving" : ""}`} role="status">{saving ? "保存中…" : "保存済み"}</span>
         {/* One grid track holds every trailing control, so adding or removing an
             action never rewrites the topbar's responsive column lists. */}
@@ -1954,9 +2252,15 @@ export function KnowledgeView({
             <article className="knowledge-page">
               <header className="knowledge-page-header">
                 <div className="knowledge-page-meta">
-                  <span>{currentProject?.name}</span><CaretRight size={13} aria-hidden="true" /><span>revision {pageData.page.revision}</span>{pageState === "trash" && <span className="knowledge-trash-badge">Trash</span>}
+                  <span>{currentProject?.name}</span><CaretRight size={13} aria-hidden="true" /><span>revision {pageData.page.revision}</span>
+                  {pageState === "trash" && <span className="knowledge-trash-badge">Trash</span>}
                 </div>
                 <div className="knowledge-page-actions">
+                  {isCurrentProjectShared && visibleOnlineProfiles.length > 0 && (
+                    <div className="knowledge-online-users" aria-label="オンラインユーザー">
+                      {visibleOnlineProfiles.map((onlineProfile) => <OnlineProfileAvatar key={onlineProfile.profileId} profile={onlineProfile} />)}
+                    </div>
+                  )}
                   <button type="button" aria-label="Page履歴" onClick={openHistory}><ClockCounterClockwise size={18} /><span>履歴</span></button>
                   {pageState === "active" ? (
                     <button type="button" aria-label="PageをTrashへ移動" disabled={currentProject?.role === "viewer"} onClick={moveToTrash}><Trash size={18} /><span>Trashへ</span></button>
@@ -1981,7 +2285,7 @@ export function KnowledgeView({
               </label>
 
               <TagsEditor
-                key={`${pageData.page.id}-${pageData.page.revision}-tags`}
+                key={`${pageData.page.id}-tags`}
                 tags={activeTagLabels}
                 candidates={tagCandidates}
                 readOnly={readOnly}
@@ -2027,6 +2331,9 @@ export function KnowledgeView({
                   <BlockRow
                     key={block.id}
                     block={block}
+                    authorColor={authorColorFor(block.updatedBy, memberColors[block.updatedBy])}
+                    authorName={profileNameFor(block.updatedBy)}
+                    showAuthor={isCurrentProjectShared}
                     blockIndex={index}
                     blockCount={pageData.page.blocks.length}
                     autoEdit={autoEditBlockId === block.id}
@@ -2093,7 +2400,7 @@ export function KnowledgeView({
           <header><div><ClockCounterClockwise size={21} aria-hidden="true" /><h2 id="knowledge-history-title">Page履歴</h2></div><button type="button" aria-label="履歴を閉じる" onClick={() => setHistoryOpen(false)}><X size={20} /></button></header>
           <p>30日以内の変更です。復元すると新しいrevisionが作られます。</p>
           <div>{historyEntries.length ? historyEntries.map((entry) => (
-            <article key={entry.id}><div><strong>{entry.snapshot.title}</strong><time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time></div><small>{entry.actorId}・revision {entry.pageRevision}</small><button type="button" disabled={readOnly} onClick={() => restoreHistoryEntry(entry.id)}><ClockCounterClockwise size={16} />この版を復元</button></article>
+            <article key={entry.id}><div><strong>{entry.snapshot.title}</strong><time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time></div><small className="knowledge-history-author"><span className="knowledge-author-dot" style={{ backgroundColor: authorColorFor(entry.actorId, memberColors[entry.actorId]) }} aria-hidden="true" />{profileNameFor(entry.actorId)}・revision {entry.pageRevision}</small><button type="button" disabled={readOnly} onClick={() => restoreHistoryEntry(entry.id)}><ClockCounterClockwise size={16} />この版を復元</button></article>
           )) : <div className="knowledge-history-empty">復元できる履歴はまだありません。</div>}</div>
         </aside>
       )}
@@ -2101,11 +2408,13 @@ export function KnowledgeView({
       {projectSettingsOpen && currentProject && (
         <ProjectSettingsDialog
           project={currentProject}
+          activeProfileId={profileId}
           syncInfo={syncByProject[projectId]}
           busy={projectSettingsBusy}
-          onRename={renameCurrentProject}
+          onSave={saveProjectSettings}
           onDeleteRequest={() => setConfirmDeleteProject(true)}
           onListMembers={listProjectMembers}
+          onListMemberColors={listProjectMemberColors}
           onRemoveMember={removeProjectMember}
           onClose={() => setProjectSettingsOpen(false)}
         />

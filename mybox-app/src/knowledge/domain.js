@@ -1,5 +1,6 @@
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { parseMarkdownBlocks } from "./editor-behavior.js";
+import { authorColorFor, isAuthorColor } from "./author-color.js";
 
 export const KNOWLEDGE_SCHEMA_VERSION = 1;
 export const PAGE_STATES = Object.freeze(["active", "trash"]);
@@ -158,9 +159,10 @@ function recordHistory(state, page, { actorId, now, idFactory }) {
   });
 }
 
-function touchPage(page, now) {
+function touchPage(page, now, actorId) {
   page.revision += 1;
   page.updatedAt = isoNow(now);
+  if (actorId) page.updatedBy = actorId;
 }
 
 function replaceAll(value, search, replacement) {
@@ -183,9 +185,10 @@ function convertLinksToText(state, targetPage, context) {
       }
       block.links = block.links.filter((link) => link.targetPageId !== targetPage.id);
       block.revision += 1;
+      block.updatedBy = context.actorId;
       pageChanged = true;
     }
-    if (pageChanged && sourcePage.id !== context.deferTouchPageId) touchPage(sourcePage, context.now);
+    if (pageChanged && sourcePage.id !== context.deferTouchPageId) touchPage(sourcePage, context.now, context.actorId);
   }
   return recorded;
 }
@@ -222,7 +225,7 @@ export function createKnowledgeState({
     name: "Personal",
     createdAt: timestamp,
     updatedAt: timestamp,
-    members: [{ profileId, role: "owner" }],
+    members: [{ profileId, role: "owner", color: authorColorFor(profileId) }],
   };
   return {
     schemaVersion: KNOWLEDGE_SCHEMA_VERSION,
@@ -261,6 +264,36 @@ export function listProjects(state, { profileId = LOCAL_PROFILE_ID } = {}) {
     });
 }
 
+export function listProjectMembers(state, { projectId, profileId = LOCAL_PROFILE_ID } = {}) {
+  validateKnowledgeState(state);
+  const project = findProject(state, projectId);
+  assertRole(project, profileId, "viewer");
+  return project.members.map((member) => ({
+    profileId: member.profileId,
+    role: member.role,
+    color: authorColorFor(member.profileId, member.color),
+  }));
+}
+
+export function setProjectMemberColor(state, {
+  projectId,
+  memberProfileId,
+  color,
+  profileId = LOCAL_PROFILE_ID,
+  now = new Date(),
+} = {}) {
+  const next = copy(validateKnowledgeState(state));
+  const project = findProject(next, projectId);
+  const membership = project.members.find((member) => member.profileId === memberProfileId);
+  if (!membership) throw new KnowledgeDomainError("PROJECT_MEMBER_NOT_FOUND", "Project member was not found", { memberProfileId });
+  if (memberProfileId === profileId) assertRole(project, profileId, "viewer");
+  else assertRole(project, profileId, "owner");
+  if (!isAuthorColor(color)) throw new KnowledgeDomainError("INVALID_AUTHOR_COLOR", "Author color is invalid", { color });
+  membership.color = color.toLocaleLowerCase();
+  project.updatedAt = isoNow(now);
+  return { state: next, member: copy(membership) };
+}
+
 export function createProject(state, {
   name,
   profileId = LOCAL_PROFILE_ID,
@@ -274,7 +307,7 @@ export function createProject(state, {
     name: displayName,
     createdAt: isoNow(now),
     updatedAt: isoNow(now),
-    members: [{ profileId, role: "owner" }],
+    members: [{ profileId, role: "owner", color: authorColorFor(profileId) }],
   };
   next.projects.push(project);
   return { state: next, project: copy(project) };
@@ -327,6 +360,7 @@ export function listPages(state, {
       state: page.state,
       revision: page.revision,
       updatedAt: page.updatedAt,
+      updatedBy: page.updatedBy,
       tagIds: [...page.tagIds],
       excerpt: page.blocks.find((block) => block.text.trim())?.text.slice(0, 120) ?? "",
     }));
@@ -355,12 +389,15 @@ export function createPage(state, {
     revision: 1,
     createdAt: timestamp,
     updatedAt: timestamp,
+    createdBy: actorId,
+    updatedBy: actorId,
     blocks: [{
       id: idFactory("block"),
       type: "paragraph",
       text: "",
       checked: false,
       revision: 1,
+      updatedBy: actorId,
       links: [],
     }],
     tagIds: [],
@@ -423,10 +460,11 @@ export function updatePage(state, {
             block.text = replaceAll(block.text, link.token, nextToken);
             link.token = nextToken;
             block.revision += 1;
+            block.updatedBy = actorId;
             sourceChanged = true;
           }
         }
-        if (sourceChanged && sourcePage.id !== page.id) touchPage(sourcePage, now);
+        if (sourceChanged && sourcePage.id !== page.id) touchPage(sourcePage, now, actorId);
       }
       if (!previousTitle) throw new KnowledgeDomainError("INVALID_PAGE_TITLE", "Page title is required");
       break;
@@ -446,6 +484,7 @@ export function updatePage(state, {
       }
       if (mutation.checked !== undefined) block.checked = mutation.checked === true;
       block.revision += 1;
+      block.updatedBy = actorId;
       break;
     }
     case "block-add": {
@@ -455,6 +494,7 @@ export function updatePage(state, {
         text: typeof mutation.text === "string" ? mutation.text : "",
         checked: false,
         revision: 1,
+        updatedBy: actorId,
         links: [],
       };
       const afterIndex = mutation.afterBlockId
@@ -522,16 +562,19 @@ export function updatePage(state, {
             text: "",
             checked: false,
             revision: 1,
+            updatedBy: actorId,
             links: [],
           }],
           tagIds: [],
+          createdBy: actorId,
+          updatedBy: actorId,
         };
         next.pages.push(target);
       }
       if (target.state === "trash") {
         recordHistory(next, target, context);
         target.state = "active";
-        touchPage(target, now);
+        touchPage(target, now, actorId);
       }
       const sourceText = typeof mutation.text === "string" ? mutation.text : block.text;
       const markerStart = Number.isInteger(mutation.markerStart) ? mutation.markerStart : sourceText.lastIndexOf("[[");
@@ -544,6 +587,7 @@ export function updatePage(state, {
       block.links = block.links.filter((link) => block.text.includes(link.token));
       block.links.push({ targetPageId: target.id, token });
       block.revision += 1;
+      block.updatedBy = actorId;
       break;
     }
     /**
@@ -559,6 +603,7 @@ export function updatePage(state, {
         text: block.text,
         checked: block.checked === true,
         revision: 1,
+        updatedBy: actorId,
         links: [],
       }));
       if (!parsed.length) throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "Markdown produced no Blocks");
@@ -579,7 +624,7 @@ export function updatePage(state, {
       throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "Page mutation type is invalid", { type: mutation.type });
   }
 
-  touchPage(page, now);
+  touchPage(page, now, actorId);
   project.updatedAt = page.updatedAt;
   return { state: next, page: copy(page) };
 }
@@ -603,7 +648,7 @@ export function movePageToTrash(state, {
   recordHistory(next, page, context);
   convertLinksToText(next, page, { ...context, recordedPageIds: [page.id], deferTouchPageId: page.id });
   page.state = "trash";
-  touchPage(page, now);
+  touchPage(page, now, actorId);
   return { state: next, page: copy(page) };
 }
 
@@ -624,7 +669,7 @@ export function restorePage(state, {
   if (page.state === "active") return { state: next, page: copy(page) };
   recordHistory(next, page, { actorId, now, idFactory });
   page.state = "active";
-  touchPage(page, now);
+  touchPage(page, now, actorId);
   return { state: next, page: copy(page) };
 }
 
@@ -688,7 +733,7 @@ export function restorePageHistory(state, {
   page.normalizedTitle = entry.snapshot.normalizedTitle;
   page.blocks = copy(entry.snapshot.blocks);
   page.tagIds = [...entry.snapshot.tagIds];
-  touchPage(page, now);
+  touchPage(page, now, actorId);
   return { state: next, page: copy(page) };
 }
 
@@ -801,7 +846,7 @@ export function adoptLocalMemberships(state, {
   for (const project of next.projects) {
     const local = project.members.find((member) => member.profileId === LOCAL_PROFILE_ID);
     if (!local || project.members.some((member) => member.profileId === profileId)) continue;
-    project.members.push({ profileId, role: local.role });
+    project.members.push({ profileId, role: local.role, color: authorColorFor(profileId) });
     project.updatedAt = isoNow(now);
     adoptedProjectIds.push(project.id);
   }

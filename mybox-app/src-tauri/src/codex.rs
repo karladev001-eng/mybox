@@ -63,7 +63,7 @@ impl CodexLauncher {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexSubscriptionStatus {
     available: bool,
@@ -71,6 +71,7 @@ pub struct CodexSubscriptionStatus {
     version: Option<String>,
     auth_mode: Option<String>,
     plan_type: Option<String>,
+    account_email: Option<String>,
     image_generation: bool,
     error: Option<String>,
 }
@@ -179,10 +180,11 @@ struct GeneratedImageData {
     revised_prompt: Option<String>,
 }
 
-#[derive(Default, Debug)]
+#[derive(Default)]
 struct AccountState {
     auth_mode: Option<String>,
     plan_type: Option<String>,
+    email: Option<String>,
 }
 
 #[derive(Default)]
@@ -348,6 +350,17 @@ async fn codex_version(launcher: &CodexLauncher) -> Option<String> {
 
 fn parse_account(result: &Value) -> AccountState {
     let account = result.get("account").filter(|value| !value.is_null());
+    let email = account
+        .and_then(|value| value.get("email"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 320
+                && value.contains('@')
+                && !value.chars().any(char::is_control)
+        })
+        .map(str::to_string);
     AccountState {
         auth_mode: account
             .and_then(|value| value.get("type"))
@@ -357,6 +370,7 @@ fn parse_account(result: &Value) -> AccountState {
             .and_then(|value| value.get("planType"))
             .and_then(Value::as_str)
             .map(str::to_string),
+        email,
     }
 }
 
@@ -566,6 +580,7 @@ async fn status_for(launcher: CodexLauncher) -> CodexSubscriptionStatus {
             version,
             auth_mode: account.auth_mode,
             plan_type: account.plan_type,
+            account_email: account.email,
             image_generation: capabilities.image_generation,
             error: None,
         },
@@ -575,6 +590,7 @@ async fn status_for(launcher: CodexLauncher) -> CodexSubscriptionStatus {
             version,
             auth_mode: None,
             plan_type: None,
+            account_email: None,
             image_generation: false,
             error: Some(error),
         },
@@ -591,6 +607,7 @@ pub async fn codex_subscription_status() -> CodexSubscriptionStatus {
             version: None,
             auth_mode: None,
             plan_type: None,
+            account_email: None,
             image_generation: false,
             error: Some("Codex CLIが見つかりません".to_string()),
         },
@@ -1277,8 +1294,11 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let launcher = find_codex().expect("Codex CLI");
             let status = status_for(launcher).await;
-            assert!(status.connected, "{status:?}");
-            assert!(status.image_generation, "{status:?}");
+            assert!(status.connected, "ChatGPT subscription is not connected");
+            assert!(
+                status.image_generation,
+                "ChatGPT image generation is unavailable"
+            );
         });
     }
 
@@ -1387,17 +1407,24 @@ mod tests {
     }
 
     #[test]
-    fn parses_chatgpt_plan_without_exposing_account_details() {
+    fn parses_chatgpt_plan_and_display_email_without_credentials() {
         let account = parse_account(&json!({
             "account": {
                 "type": "chatgpt",
-                "email": "private@example.com",
-                "planType": "plus"
+                "email": " account@example.com ",
+                "planType": "plus",
+                "accessToken": "must-not-be-read"
             },
             "requiresOpenaiAuth": true
         }));
         assert_eq!(account.auth_mode.as_deref(), Some("chatgpt"));
         assert_eq!(account.plan_type.as_deref(), Some("plus"));
+        assert_eq!(account.email.as_deref(), Some("account@example.com"));
+
+        let malformed = parse_account(&json!({
+            "account": { "type": "chatgpt", "email": "not-an-email" }
+        }));
+        assert_eq!(malformed.email, None);
     }
 
     #[test]

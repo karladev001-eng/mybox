@@ -6,8 +6,67 @@ mod knowledge_resources;
 mod sync_endpoints;
 mod workspace;
 
+#[cfg(windows)]
+fn disable_browser_accelerators(webview: tauri::webview::PlatformWebview) -> Result<(), String> {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows::core::Interface;
+
+    unsafe {
+        let core_webview = webview
+            .controller()
+            .CoreWebView2()
+            .map_err(|error| format!("WebView2を取得できません: {error}"))?;
+        let settings = core_webview
+            .Settings()
+            .map_err(|error| format!("WebView2設定を取得できません: {error}"))?;
+        let settings3 = settings
+            .cast::<ICoreWebView2Settings3>()
+            .map_err(|error| format!("WebView2のキー設定を取得できません: {error}"))?;
+        settings3
+            .SetAreBrowserAcceleratorKeysEnabled(false)
+            .map_err(|error| {
+                format!("WebView2のブラウザーショートカットを停止できません: {error}")
+            })?;
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn configure_windows_webview(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use std::sync::{Arc, Mutex};
+    use tauri::Manager;
+
+    let main_webview = app
+        .get_webview_window("main")
+        .ok_or_else(|| std::io::Error::other("main WebViewが見つかりません"))?;
+    let outcome = Arc::new(Mutex::new(None));
+    let callback_outcome = Arc::clone(&outcome);
+
+    main_webview.with_webview(move |webview| {
+        *callback_outcome
+            .lock()
+            .expect("WebView設定結果をロックできません") =
+            Some(disable_browser_accelerators(webview));
+    })?;
+
+    outcome
+        .lock()
+        .map_err(|_| std::io::Error::other("WebView設定結果を読み取れません"))?
+        .take()
+        .ok_or_else(|| std::io::Error::other("WebView設定が実行されませんでした"))?
+        .map_err(std::io::Error::other)?;
+
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            #[cfg(windows)]
+            configure_windows_webview(app)?;
+            Ok(())
+        })
         .manage(agent_providers::ProviderSecretLock::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

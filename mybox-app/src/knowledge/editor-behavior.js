@@ -244,3 +244,47 @@ export function groupedListEnter(text, selectionStart, selectionEnd = selectionS
   const nextText = `${value.slice(0, removeStart)}${value.slice(removeEnd)}`;
   return { exitList: true, text: nextText, cursor: removeStart };
 }
+
+/**
+ * Indents every line touched by the selection. Shift+Tab removes one level.
+ * The editor uses two spaces so the result remains readable Markdown instead
+ * of inserting a control character that renders differently across devices.
+ */
+export function indentTextSelection(text, selectionStart, selectionEnd = selectionStart, outdent = false) {
+  const value = String(text ?? "");
+  const start = Math.max(0, Math.min(value.length, selectionStart));
+  const end = Math.max(start, Math.min(value.length, selectionEnd));
+  const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+  const selectionEndsAtLineStart = end > start && value[end - 1] === "\n";
+  const selectedEnd = selectionEndsAtLineStart ? end - 1 : end;
+  const nextBreak = value.indexOf("\n", selectedEnd);
+  const lineEnd = nextBreak < 0 ? value.length : nextBreak;
+  const segment = value.slice(lineStart, lineEnd);
+  const lines = segment.split("\n");
+
+  if (!outdent) {
+    const nextSegment = lines.map((line) => `  ${line}`).join("\n");
+    const addedBeforeStart = 2;
+    const addedTotal = lines.length * 2;
+    return {
+      text: `${value.slice(0, lineStart)}${nextSegment}${value.slice(lineEnd)}`,
+      start: start + addedBeforeStart,
+      end: end + addedTotal,
+    };
+  }
+
+  let removedTotal = 0;
+  let removedBeforeStart = 0;
+  const nextSegment = lines.map((line, index) => {
+    const match = line.match(/^(?: {1,2}|\t)/);
+    const removed = match?.[0].length ?? 0;
+    removedTotal += removed;
+    if (index === 0) removedBeforeStart = Math.min(removed, Math.max(0, start - lineStart));
+    return line.slice(removed);
+  }).join("\n");
+  return {
+    text: `${value.slice(0, lineStart)}${nextSegment}${value.slice(lineEnd)}`,
+    start: Math.max(lineStart, start - removedBeforeStart),
+    end: Math.max(lineStart, end - removedTotal),
+  };
+}

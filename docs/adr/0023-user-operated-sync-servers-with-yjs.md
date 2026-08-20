@@ -60,8 +60,11 @@ the group, so it is not an untrusted party in the way a vendor would be. E2EE
 would also foreclose server-side search and validation while adding key
 distribution that loses a Project when the key is lost.
 
-**Presence uses Yjs awareness**, which carries cursor and identity as ephemeral
-state that disappears on disconnect and is never persisted.
+**Presence uses Yjs awareness**, which carries cursor and non-secret profile
+presentation as ephemeral state that disappears on disconnect and is never
+persisted. A small profile directory in the Yjs document separately preserves
+display names and HTTPS avatar URLs so offline author attribution remains
+readable; it carries no token, email address, role, or authorization decision.
 
 **The server retains current merged state plus a bounded recent update log.**
 The 30-day Page history the specification requires stays an App-level record
@@ -122,9 +125,14 @@ carries it in its URL.
 
 A shared Project accepts the editing mutations today. Tag changes and PageLink
 creation still run through the local model and are refused with an explanation
-rather than silently dropped. Presence is relayed but not yet drawn in the
-editor, and two-device editing has been verified through the sync engine rather
-than through the desktop UI.
+rather than silently dropped. As of 2026-08-20, the server retains awareness
+only on live socket attachments, replays current peers to a newly connected
+socket, and broadcasts removal on disconnect. Note draws those peers as labelled
+profile icons beside Page history. Two-device editing has been verified through
+the sync engine rather than through the desktop UI.
+For compatibility with already-deployed Workers that predate awareness replay,
+the client answers each newly seen peer once with its own presence. The
+per-session acknowledgement set prevents an echo loop.
 
 As of 2026-08-19 the document sits behind the Operation boundary rather than
 beside it. `KnowledgeView` originally called `shared.mutate()` and

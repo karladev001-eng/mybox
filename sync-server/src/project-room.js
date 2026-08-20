@@ -222,6 +222,15 @@ export class ProjectRoom extends DurableObject {
       update: encodeUpdate(Y.encodeStateAsUpdate(this.#doc)),
       role: auth.member.role,
     }));
+    // A newcomer needs the room's current presence immediately; presence is
+    // kept only on live socket attachments and is never written to storage.
+    for (const socket of this.ctx.getWebSockets()) {
+      if (socket === server) continue;
+      const peer = socket.deserializeAttachment() ?? {};
+      if (peer.profileId && peer.awareness) {
+        server.send(JSON.stringify({ type: "awareness", profileId: peer.profileId, state: peer.awareness }));
+      }
+    }
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -233,6 +242,7 @@ export class ProjectRoom extends DurableObject {
       return;
     }
     if (message.type === "awareness") {
+      ws.serializeAttachment({ ...attachment, awareness: message.state });
       this.#broadcast(ws, JSON.stringify({ type: "awareness", profileId: attachment.profileId, state: message.state }));
       return;
     }
@@ -253,6 +263,12 @@ export class ProjectRoom extends DurableObject {
 
   async webSocketClose(ws) {
     const attachment = ws.deserializeAttachment() ?? {};
+    const sameProfileStillOnline = this.ctx.getWebSockets().some((socket) => (
+      socket !== ws
+      && socket.deserializeAttachment()?.profileId === attachment.profileId
+      && socket.deserializeAttachment()?.awareness
+    ));
+    if (sameProfileStillOnline) return;
     this.#broadcast(ws, JSON.stringify({ type: "left", profileId: attachment.profileId }));
   }
 

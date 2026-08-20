@@ -16,13 +16,16 @@ import { createAggregateAgentHost, hasRegisteredAgentHosts } from "./core/agent-
 import { AgentRuntime } from "./core/agent-runtime.js";
 import { getProfilePreferencesStore } from "./desktop/profile-preferences.js";
 import { createDefaultProfilePreferences } from "./core/profile-preferences.js";
+import { resolveHostSession } from "./core/host-session.js";
+import { getHostSessionStore } from "./desktop/host-session.js";
 import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
 import { createDeviceAppInstallationsStore } from "./desktop/app-installations.js";
 import { getHostUpdaterClient } from "./desktop/app-updater.js";
 import { beginGitHubSignIn, completeGitHubSignIn, getAccountSession, signOutAccount } from "./desktop/accounts.js";
-import { resolveProfileId, signedOutSession } from "./core/account-identity.js";
+import { resolveProfilePresentation, signedOutSession } from "./core/account-identity.js";
 import { openExternalUrl } from "./desktop/open-url.js";
 import { compareAppVersions, isAppUpdateAvailable } from "./core/app-version.js";
+import { buildCommandPaletteCommands, resolveAppKeyboardShortcut, resolveHostKeyboardShortcut } from "./core/keyboard-shortcuts.js";
 import {
   CODEX_SUBSCRIPTION_PROVIDER_ID,
   LOCAL_LLM_PROVIDER_ID,
@@ -56,9 +59,12 @@ import {
   GithubLogo,
   Globe,
   GlobeHemisphereWest,
+  House,
   Image as ImageIcon,
+  Keyboard,
   LinkSimple,
   MagicWand,
+  MagnifyingGlass,
   PaperPlaneTilt,
   PencilSimpleLine,
   Plus,
@@ -190,14 +196,14 @@ function AppTile({ app, installedVersion, onOpen, onMenu, menuOpen, onDelete, on
   );
 }
 
-function Modal({ title, onClose, children, className = "" }) {
+function Modal({ title, onClose, children, className = "", backdropClassName = "" }) {
   const closeRef = useRef(null);
   const modalRef = useRef(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
     const previousFocus = document.activeElement;
-    const preferredFocus = modalRef.current?.querySelector("input[autofocus], select[autofocus]");
+    const preferredFocus = modalRef.current?.querySelector("[data-modal-initial-focus], [autofocus]");
     if (preferredFocus) preferredFocus.focus(); else closeRef.current?.focus();
     const onKey = (event) => {
       if (event.key === "Escape") {
@@ -225,7 +231,7 @@ function Modal({ title, onClose, children, className = "" }) {
   }, []);
 
   return (
-    <div className="modal-backdrop" role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div className={`modal-backdrop ${backdropClassName}`} role="presentation" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <section ref={modalRef} className={`modal ${className}`} role="dialog" aria-modal="true" aria-label={title}>
         <header className="modal-header">
           <h2>{title}</h2>
@@ -234,6 +240,84 @@ function Modal({ title, onClose, children, className = "" }) {
         {children}
       </section>
     </div>
+  );
+}
+
+const shortcutIcons = {
+  "toggle-assistant": Robot,
+  "command-palette": MagicWand,
+  "new-chat": Plus,
+  apps: Cube,
+  connections: FlowArrow,
+  history: ClockCounterClockwise,
+  settings: GearSix,
+  chat: Robot,
+  "add-app": Plus,
+  "shortcut-menu": Keyboard,
+  home: House,
+};
+
+function CommandPalette({ apps, activeApp, onClose, onRun }) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase("ja-JP");
+  const commands = buildCommandPaletteCommands(apps, activeApp).filter((command) => (
+    !normalizedQuery
+    || `${command.label} ${command.group} ${command.searchText ?? ""} ${command.displayKeys.join(" ")}`
+      .toLocaleLowerCase("ja-JP")
+      .includes(normalizedQuery)
+  ));
+  const groups = [...new Set(commands.map((shortcut) => shortcut.group))];
+  return (
+    <Modal title="コマンドパレット" onClose={onClose} className="shortcut-modal" backdropClassName="shortcut-backdrop">
+      <div className="shortcut-search">
+        <MagnifyingGlass size={18} aria-hidden="true" />
+        <input
+          autoFocus
+          data-modal-initial-focus="true"
+          aria-label="コマンドを検索"
+          placeholder="コマンドを検索…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter" || !commands.length) return;
+            event.preventDefault();
+            onRun(commands[0].id);
+          }}
+        />
+        <kbd>Esc</kbd>
+      </div>
+      <p className="shortcut-intro">検索してEnter、またはTabで項目へ移動して実行できます。</p>
+      <div className="shortcut-groups">
+        {groups.map((group) => (
+          <section key={group} className="shortcut-group" aria-labelledby={`shortcut-${group}`}>
+            <h3 id={`shortcut-${group}`}>{group}</h3>
+            <div className="shortcut-list">
+              {commands.filter((shortcut) => shortcut.group === group).map((shortcut, index) => {
+                const Icon = shortcutIcons[shortcut.id] ?? iconMap[shortcut.appIcon] ?? Keyboard;
+                const keyLabel = shortcut.displayKeys.map((key) => key === "Ctrl" ? "Control" : key).join("+");
+                return (
+                  <button
+                    key={shortcut.id}
+                    type="button"
+                    onClick={() => onRun(shortcut.id)}
+                    aria-keyshortcuts={keyLabel || undefined}
+                  >
+                    <Icon size={20} aria-hidden="true" />
+                    <span>{shortcut.label}</span>
+                    {shortcut.displayKeys.length > 0 && (
+                      <span className="shortcut-keys" aria-hidden="true">
+                        {shortcut.displayKeys.map((key) => <kbd key={key}>{key}</kbd>)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ))}
+        {!commands.length && <p className="shortcut-empty">該当するコマンドはありません。</p>}
+      </div>
+    </Modal>
   );
 }
 
@@ -333,14 +417,16 @@ function AppWorkspace({ app, onClose, onDone }) {
   );
 }
 
-function RegisteredAppWorkspace({ app, desktop, profileId, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
+function RegisteredAppWorkspace({ app, desktop, profile, shortcutCommand, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
   const Surface = resolveLazyAppSurface(app);
   if (!Surface) return <AppWorkspace app={app} onClose={onClose} onDone={onDone} />;
   return (
     <Suspense fallback={<div className="modal-backdrop"><div className="workspace-body" role="status"><span className="spinner" /><strong>{app.name} Appを読み込んでいます…</strong></div></div>}>
       <Surface
         desktop={desktop}
-        profileId={profileId}
+        profileId={profile.profileId}
+        profile={profile}
+        shortcutCommand={shortcutCommand}
         persistenceReady={persistenceReady}
         assistantOpen={assistantOpen}
         onToggleAssistant={onToggleAssistant}
@@ -634,7 +720,7 @@ function SettingsView({
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
   const agentDetail = agentStatus?.connected
-    ? `ChatGPT ${agentPlanLabel(agentStatus)} · Codex経由`
+    ? `ChatGPT ${agentPlanLabel(agentStatus)} · ${agentStatus.accountEmail ? `アカウント：${agentStatus.accountEmail}` : "アカウント情報なし"} · Codex経由`
     : agentStatus?.authMode
       ? "ChatGPTサインインへ切替が必要です"
       : agentStatus?.error ?? (desktop ? "ChatGPTでサインイン" : "デスクトップ版で設定");
@@ -773,12 +859,15 @@ export function App() {
   const [appInstallations] = useState(() => createDeviceAppInstallationsStore(defaultInstalledApps, appRegistry.list()));
   const [updatingAppId, setUpdatingAppId] = useState(null);
   const [view, setView] = useState("apps");
+  const [hostSessionReady, setHostSessionReady] = useState(false);
   const [menuOpen, setMenuOpen] = useState(null);
   const [addOpen, setAddOpen] = useState(false);
   const [selectedApp, setSelectedApp] = useState(null);
   const [pendingDelete, setPendingDelete] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [shortcutMenuOpen, setShortcutMenuOpen] = useState(false);
+  const [appShortcutCommand, setAppShortcutCommand] = useState(null);
   const [surfaceContext, setSurfaceContext] = useState(null);
   const [pendingApproval, setPendingApproval] = useState(null);
   // The Confirmation level governs every App's agent writes (ADR 0016), and
@@ -810,9 +899,13 @@ export function App() {
   const [reasoningSelections, setReasoningSelections] = useState({});
   const [subscriptionUsage, setSubscriptionUsage] = useState(null);
   const aiInput = useRef(null);
+  const appShortcutSequence = useRef(0);
+  const lastNonChatView = useRef("apps");
+  const hostSessionStore = useRef(getHostSessionStore()).current;
   const chatStore = useRef(getChatHistoryStore()).current;
   const desktop = isDesktopRuntime();
   const hostUpdater = useHostUpdater(desktop);
+  const activeProfile = useMemo(() => resolveProfilePresentation(accountSession), [accountSession]);
 
   const pageTitle = useMemo(() => view === "apps" ? "アプリ" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
   const assistantContextLabel = surfaceContext?.label || selectedApp?.name || pageTitle || "MyBox";
@@ -847,28 +940,43 @@ export function App() {
 
   useEffect(() => {
     let active = true;
-    appInstallations.load().then((snapshot) => {
-      if (!active) return;
-      snapshot.customApps.forEach((definition) => {
-        if (!appRegistry.get(definition.id)) appRegistry.register(definition);
-      });
-      setApps(snapshot.installedApps.map(({ id }) => appRegistry.get(id)).filter(Boolean));
-      setInstalledVersions(Object.fromEntries(snapshot.installedApps.map(({ id, version }) => [id, version])));
-    }).catch((error) => active && setToast(`App一覧を復元できません：${String(error)}`));
+    (async () => {
+      let installedApps = defaultInstalledApps;
+      try {
+        const snapshot = await appInstallations.load();
+        if (!active) return;
+        snapshot.customApps.forEach((definition) => {
+          if (!appRegistry.get(definition.id)) appRegistry.register(definition);
+        });
+        installedApps = snapshot.installedApps.map(({ id }) => appRegistry.get(id)).filter(Boolean);
+        setApps(installedApps);
+        setInstalledVersions(Object.fromEntries(snapshot.installedApps.map(({ id, version }) => [id, version])));
+      } catch (error) {
+        if (active) setToast(`App一覧を復元できません：${String(error)}`);
+      }
+      try {
+        const session = resolveHostSession(await hostSessionStore.load(), installedApps.map((app) => app.id));
+        if (!active) return;
+        setView(session.view);
+        setSelectedApp(session.appId ? installedApps.find((app) => app.id === session.appId) ?? null : null);
+      } catch (error) {
+        if (active) setToast(`前回の画面を復元できません：${String(error)}`);
+      } finally {
+        if (active) setHostSessionReady(true);
+      }
+    })();
     return () => { active = false; };
-  }, [appInstallations, appRegistry]);
+  }, [appInstallations, appRegistry, defaultInstalledApps, hostSessionStore]);
 
   useEffect(() => {
-    const onKey = (event) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setAiOpen(true);
-        window.setTimeout(() => aiInput.current?.focus(), 0);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
+    if (!hostSessionReady) return;
+    hostSessionStore.save({ view, appId: selectedApp?.id ?? null })
+      .catch((error) => setToast(`現在の画面を記憶できません：${String(error)}`));
+  }, [hostSessionReady, hostSessionStore, selectedApp?.id, view]);
+
+  useEffect(() => {
+    if (view !== "chat") lastNonChatView.current = view;
+  }, [view]);
 
   useEffect(() => {
     if (!toast) return;
@@ -948,14 +1056,14 @@ export function App() {
 
   useEffect(() => {
     if (!desktop) {
-      setAgentStatus({ available: false, connected: false, planType: null, authMode: null, imageGeneration: false, error: "デスクトップ版で利用できます" });
+      setAgentStatus({ available: false, connected: false, planType: null, authMode: null, accountEmail: null, imageGeneration: false, error: "デスクトップ版で利用できます" });
       return;
     }
     let active = true;
     setAgentBusy(true);
     getCodexSubscriptionStatus()
       .then((status) => active && setAgentStatus(status))
-      .catch((error) => active && setAgentStatus({ available: true, connected: false, planType: null, authMode: null, error: String(error) }))
+      .catch((error) => active && setAgentStatus({ available: true, connected: false, planType: null, authMode: null, accountEmail: null, error: String(error) }))
       .finally(() => active && setAgentBusy(false));
     return () => { active = false; };
   }, [desktop]);
@@ -1106,7 +1214,7 @@ export function App() {
     const installedVersion = installedVersions[app.id];
     if (!installedVersion || !isAppUpdateAvailable(installedVersion, app.version)) {
       setToast(`${app.name}は最新版です`);
-      return;
+      return true;
     }
     const nextVersions = { ...installedVersions, [app.id]: app.version };
     setUpdatingAppId(app.id);
@@ -1115,8 +1223,10 @@ export function App() {
       setInstalledVersions(nextVersions);
       setMenuOpen(null);
       setToast(`${app.name}をv${app.version}へ更新しました`);
+      return true;
     } catch (error) {
       setToast(`${app.name}を更新できません：${String(error)}`);
+      return false;
     } finally {
       setUpdatingAppId(null);
     }
@@ -1477,6 +1587,108 @@ export function App() {
     }, 0);
   };
 
+  const navigateWithKeyboard = (nextView) => {
+    setSelectedApp(null);
+    setMenuOpen(null);
+    if (nextView === "chat") setAssistantOpen(false);
+    setView(nextView);
+  };
+
+  const dispatchAppShortcut = (appId, shortcutId) => {
+    if (selectedApp?.id !== appId) return;
+    appShortcutSequence.current += 1;
+    setAppShortcutCommand({ appId, shortcutId, sequence: appShortcutSequence.current });
+  };
+
+  const runHostShortcut = (shortcutId) => {
+    switch (shortcutId) {
+      case "toggle-assistant":
+        if (view === "chat") {
+          navigateWithKeyboard(lastNonChatView.current);
+          window.setTimeout(() => document.querySelector(".assistant-toggle")?.focus(), 0);
+        } else if (assistantOpen) {
+          closeAssistantPanel();
+        } else {
+          setAssistantOpen(true);
+        }
+        break;
+      case "command-palette":
+        setShortcutMenuOpen((open) => !open);
+        break;
+      case "new-chat":
+        setSelectedApp(null);
+        setAssistantOpen(false);
+        createNewChat();
+        break;
+      case "apps": navigateWithKeyboard("apps"); break;
+      case "home": navigateWithKeyboard("apps"); break;
+      case "connections": navigateWithKeyboard("connections"); break;
+      case "history": navigateWithKeyboard("history"); break;
+      case "settings": navigateWithKeyboard("settings"); break;
+      case "chat": navigateWithKeyboard("chat"); break;
+      case "add-app":
+        setSelectedApp(null);
+        setAddOpen(true);
+        break;
+      case "shortcut-menu":
+        setShortcutMenuOpen((open) => !open);
+        break;
+      default:
+        if (shortcutId.startsWith("app-command:")) {
+          const [, appId, appShortcutId] = shortcutId.split(":");
+          dispatchAppShortcut(appId, appShortcutId);
+          break;
+        }
+        if (shortcutId.startsWith("open-app:")) {
+          const app = apps.find((candidate) => candidate.id === shortcutId.slice("open-app:".length));
+          if (app) {
+            setView("apps");
+            setMenuOpen(null);
+            const installedVersion = installedVersions[app.id] ?? app.version;
+            if (isAppUpdateAvailable(installedVersion, app.version)) {
+              setSelectedApp(null);
+              void updateApp(app).then((updated) => updated && setSelectedApp(app));
+            } else if (compareAppVersions(installedVersion, app.version) === 0 && updatingAppId !== app.id) {
+              setSelectedApp(app);
+            } else {
+              setSelectedApp(null);
+              setToast(`${app.name}はバージョンを一致させてから開けます`);
+            }
+          }
+        }
+        break;
+    }
+  };
+
+  const blockingModalOpen = addOpen || Boolean(pendingDelete) || Boolean(pendingApproval)
+    || Boolean(deviceLogin) || Boolean(providerModal);
+
+  useEffect(() => {
+    const onKey = (event) => {
+      if (event.defaultPrevented || event.repeat) return;
+      const hostShortcut = resolveHostKeyboardShortcut(event);
+      if (hostShortcut) {
+        if (shortcutMenuOpen && hostShortcut.id !== "shortcut-menu" && hostShortcut.id !== "command-palette") return;
+        if (blockingModalOpen) return;
+        event.preventDefault();
+        runHostShortcut(hostShortcut.id);
+        return;
+      }
+      if (shortcutMenuOpen || blockingModalOpen || !selectedApp) return;
+      const appShortcut = resolveAppKeyboardShortcut(selectedApp.shortcuts, event);
+      if (!appShortcut) return;
+      event.preventDefault();
+      dispatchAppShortcut(selectedApp.id, appShortcut.id);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const runShortcutMenuCommand = (shortcutId) => {
+    setShortcutMenuOpen(false);
+    if (shortcutId !== "shortcut-menu" && shortcutId !== "command-palette") window.setTimeout(() => runHostShortcut(shortcutId), 0);
+  };
+
   const sharedChatProps = {
     history: chatHistory,
     activeSessionId: activeChatId,
@@ -1515,10 +1727,11 @@ export function App() {
   return (
     <div className={`app-shell${view === "chat" ? " chat-mode" : ""}${assistantOpen && view !== "chat" ? " assistant-panel-open" : ""}${selectedApp ? " app-surface-mode" : ""}`} onClick={(e) => !e.target.closest(".context-menu, .tile-actions, .launcher-menu-button") && setMenuOpen(null)}>
       <header className="topbar">
-        <button className="brand" aria-label="アプリ一覧へ" onClick={() => setView("apps")}><img className="brand-mark" src="/assets/mybox-mark.png" alt="" width="34" height="34" /><span>MyBox</span></button>
+        <button className="brand" aria-label="アプリ一覧へ" aria-keyshortcuts="Control+1" onClick={() => setView("apps")}><img className="brand-mark" src="/assets/mybox-mark.png" alt="" width="34" height="34" /><span>MyBox</span></button>
         <div className="topbar-actions">
-          <IconButton label={assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} className={assistantOpen ? "assistant-toggle active" : "assistant-toggle"} aria-pressed={assistantOpen} aria-controls="assistant-panel" onClick={() => setAssistantOpen((open) => !open)}><Robot size={23} weight={assistantOpen ? "fill" : "regular"} /></IconButton>
-          <button className="add-button" onClick={() => setAddOpen(true)}><Plus size={23} /><span>追加</span></button>
+          <IconButton label={`${assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} (Ctrl+J)`} className={assistantOpen ? "assistant-toggle active" : "assistant-toggle"} aria-keyshortcuts="Control+J" aria-pressed={assistantOpen} aria-controls="assistant-panel" onClick={() => setAssistantOpen((open) => !open)}><Robot size={23} weight={assistantOpen ? "fill" : "regular"} /></IconButton>
+          <IconButton label="コマンドパレット (Ctrl+K)" className={shortcutMenuOpen ? "shortcut-toggle active" : "shortcut-toggle"} aria-keyshortcuts="Control+K" aria-expanded={shortcutMenuOpen} onClick={() => setShortcutMenuOpen(true)}><Keyboard size={23} /></IconButton>
+          <button className="add-button" aria-keyshortcuts="Control+Shift+A" onClick={() => setAddOpen(true)}><Plus size={23} /><span>追加</span></button>
           {accountSession.signedIn && (
             <IconButton label={`${accountSession.displayName}・アカウント設定`} className="profile-button" onClick={() => setView("settings")}>
               {accountSession.avatarUrl
@@ -1533,7 +1746,7 @@ export function App() {
         {view !== "chat" && <form className={aiOpen ? "ai-command open" : "ai-command"} onSubmit={runAi} aria-busy={agentBusy}>
           <button type="button" className="ai-trigger" aria-label="AIアシスタントを開く" aria-controls="assistant-panel" aria-expanded={assistantOpen} onClick={() => setAssistantOpen(true)}><Robot size={30} weight="duotone" /></button>
           <input ref={aiInput} aria-label="AIへの依頼" value={aiText} onChange={(e) => setAiText(e.target.value)} onFocus={() => setAiOpen(true)} placeholder={agentBusy ? "考えています…" : "AIに頼む"} disabled={agentBusy} />
-          {agentBusy ? <span className="ai-busy spinner" aria-label="AIが処理中" /> : aiOpen ? <button className="ai-send" type="submit" aria-label="依頼を送信"><PaperPlaneTilt size={21} /></button> : <kbd>⌘ K</kbd>}
+          {agentBusy ? <span className="ai-busy spinner" aria-label="AIが処理中" /> : aiOpen ? <button className="ai-send" type="submit" aria-label="依頼を送信"><PaperPlaneTilt size={21} /></button> : null}
         </form>}
 
         {view === "apps" && (
@@ -1559,16 +1772,18 @@ export function App() {
       </main>
 
       {view !== "chat" && <nav className="bottom-nav" aria-label="メインナビゲーション">
-        {view !== "apps" && <button className="back-to-apps" onClick={() => setView("apps")} aria-label="アプリに戻る"><ArrowLeft size={22} /><span>アプリ</span></button>}
-        {navItems.map(({ id, label, icon: Icon }) => <button key={id} className={view === id ? "active" : ""} aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}><Icon size={32} weight={view === id ? "fill" : "regular"} /><span>{label}</span></button>)}
+        {view !== "apps" && <button className="back-to-apps" onClick={() => setView("apps")} aria-label="アプリに戻る" aria-keyshortcuts="Control+1"><ArrowLeft size={22} /><span>アプリ</span></button>}
+        {navItems.map(({ id, label, icon: Icon }, index) => <button key={id} className={view === id ? "active" : ""} aria-keyshortcuts={`Control+${index + 2}`} aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}><Icon size={32} weight={view === id ? "fill" : "regular"} /><span>{label}</span></button>)}
       </nav>}
 
+      {shortcutMenuOpen && <CommandPalette apps={apps} activeApp={selectedApp} onClose={() => setShortcutMenuOpen(false)} onRun={runShortcutMenuCommand} />}
       {addOpen && <AddAppModal catalog={appRegistry.list()} installedVersions={installedVersions} updatingAppId={updatingAppId} onClose={() => setAddOpen(false)} onAdd={addApp} onUpdate={updateApp} />}
       {selectedApp && (
         <RegisteredAppWorkspace
           app={selectedApp}
           desktop={desktop}
-          profileId={resolveProfileId(accountSession)}
+          profile={activeProfile}
+          shortcutCommand={appShortcutCommand?.appId === selectedApp.id ? appShortcutCommand : null}
           persistenceReady={!desktop || Boolean(workspace)}
           assistantOpen={assistantOpen}
           onToggleAssistant={() => setAssistantOpen((open) => !open)}

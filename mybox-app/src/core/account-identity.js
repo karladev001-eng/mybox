@@ -60,3 +60,17 @@ export function resolveProfileId(session) {
     ? session.profileId
     : LOCAL_PROFILE_ID;
 }
+
+/** Non-secret identity presentation safe to hand to App surfaces and shared documents. */
+export function resolveProfilePresentation(session) {
+  const profileId = resolveProfileId(session);
+  return Object.freeze({
+    profileId,
+    displayName: session?.signedIn === true && typeof session.displayName === "string" && session.displayName.trim()
+      ? session.displayName.trim()
+      : "ローカルユーザー",
+    avatarUrl: session?.signedIn === true && typeof session.avatarUrl === "string" && /^https:\/\//.test(session.avatarUrl)
+      ? session.avatarUrl
+      : null,
+  });
+}

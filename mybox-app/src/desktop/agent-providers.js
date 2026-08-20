@@ -11,6 +11,7 @@ const unavailableStatus = Object.freeze({
   version: null,
   authMode: null,
   planType: null,
+  accountEmail: null,
   imageGeneration: false,
   error: "デスクトップ版で利用できます",
 });

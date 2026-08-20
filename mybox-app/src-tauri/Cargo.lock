@@ -2361,7 +2361,7 @@ dependencies = [
 
 [[package]]
 name = "mybox"
-version = "0.6.0"
+version = "0.6.4"
 dependencies = [
  "base64 0.22.1",
  "keyring",
@@ -2378,6 +2378,8 @@ dependencies = [
  "tempfile",
  "tokio",
  "uuid",
+ "webview2-com",
+ "windows",
  "zeroize",
 ]
 

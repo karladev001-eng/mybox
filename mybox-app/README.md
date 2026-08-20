@@ -3,6 +3,9 @@
 This package contains the current React/Vite prototype and the host-independent app
 framework. The Web build stays usable while the desktop Tauri adapter is developed.
 
+At startup, MyBox restores the last stable Host destination or open App.
+Transient menus, App-private selections, drafts, and dialogs always start closed.
+
 ## Directory map
 
 - `src/`: React UI and framework source.
@@ -64,7 +67,9 @@ model context. The Web preview keeps this history only in memory.
 The desktop app discovers a locally installed Codex CLI and uses its official
 ChatGPT sign-in through Codex App Server. Run `codex login` once, or use the
 ChatGPT row in MyBox settings. The detected plan name is display-only; MyBox does
-not restrict the adapter to Plus or any other tier.
+not restrict the adapter to Plus or any other tier. Settings also shows the
+display email returned by Codex so the active subscription account is explicit;
+that value stays in memory and is not treated as a MyBox Linked account.
 
 This adapter refuses API-key authentication so subscription use cannot silently
 become metered API use.
@@ -97,6 +102,16 @@ Local LLM connects to an OpenAI-compatible Chat Completions server on loopback.
 For example, configure `http://127.0.0.1:11434/v1` plus the exact local model name.
 Remote endpoints, redirects, embedded credentials, and system proxies are rejected
 by this initial adapter. Local LLM does not yet provide Web search.
+
+## Keyboard shortcuts
+
+Press `Ctrl+/` to open the executable shortcut menu. The Host also supports
+`Ctrl+J` for the contextual assistant, `Ctrl+K` for the searchable command palette,
+`Ctrl+Shift+N` for a new chat, `Ctrl+1` through `Ctrl+5` for main destinations,
+and `Ctrl+Shift+A` for App installation. These Host bindings also work while an
+input is focused; ordinary editing shortcuts such as copy and paste are unchanged.
+The command palette also lists one `Open <name> App` command per installed App
+and a command that returns to the MyBox home screen.
 
 OpenAI API and Local LLM currently report skill and image-generation capabilities
 as unavailable. Their adapters can implement the same provider-neutral contract

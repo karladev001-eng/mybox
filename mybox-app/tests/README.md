@@ -20,10 +20,21 @@ Contains Node tests for framework behavior and Sites packaging.
   app-scoped persistence, validated skill/generated-image references, and safe
   model/reasoning/token-usage metadata.
 - `knowledge-app.test.mjs`: Project/Page/Block invariants, PageLink and Trash
-  transitions, title uniqueness, roles, revisions, search, and App Operations.
+  transitions, title uniqueness, roles, member colors, Tab indentation,
+  revisions, search, and App Operations.
 - `app-registry.test.mjs`: validated versioned App definitions, SemVer update
   checks, installation migration and persistence, duplicate protection, built-in
   defaults, and extensible lazy Surface contracts.
+- `keyboard-shortcuts.test.mjs`: Host shortcut resolution, modifier and physical
+  key matching, availability while an editable control is focused, and palette
+  commands for installed Apps and MyBox home.
+- `host-session.test.mjs`: validated Host last-surface persistence, including
+  fallback when an App is no longer installed.
+- `tag-behavior.test.mjs`: IME-safe physical/full-width Space confirmation,
+  composition-end delimiter detection, multi-Tag splitting, and used-only
+  candidate filtering.
+- `search-behavior.test.mjs`: normalized Page candidate filtering and
+  Tab/Shift+Tab/Enter/Escape behavior for the Note search combobox.
 - `sites-worker.test.mjs`: static asset fallback and required build outputs.
 
 Run `npm test` for framework tests. Run `npm run build` before `npm run test:sites`

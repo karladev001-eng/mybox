@@ -3,8 +3,10 @@
 Implements the first vertical slice of the `knowledge` App described in
 `../../../docs/knowledge-app-spec.md`.
 
-- `domain.js`: runtime-neutral Project, Page, Block, PageLink, Tag, Trash,
-  revision, history, and search rules.
+- `domain.js`: runtime-neutral Project, member author color, Page, Block,
+  PageLink, Tag, Trash, revision, history, and search rules.
+- `author-color.js`: the accessible member color palette and deterministic
+  fallback used by local and shared Projects.
 - `app.js`: public App manifest and Operation handlers backed by App storage.
 - `client.js`: User-facing Host client used by the React surface. It is the
   only file in this directory allowed to import a `../desktop/*` bridge
@@ -15,7 +17,16 @@ Implements the first vertical slice of the `knowledge` App described in
   `core/agent-host-registry.js` so the assistant panel can invoke this App's
   Operations ([ADR 0025](../../../docs/adr/0025-agent-operations-from-the-assistant-panel.md)).
 - `KnowledgeView.jsx`: accessible desktop knowledge workspace.
-- `editor-behavior.js`: pure Markdown conversion and grouped-list editing rules.
+  It receives Host-dispatched App shortcut commands, focuses Page search for
+  `Ctrl+P`, shows a Page-search combobox whose candidates cycle with Tab and
+  open with Enter, and renders online collaborators beside history without exposing
+  immutable profile IDs as account names.
+- `search-behavior.js`: normalized Page candidate filtering and pure keyboard
+  actions for the search combobox.
+- `tag-behavior.js`: IME-safe half-width/full-width Space delimiter detection
+  and live, used-only candidate filtering for the Tag combobox. Space keeps the
+  combobox focused for sequential entry; Enter commits and exits the field.
+- `editor-behavior.js`: pure Markdown conversion, Tab indentation, and grouped-list editing rules.
   `markdownConversion` handles one line as the User types; `parseMarkdownBlocks`
   is its document-level counterpart, turning a whole Markdown text into typed
   Blocks for the `markdown-set` mutation. Consecutive bullets or numbers become
@@ -23,7 +34,10 @@ Implements the first vertical slice of the `knowledge` App described in
 - `yjs-document.js`: the shared representation of a Project. Applies the same
   mutation vocabulary as `domain.js` to a Yjs document and projects it back into
   the Page and Block shape, so a shared Project merges concurrent edits where a
-  local one reports a revision conflict.
+  local one reports a revision conflict. It also syncs member colors and the
+  last account to edit each Page and Block.
+  Non-secret display names and HTTPS avatar URLs form a shared profile directory
+  so author labels remain readable after a collaborator disconnects.
 - `shared-project.js`: a shared Project's live state. Owns the document and its
   sync client, and answers Page reads in the same shapes the local store does.
   It takes `domain.js`'s mutation vocabulary and converts to the document's own,

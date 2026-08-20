@@ -104,6 +104,19 @@ test("presence is passed to the client and never becomes content", () => {
   assert.equal(shared.readPage("page-1").page.blocks[0].text, "hello");
 });
 
+test("publishes only the current actor's persistent account presentation", () => {
+  const { shared } = session();
+  assert.deepEqual(
+    shared.setMemberProfile({ profileId: "github:42", displayName: "Kan", avatarUrl: null }, "github:42"),
+    { profileId: "github:42", displayName: "Kan", avatarUrl: null },
+  );
+  assert.deepEqual(shared.listMemberProfiles(), [{ profileId: "github:42", displayName: "Kan", avatarUrl: null }]);
+  assert.throws(
+    () => shared.setMemberProfile({ profileId: "github:9", displayName: "Other", avatarUrl: null }, "github:42"),
+    (error) => error.code === "INVALID_MEMBER_PROFILE",
+  );
+});
+
 test("connecting and disposing drive the underlying client", () => {
   const { shared, stub, changes } = session();
   shared.connect();

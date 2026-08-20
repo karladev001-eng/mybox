@@ -36,7 +36,8 @@ const webDriver = new MemoryStorageDriver();
  * calls these wrappers instead.
  */
 export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID } = {}) {
-  const host = new AppHost({ storageDriver: desktop ? new TauriStorageDriver() : webDriver });
+  const storageDriver = desktop ? new TauriStorageDriver() : webDriver;
+  const host = new AppHost({ storageDriver });
   // The View owns the live shared session (it needs a socket), but every write
   // has to reach it through Operations, or the assistant writes to the JSON
   // store while the editor reads the document and neither sees the other.
@@ -52,6 +53,8 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
 
   return Object.freeze({
     listProjects: () => invoke("knowledge.project.list"),
+    listMemberColors: (projectId) => invoke("knowledge.project.members.list", { projectId }),
+    setMemberColor: (projectId, profileId, color) => invoke("knowledge.project.member-color.set", { projectId, profileId, color }),
     createProject: (name) => invoke("knowledge.project.create", { name }),
     renameProject: (projectId, name) => invoke("knowledge.project.rename", { projectId, name }),
     deleteProject: (projectId) => invoke("knowledge.project.delete", { projectId }),

@@ -15,8 +15,30 @@ test("registers the Knowledge module surface in the default installed catalog", 
   assert.equal(knowledge.surface.kind, "module");
   assert.equal(knowledge.surface.exportName, "KnowledgeView");
   assert.equal(typeof knowledge.surface.load, "function");
-  assert.equal(knowledge.version, "1.7.0");
+  assert.equal(knowledge.version, "1.11.0");
+  assert.deepEqual(knowledge.shortcuts.map(({ id, displayKeys }) => ({ id, displayKeys })), [
+    { id: "page-search", displayKeys: ["Ctrl", "P"] },
+  ]);
   assert.equal(registry.listDefaultInstalled().some((app) => app.id === "knowledge"), true);
+});
+
+test("validates and freezes App-owned shortcut declarations", () => {
+  const registry = new AppRegistry();
+  const app = registry.register({
+    id: "sample",
+    version: "1.0.0",
+    name: "Sample",
+    icon: "code",
+    color: "#67d7c4",
+    hint: "Sample App",
+    shortcuts: [{ id: "find-item", label: "項目を検索", key: "f", code: "KeyF", displayKeys: ["Ctrl", "F"] }],
+  });
+  assert.equal(Object.isFrozen(app.shortcuts), true);
+  assert.equal(Object.isFrozen(app.shortcuts[0]), true);
+  assert.throws(
+    () => registry.register({ id: "broken", version: "1.0.0", name: "Broken", icon: "code", color: "#67d7c4", hint: "Broken", shortcuts: [{ id: "Find", label: "検索", key: "f", code: "KeyF", displayKeys: ["Ctrl", "F"] }] }),
+    (error) => error.code === "INVALID_APP_SHORTCUT",
+  );
 });
 
 test("rejects duplicate IDs and malformed module surfaces", () => {

@@ -34,7 +34,8 @@ export function parseClientMessage(raw) {
     return { type: "update", update: message.update };
   }
   if (message.type === "awareness") {
-    if (typeof message.state !== "object") return { error: "MALFORMED_AWARENESS" };
+    if (!message.state || typeof message.state !== "object" || Array.isArray(message.state)) return { error: "MALFORMED_AWARENESS" };
+    if (JSON.stringify(message.state).length > 4096) return { error: "AWARENESS_TOO_LARGE" };
     return { type: "awareness", state: message.state };
   }
   return { error: "UNKNOWN_MESSAGE_TYPE" };

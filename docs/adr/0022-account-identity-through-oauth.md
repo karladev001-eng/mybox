@@ -71,3 +71,9 @@ with a signed-out Web fallback, and `adoptLocalMemberships` in
 `mybox-app/src/knowledge/domain.js` performs the first-sign-in grant. The
 `client_id` is committed as a default and overridden at build time through
 `MYBOX_GITHUB_CLIENT_ID`.
+
+As of 2026-08-20, the Host passes only `profileId`, display name, and validated
+HTTPS avatar URL to an App Surface. Shared Note Projects publish that presentation
+through ephemeral awareness for online icons and store the same non-secret fields
+in their Yjs profile directory for author labels. Profile IDs remain the stable
+membership and attribution keys but are not presented as account names.

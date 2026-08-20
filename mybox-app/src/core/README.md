@@ -27,6 +27,10 @@ contract described in `../../../docs/app-framework.md`.
   serializable custom App metadata retained through the Host storage port.
 - `account-identity.js`: Profile ID construction from a Linked account, and
   resolution of a host account view into the session Operations run as.
+- `keyboard-shortcuts.js`: Host shortcut metadata, palette-only installed-App
+  and home commands, and layout-tolerant runtime-neutral key-event resolution.
+- `host-session.js`: versioned last-surface state for restoring a valid Host
+  destination and optional installed App at startup.
 - `storage.js`: app-scoped storage port and in-memory test/Web driver.
 
 Production filesystem, secrets, network, and cloud adapters belong behind these
