@@ -2,6 +2,7 @@ mod accounts;
 mod agent_providers;
 mod cloudflare;
 mod codex;
+mod image_studio_resources;
 mod knowledge_resources;
 mod sync_endpoints;
 mod workspace;
@@ -104,6 +105,11 @@ pub fn run() {
             codex::codex_subscription_usage,
             codex::codex_subscription_generate,
             codex::read_chat_image,
+            image_studio_resources::generate_image_studio,
+            image_studio_resources::store_image_studio_reference,
+            image_studio_resources::store_image_studio_reference_bytes,
+            image_studio_resources::read_image_studio_resource,
+            image_studio_resources::delete_image_studio_resource,
             knowledge_resources::store_knowledge_image,
             knowledge_resources::store_knowledge_image_bytes,
             knowledge_resources::read_knowledge_image,
@@ -111,6 +117,8 @@ pub fn run() {
             workspace::open_workspace,
             workspace::read_app_json,
             workspace::write_app_json,
+            workspace::read_app_text,
+            workspace::write_app_text,
             workspace::delete_app_value,
             workspace::list_app_keys,
         ])

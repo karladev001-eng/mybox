@@ -65,6 +65,7 @@ export function createMyApp() {
       hostCapabilities: ["app-storage"],    // declare what host features you use
       operations: [ /* operation({...}) entries, see below */ ],
       events: [ /* event declarations, see below */ ],
+      connectors: { sources: [], targets: [] }, // optional typed App-to-App endpoints
     },
     handlers: {
       "my-app.thing.read"(input, ctx) { /* ... */ },
@@ -137,12 +138,29 @@ Every handler receives `(input, ctx)` where `ctx` is:
   storage,        // your app-scoped storage port, see below
   emit,           // (eventId, payload) => Promise<{ envelope, results }>
   invoke,         // (operationId, input, options) => Promise — call another App's Operation
+  connections,    // pull(targetConnectorId) reads connected typed sources
+  resources,      // read/import validated large-resource references
 }
 ```
 
 Call another App only through `ctx.invoke(...)`, never by importing its
 `domain.js` or `app.js`. That call runs as an `app` actor and is subject to
 the same authorization as any other caller.
+
+### Connectors and resources
+
+A Connector ID is App-namespaced. Sources use `mode: "pull"` with an
+`operationId`, or `mode: "push"` with an `eventId`. Targets use
+`mode: "pull"` for a library read through `ctx.connections.pull(id)`, or
+`mode: "consume"` with an `operationId`. Both ends declare the same versioned
+`dataType` and a JSON `configSchema`; `optionsOperationId` may provide settings
+candidates. A saved Connection grants only these named Operations. It does not
+bypass caller types, Confirmation, or audit checks.
+
+Large binary content stays out of Operation JSON. Pass
+`{appId, resourceId, mediaType, revision, name?}` and use the Host resource
+broker. A consuming App imports bytes into its own namespace before persisting a
+long-lived reference to them.
 
 ## Storage
 
@@ -153,6 +171,8 @@ traversal (`../`, absolute paths, backslashes, empty segments) throws
 ```js
 await storage.writeJson("state.json", value);   // value must be JSON-serializable
 const value = await storage.readJson("state.json"); // null if never written
+await storage.writeText("templates/one.md", markdown); // UTF-8, default 256 KiB max
+const markdown = await storage.readText("templates/one.md"); // null if absent
 await storage.delete("state.json");
 const keys = await storage.list("");             // prefix match, sorted
 ```

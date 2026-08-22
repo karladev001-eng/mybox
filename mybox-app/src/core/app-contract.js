@@ -78,6 +78,33 @@ function validateSchema(schema, label) {
   assert(isObject(schema), `${label} must be a JSON Schema object`);
 }
 
+const CONNECTOR_MODES = Object.freeze({ source: ["pull", "push"], target: ["pull", "consume"] });
+const DATA_TYPE_PATTERN = /^mybox\.[a-z][a-z0-9-]*\.v\d+$/;
+
+function validateConnectors(manifest, seenIds) {
+  if (manifest.connectors === undefined) return;
+  assert(isObject(manifest.connectors), "connectors must be an object");
+  for (const direction of ["sources", "targets"]) {
+    const items = manifest.connectors[direction] ?? [];
+    assert(Array.isArray(items), `connectors.${direction} must be an array`);
+    const kind = direction === "sources" ? "source" : "target";
+    for (const connector of items) {
+      assert(isObject(connector), "Connector declaration must be an object");
+      validateCapabilityId(manifest.id, connector.id, "Connector");
+      assert(!seenIds.has(connector.id), "Capability IDs must be unique in an app", { id: connector.id });
+      seenIds.add(connector.id);
+      assert(typeof connector.title === "string" && connector.title.trim(), "Connector title is required", { id: connector.id });
+      assert(CONNECTOR_MODES[kind].includes(connector.mode), "Connector mode is invalid", { id: connector.id, mode: connector.mode });
+      assert(typeof connector.dataType === "string" && DATA_TYPE_PATTERN.test(connector.dataType), "Connector dataType is invalid", { id: connector.id, dataType: connector.dataType });
+      validateSchema(connector.configSchema ?? { type: "object" }, `${connector.id} configSchema`);
+      if (kind === "source" && connector.mode === "pull") validateCapabilityId(manifest.id, connector.operationId, "Operation");
+      if (kind === "source" && connector.mode === "push") validateCapabilityId(manifest.id, connector.eventId, "Event");
+      if (kind === "target" && connector.mode === "consume") validateCapabilityId(manifest.id, connector.operationId, "Operation");
+      if (connector.optionsOperationId !== undefined) validateCapabilityId(manifest.id, connector.optionsOperationId, "Operation");
+    }
+  }
+}
+
 export function validateAppManifest(manifest) {
   assert(isObject(manifest), "App manifest must be an object");
   assert(manifest.schemaVersion === APP_SCHEMA_VERSION, "Unsupported app schema version", {
@@ -135,6 +162,8 @@ export function validateAppManifest(manifest) {
     });
     validateSchema(event.payloadSchema, `${event.id} payloadSchema`);
   }
+
+  validateConnectors(manifest, seenIds);
 
   if (manifest.hostCapabilities !== undefined) {
     assert(Array.isArray(manifest.hostCapabilities), "hostCapabilities must be an array");

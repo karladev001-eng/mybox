@@ -16,6 +16,7 @@ import { createAggregateAgentHost, hasRegisteredAgentHosts } from "./core/agent-
 import { AgentRuntime } from "./core/agent-runtime.js";
 import { getProfilePreferencesStore } from "./desktop/profile-preferences.js";
 import { createDefaultProfilePreferences } from "./core/profile-preferences.js";
+import { createSharedAppRuntime } from "./core/app-runtime.js";
 import { resolveHostSession } from "./core/host-session.js";
 import { getHostSessionStore } from "./desktop/host-session.js";
 import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
@@ -68,6 +69,7 @@ import {
   PaperPlaneTilt,
   PencilSimpleLine,
   Plus,
+  Power,
   Robot,
   SignOut,
   SlidersHorizontal,
@@ -147,15 +149,6 @@ function IconButton({ label, children, className = "", ...props }) {
   );
 }
 
-function EmptyTile({ onClick }) {
-  return (
-    <button className="app-launcher add-launcher" onClick={onClick} aria-label="アプリを追加">
-      <span className="add-icon" aria-hidden="true"><Plus size={24} /></span>
-      <span><strong>アプリを追加</strong><small>新しいツールをMyBoxに追加</small></span>
-    </button>
-  );
-}
-
 function AppTile({ app, installedVersion, onOpen, onMenu, menuOpen, onDelete, onFavorite, onUpdate, updating }) {
   const versionComparison = compareAppVersions(installedVersion, app.version);
   const updateAvailable = versionComparison < 0;
@@ -164,7 +157,7 @@ function AppTile({ app, installedVersion, onOpen, onMenu, menuOpen, onDelete, on
   return (
     <article className="app-launcher" style={{ "--app-color": app.color }}>
       <button className="launcher-open-area" disabled={launchBlocked} onClick={() => onOpen(app)} aria-label={launchBlocked ? `${app.name}はバージョンを一致させてから開けます` : `${app.name}を開く`}>
-        <AppGlyph icon={app.icon} color={app.color} size={58} />
+        <AppGlyph icon={app.icon} color={app.color} size={34} />
         <span className="launcher-copy">
           <strong>{app.name}</strong>
           <small>{app.hint}</small>
@@ -173,14 +166,12 @@ function AppTile({ app, installedVersion, onOpen, onMenu, menuOpen, onDelete, on
             {updateAvailable ? <em>v{app.version} 利用可能</em> : <em className="current">{installedAhead ? "Registryより新しい版" : "最新版"}</em>}
           </span>
         </span>
-        <span className="launcher-open-icon" aria-hidden="true"><ArrowSquareOut size={21} /></span>
       </button>
       <div className="launcher-actions">
         {updateAvailable && (
-          <button className="launcher-update-button" type="button" disabled={updating} onClick={() => onUpdate(app)} aria-label={`${app.name}をバージョン${app.version}へ更新`}>
+          <IconButton className="launcher-update-button" type="button" disabled={updating} onClick={() => onUpdate(app)} label={updating ? `${app.name}を更新中` : `${app.name}をバージョン${app.version}へ更新`}>
             <ArrowsClockwise size={17} aria-hidden="true" />
-            <span>{updating ? "更新中…" : "更新"}</span>
-          </button>
+          </IconButton>
         )}
         <IconButton className="launcher-menu-button" label={`${app.name}のメニュー`} aria-expanded={menuOpen} onClick={() => onMenu(app.id)}>
           <DotsThree size={24} weight="bold" />
@@ -417,13 +408,14 @@ function AppWorkspace({ app, onClose, onDone }) {
   );
 }
 
-function RegisteredAppWorkspace({ app, desktop, profile, shortcutCommand, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
+function RegisteredAppWorkspace({ app, desktop, profile, appRuntime, shortcutCommand, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
   const Surface = resolveLazyAppSurface(app);
   if (!Surface) return <AppWorkspace app={app} onClose={onClose} onDone={onDone} />;
   return (
     <Suspense fallback={<div className="modal-backdrop"><div className="workspace-body" role="status"><span className="spinner" /><strong>{app.name} Appを読み込んでいます…</strong></div></div>}>
       <Surface
         desktop={desktop}
+        appRuntime={appRuntime}
         profileId={profile.profileId}
         profile={profile}
         shortcutCommand={shortcutCommand}
@@ -439,26 +431,62 @@ function RegisteredAppWorkspace({ app, desktop, profile, shortcutCommand, persis
   );
 }
 
-function ConnectionsView({ apps, onToast }) {
-  const [source, setSource] = useState(apps[0]?.id ?? "");
-  const [target, setTarget] = useState(apps[1]?.id ?? "");
-  const appOptions = apps.map((app) => ({ id: app.id, label: app.name, description: app.hint }));
+function ConnectionsView({ runtime, onToast }) {
+  const pairs = runtime.connections.listCompatiblePairs();
+  const pairOptions = pairs.map((pair, index) => ({ id: String(index), label: `${pair.source.appName} → ${pair.target.appName}`, description: `${pair.source.connector.title} → ${pair.target.connector.title}` }));
+  const [pairId, setPairId] = useState(pairOptions[0]?.id ?? "");
+  const [records, setRecords] = useState([]);
+  const [sourceConfig, setSourceConfig] = useState({});
+  const [targetConfig, setTargetConfig] = useState({});
+  const [options, setOptions] = useState({ source: { projects: [] }, target: { projects: [] } });
+  const [editingId, setEditingId] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const pair = pairs[Number(pairId)] ?? null;
+  const hasRequiredConfig = (connector, config) => (connector.configSchema?.required ?? []).every((key) => Boolean(config[key]));
+  const refresh = () => setRecords(runtime.connections.list());
+  useEffect(() => { refresh(); }, [runtime]);
+  useEffect(() => {
+    let active = true;
+    if (!pair) return undefined;
+    Promise.all([
+      runtime.connections.options({ appId: pair.source.appId, connectorId: pair.source.connector.id }),
+      runtime.connections.options({ appId: pair.target.appId, connectorId: pair.target.connector.id }),
+    ]).then(([source, target]) => {
+      if (!active) return;
+      setOptions({ source, target });
+      setSourceConfig((current) => current.projectId || !source.projects?.[0] ? current : { ...current, projectId: source.projects[0].id });
+      setTargetConfig((current) => current.projectId || !target.projects?.[0] ? current : { ...current, projectId: target.projects[0].id });
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [runtime, pairId]);
+  const projectFor = (side) => options[side].projects?.find((project) => project.id === (side === "source" ? sourceConfig.projectId : targetConfig.projectId));
+  const renderConfig = (side, connector, config, setConfig) => Object.entries(connector.configSchema?.properties ?? {}).map(([key, schema]) => {
+    const choices = schema.format === "mybox-project"
+      ? (options[side].projects ?? []).map((item) => ({ id: item.id, label: item.label }))
+      : schema.format === "mybox-tag"
+        ? (projectFor(side)?.tags ?? []).map((tag) => ({ id: tag, label: tag }))
+        : [];
+    return <div className="connection-config-field" key={`${side}-${key}`}><ThemedSelect id={`connection-${side}-${key}`} label={schema.title ?? key} options={choices} value={config[key] ?? ""} onChange={(value) => setConfig((current) => ({ ...current, [key]: value }))} placement="bottom" /></div>;
+  });
+  const save = async () => {
+    if (!pair) return;
+    setBusy(true);
+    try {
+      if (!hasRequiredConfig(pair.source.connector, sourceConfig) || !hasRequiredConfig(pair.target.connector, targetConfig)) throw new Error("必須のProjectとTagを選択してください");
+      await runtime.connections.save({ id: editingId, source: { appId: pair.source.appId, connectorId: pair.source.connector.id, config: sourceConfig }, target: { appId: pair.target.appId, connectorId: pair.target.connector.id, config: targetConfig }, enabled: true });
+      setEditingId(null); refresh(); onToast("連携を保存しました");
+    } catch (error) { onToast(`連携を保存できません：${error.message}`); } finally { setBusy(false); }
+  };
   return (
     <section className="secondary-view" aria-labelledby="connections-heading">
-      <div className="view-title"><span><LinkSimple size={27} /></span><div><h1 id="connections-heading">連携</h1><p>アプリ同士の受け渡しを設定</p></div></div>
+      <div className="view-title"><LinkSimple size={24} aria-hidden="true" /><h1 id="connections-heading">連携</h1></div>
       <div className="connection-builder">
-        <div className="connection-field">
-          <span>入力</span>
-          <ThemedSelect id="connection-source" label="入力アプリ" options={appOptions} value={source} onChange={setSource} placement="bottom" className="connection-select" />
-        </div>
-        <FlowArrow size={34} aria-hidden="true" />
-        <div className="connection-field">
-          <span>出力</span>
-          <ThemedSelect id="connection-target" label="出力アプリ" options={appOptions} value={target} onChange={setTarget} placement="bottom" className="connection-select" />
-        </div>
-        <button className="primary-button compact" onClick={() => onToast("連携を保存しました")}><Check size={20} />保存</button>
+        {pair ? <><div className="connection-field connection-pair"><ThemedSelect id="connection-pair" label="互換Connector" options={pairOptions} value={pairId} onChange={(value) => { setPairId(value); setEditingId(null); setSourceConfig({}); setTargetConfig({}); }} placement="bottom" /></div><div className="connection-config-side"><strong>{pair.source.appName} · {pair.source.connector.title}</strong>{renderConfig("source", pair.source.connector, sourceConfig, setSourceConfig)}</div><FlowArrow size={34} aria-hidden="true" /><div className="connection-config-side"><strong>{pair.target.appName} · {pair.target.connector.title}</strong>{renderConfig("target", pair.target.connector, targetConfig, setTargetConfig)}</div><button className="primary-button compact" disabled={busy || !hasRequiredConfig(pair.source.connector, sourceConfig) || !hasRequiredConfig(pair.target.connector, targetConfig)} onClick={save}><Check size={20} />{busy ? "保存中…" : editingId ? "更新" : "保存"}</button></> : <p>互換するConnectorがありません。対象Appをインストールしてください。</p>}
       </div>
-      <div className="saved-flow"><div><ImageIcon size={25} /><span>画像</span></div><FlowArrow size={24} /><div><GlobeHemisphereWest size={25} /><span>公開</span></div><span className="status"><Check size={15} />有効</span></div>
+      <div className="connection-list" aria-label="保存済みの連携">{records.map((record) => {
+        const sourceManifest = runtime.host.getManifest(record.source.appId); const targetManifest = runtime.host.getManifest(record.target.appId);
+        return <article className="saved-flow" key={record.id}><div><ImageIcon size={22} /><span>{sourceManifest?.name ?? record.source.appId}</span></div><FlowArrow size={20} /><div><LinkSimple size={22} /><span>{targetManifest?.name ?? record.target.appId}</span></div><span className={`status ${record.status?.state ?? "idle"}`}>{record.status?.state === "succeeded" ? <Check size={15} /> : <ClockCounterClockwise size={15} />}{record.status?.message ?? "未実行"}</span><IconButton className={record.enabled ? "connection-enable active" : "connection-enable"} label={record.enabled ? "連携を停止" : "連携を有効化"} role="switch" aria-checked={record.enabled} onClick={async () => { await runtime.connections.setEnabled(record.id, !record.enabled); refresh(); }}><Power size={18} weight={record.enabled ? "fill" : "regular"} /></IconButton><IconButton label="連携を編集" onClick={() => { const index = pairs.findIndex((item) => item.source.appId === record.source.appId && item.source.connector.id === record.source.connectorId && item.target.appId === record.target.appId && item.target.connector.id === record.target.connectorId); if (index >= 0) setPairId(String(index)); setSourceConfig(record.source.config ?? {}); setTargetConfig(record.target.config ?? {}); setEditingId(record.id); }}><PencilSimpleLine size={18} /></IconButton><IconButton label="連携を再試行" disabled={!record.status?.lastEnvelope} onClick={async () => { try { await runtime.connections.retry(record.id); } catch {} refresh(); }}><ArrowsClockwise size={18} /></IconButton><IconButton className="text-danger" label="連携を削除" onClick={async () => { await runtime.connections.remove(record.id); refresh(); }}><Trash size={18} /></IconButton></article>;
+      })}</div>
     </section>
   );
 }
@@ -471,7 +499,7 @@ function HistoryView() {
   ];
   return (
     <section className="secondary-view" aria-labelledby="history-heading">
-      <div className="view-title"><span><ClockCounterClockwise size={27} /></span><div><h1 id="history-heading">履歴</h1><p>最近の操作</p></div></div>
+      <div className="view-title"><ClockCounterClockwise size={24} aria-hidden="true" /><h1 id="history-heading">履歴</h1></div>
       <div className="history-list">{entries.map(([name, action, time]) => <div className="history-row" key={`${name}-${time}`}><span className="history-icon"><Check size={18} /></span><strong>{name}</strong><span>{action}</span><time>{time}</time></div>)}</div>
     </section>
   );
@@ -491,7 +519,7 @@ function ProviderRow({ icon: Icon, title, detail, badge, active, disabled, onSel
     <div className={active ? "provider-row active" : "provider-row"}>
       <button className="provider-select" onClick={onSelect} disabled={disabled}>
         <span className="settings-row-icon"><Icon size={24} weight="duotone" aria-hidden="true" /></span>
-        <span className="settings-row-copy"><strong>{title}</strong><small>{detail}</small></span>
+        <span className="settings-row-copy"><strong>{title}</strong>{detail && <small>{detail}</small>}</span>
       </button>
       {/* Without a gear the badge takes the gear's column too, so its right
           edge lines up with the buttons on every other Settings row. */}
@@ -503,10 +531,10 @@ function ProviderRow({ icon: Icon, title, detail, badge, active, disabled, onSel
 
 function AccountRow({ desktop, session, busy, onSignIn, onSignOut }) {
   const detail = !desktop
-    ? "デスクトップ版で利用できます"
+    ? "デスクトップのみ"
     : busy ? "処理中…"
-    : session.signedIn ? `${session.displayName} · 共有Projectを利用できます`
-    : "共有Projectを使うときだけ必要です";
+    : session.signedIn ? session.displayName
+    : "共有時のみ";
   return (
     <div className={session.signedIn ? "provider-row active" : "provider-row"}>
       <button className="provider-select" onClick={session.signedIn ? undefined : onSignIn} disabled={!desktop || busy || session.signedIn}>
@@ -518,8 +546,8 @@ function AccountRow({ desktop, session, busy, onSignIn, onSignOut }) {
         <span className="settings-row-copy"><strong>アカウント</strong><small>{detail}</small></span>
       </button>
       {session.signedIn
-        ? <button type="button" className="account-action" onClick={onSignOut} disabled={busy}><SignOut size={17} aria-hidden="true" />サインアウト</button>
-        : <button type="button" className="account-action" onClick={onSignIn} disabled={!desktop || busy}><GithubLogo size={17} aria-hidden="true" />サインイン</button>}
+        ? <IconButton type="button" className="account-action" label="サインアウト" onClick={onSignOut} disabled={busy}><SignOut size={18} /></IconButton>
+        : <IconButton type="button" className="account-action" label="GitHubでサインイン" onClick={onSignIn} disabled={!desktop || busy}><GithubLogo size={18} /></IconButton>}
     </div>
   );
 }
@@ -720,13 +748,13 @@ function SettingsView({
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
   const agentDetail = agentStatus?.connected
-    ? `ChatGPT ${agentPlanLabel(agentStatus)} · ${agentStatus.accountEmail ? `アカウント：${agentStatus.accountEmail}` : "アカウント情報なし"} · Codex経由`
+    ? `${agentPlanLabel(agentStatus)}${agentStatus.accountEmail ? ` · ${agentStatus.accountEmail}` : ""}`
     : agentStatus?.authMode
-      ? "ChatGPTサインインへ切替が必要です"
-      : agentStatus?.error ?? (desktop ? "ChatGPTでサインイン" : "デスクトップ版で設定");
+      ? "ChatGPTへの切替が必要"
+      : agentStatus?.error ?? (desktop ? "未接続" : "デスクトップのみ");
   return (
     <section className="secondary-view" aria-labelledby="settings-heading">
-      <div className="view-title"><span><GearSix size={27} /></span><div><h1 id="settings-heading">設定</h1><p>MyBoxの動作</p></div></div>
+      <div className="view-title"><GearSix size={24} aria-hidden="true" /><h1 id="settings-heading">設定</h1></div>
       <div className="settings-list">
         <AccountRow
           desktop={desktop}
@@ -747,7 +775,7 @@ function SettingsView({
         <ProviderRow
           icon={Database}
           title="OpenAI API"
-          detail={providerSettings.openaiApi.configured ? providerSettings.openaiApi.model : "APIキーをOSへ安全に保存"}
+          detail={providerSettings.openaiApi.configured ? providerSettings.openaiApi.model : "未設定"}
           badge={providerSettings.activeProviderId === OPENAI_API_PROVIDER_ID ? "使用中" : providerSettings.openaiApi.configured ? "選択" : ""}
           active={providerSettings.activeProviderId === OPENAI_API_PROVIDER_ID}
           disabled={!desktop || agentBusy}
@@ -757,7 +785,7 @@ function SettingsView({
         <ProviderRow
           icon={Cube}
           title="Local LLM"
-          detail={providerSettings.localLlm.configured ? `${providerSettings.localLlm.model} · このPC` : "OpenAI互換のローカルサーバー"}
+          detail={providerSettings.localLlm.configured ? `${providerSettings.localLlm.model} · このPC` : "未設定"}
           badge={providerSettings.activeProviderId === LOCAL_LLM_PROVIDER_ID ? "使用中" : providerSettings.localLlm.configured ? "選択" : ""}
           active={providerSettings.activeProviderId === LOCAL_LLM_PROVIDER_ID}
           disabled={!desktop || agentBusy}
@@ -770,12 +798,8 @@ function SettingsView({
           <span className="settings-row-copy"><strong>保存場所</strong><small>{workspace?.name ?? (desktop ? "未選択" : "Webプレビュー")}</small></span>
           <span className="settings-row-control">{workspaceBusy ? "確認中…" : workspace ? "変更" : desktop ? "選択" : "Desktop"}</span>
         </button>
-        <button role="switch" aria-checked={confirmDelete} onClick={() => setConfirmDelete(!confirmDelete)}><span className="settings-row-icon"><Trash size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>削除前に確認</strong><small>誤操作を防ぎます</small></span><span className="settings-row-control"><span className={confirmDelete ? "switch on" : "switch"}><span /></span></span></button>
-        <button role="switch" aria-checked={reduceMotion} onClick={() => setReduceMotion(!reduceMotion)}><span className="settings-row-icon"><SlidersHorizontal size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>動きを抑える</strong><small>画面のアニメーションを最小化</small></span><span className="settings-row-control"><span className={reduceMotion ? "switch on" : "switch"}><span /></span></span></button>
-      </div>
-      <div className="provider-roadmap" aria-label="AIプロバイダーの説明">
-        <span><Check size={18} /><small>いつでも切替</small></span>
-        <em>アプリ権限は共通</em>
+        <button role="switch" aria-checked={confirmDelete} onClick={() => setConfirmDelete(!confirmDelete)}><span className="settings-row-icon"><Trash size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>削除前に確認</strong></span><span className="settings-row-control"><span className={confirmDelete ? "switch on" : "switch"}><span /></span></span></button>
+        <button role="switch" aria-checked={reduceMotion} onClick={() => setReduceMotion(!reduceMotion)}><span className="settings-row-icon"><SlidersHorizontal size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>動きを抑える</strong></span><span className="settings-row-control"><span className={reduceMotion ? "switch on" : "switch"}><span /></span></span></button>
       </div>
     </section>
   );
@@ -852,6 +876,14 @@ function LocalLlmConfigModal({ settings, busy, onClose, onSave, onDisconnect }) 
 }
 
 export function App() {
+  const desktop = isDesktopRuntime();
+  const confirmationLevelRef = useRef("review");
+  const activeUserIdRef = useRef("local-user");
+  const [appRuntime] = useState(() => createSharedAppRuntime({
+    desktop,
+    getConfirmationLevel: () => confirmationLevelRef.current,
+    getUserId: () => activeUserIdRef.current,
+  }));
   const [appRegistry] = useState(createMyBoxAppRegistry);
   const defaultInstalledApps = useMemo(() => appRegistry.listDefaultInstalled(), [appRegistry]);
   const [apps, setApps] = useState(defaultInstalledApps);
@@ -903,9 +935,10 @@ export function App() {
   const lastNonChatView = useRef("apps");
   const hostSessionStore = useRef(getHostSessionStore()).current;
   const chatStore = useRef(getChatHistoryStore()).current;
-  const desktop = isDesktopRuntime();
   const hostUpdater = useHostUpdater(desktop);
   const activeProfile = useMemo(() => resolveProfilePresentation(accountSession), [accountSession]);
+  confirmationLevelRef.current = profilePreferences.confirmationLevel;
+  activeUserIdRef.current = activeProfile.profileId;
 
   const pageTitle = useMemo(() => view === "apps" ? "アプリ" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
   const assistantContextLabel = surfaceContext?.label || selectedApp?.name || pageTitle || "MyBox";
@@ -973,6 +1006,11 @@ export function App() {
     hostSessionStore.save({ view, appId: selectedApp?.id ?? null })
       .catch((error) => setToast(`現在の画面を記憶できません：${String(error)}`));
   }, [hostSessionReady, hostSessionStore, selectedApp?.id, view]);
+
+  useEffect(() => {
+    appRuntime.syncInstalled(apps.map((app) => app.id));
+    if (!desktop || workspace) appRuntime.start().catch((error) => setToast(`連携を復元できません：${String(error)}`));
+  }, [appRuntime, apps, desktop, workspace]);
 
   useEffect(() => {
     if (view !== "chat") lastNonChatView.current = view;
@@ -1731,7 +1769,7 @@ export function App() {
         <div className="topbar-actions">
           <IconButton label={`${assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} (Ctrl+J)`} className={assistantOpen ? "assistant-toggle active" : "assistant-toggle"} aria-keyshortcuts="Control+J" aria-pressed={assistantOpen} aria-controls="assistant-panel" onClick={() => setAssistantOpen((open) => !open)}><Robot size={23} weight={assistantOpen ? "fill" : "regular"} /></IconButton>
           <IconButton label="コマンドパレット (Ctrl+K)" className={shortcutMenuOpen ? "shortcut-toggle active" : "shortcut-toggle"} aria-keyshortcuts="Control+K" aria-expanded={shortcutMenuOpen} onClick={() => setShortcutMenuOpen(true)}><Keyboard size={23} /></IconButton>
-          <button className="add-button" aria-keyshortcuts="Control+Shift+A" onClick={() => setAddOpen(true)}><Plus size={23} /><span>追加</span></button>
+          <IconButton label="アプリを追加 (Ctrl+Shift+A)" aria-keyshortcuts="Control+Shift+A" onClick={() => setAddOpen(true)}><Plus size={22} /></IconButton>
           {accountSession.signedIn && (
             <IconButton label={`${accountSession.displayName}・アカウント設定`} className="profile-button" onClick={() => setView("settings")}>
               {accountSession.avatarUrl
@@ -1754,11 +1792,10 @@ export function App() {
             <h1 id="apps-heading">アプリ</h1>
             <div className="app-grid">
               {apps.map((app) => <AppTile key={app.id} app={app} installedVersion={installedVersions[app.id] ?? app.version} updating={updatingAppId === app.id} onUpdate={updateApp} onOpen={setSelectedApp} menuOpen={menuOpen === app.id} onMenu={(id) => setMenuOpen((current) => current === id ? null : id)} onDelete={setPendingDelete} onFavorite={(item) => { setToast(`${item.name}を固定しました`); setMenuOpen(null); }} />)}
-              <EmptyTile onClick={() => setAddOpen(true)} />
             </div>
           </section>
         )}
-        {view === "connections" && <ConnectionsView apps={apps} onToast={setToast} />}
+        {view === "connections" && <ConnectionsView runtime={appRuntime} onToast={setToast} />}
         {view === "history" && <HistoryView />}
         {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} />}
         {view === "chat" && <ChatView
@@ -1782,6 +1819,7 @@ export function App() {
         <RegisteredAppWorkspace
           app={selectedApp}
           desktop={desktop}
+          appRuntime={appRuntime}
           profile={activeProfile}
           shortcutCommand={appShortcutCommand?.appId === selectedApp.id ? appShortcutCommand : null}
           persistenceReady={!desktop || Boolean(workspace)}

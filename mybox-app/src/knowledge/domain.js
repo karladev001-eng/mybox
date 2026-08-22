@@ -1,5 +1,5 @@
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
-import { parseMarkdownBlocks } from "./editor-behavior.js";
+import { parseMarkdownBlocks, splitPastedBlock } from "./editor-behavior.js";
 import { authorColorFor, isAuthorColor } from "./author-color.js";
 
 export const KNOWLEDGE_SCHEMA_VERSION = 1;
@@ -501,6 +501,36 @@ export function updatePage(state, {
         ? page.blocks.findIndex((item) => item.id === mutation.afterBlockId)
         : page.blocks.length - 1;
       page.blocks.splice(afterIndex < 0 ? page.blocks.length : afterIndex + 1, 0, block);
+      break;
+    }
+    case "block-paste": {
+      const index = page.blocks.findIndex((item) => item.id === mutation.blockId);
+      if (index < 0) throw new KnowledgeDomainError("BLOCK_NOT_FOUND", "Block was not found", { blockId: mutation.blockId });
+      if (typeof mutation.text !== "string") {
+        throw new KnowledgeDomainError("INVALID_BLOCK_TEXT", "Pasted Block text must be a string");
+      }
+      const source = page.blocks[index];
+      const sourceText = mutation.sourceText === undefined ? source.text : mutation.sourceText;
+      if (typeof sourceText !== "string") {
+        throw new KnowledgeDomainError("INVALID_BLOCK_TEXT", "Source Block text must be a string");
+      }
+      const split = splitPastedBlock(
+        { ...source, text: sourceText },
+        mutation.text,
+        mutation.selectionStart,
+        mutation.selectionEnd,
+      );
+      if (!split) throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "Pasted text produced no Blocks");
+      const replacement = split.blocks.map((block) => ({
+        id: block.reuseSource ? source.id : idFactory("block"),
+        type: BLOCK_TYPES.includes(block.type) ? block.type : "paragraph",
+        text: block.text,
+        checked: block.checked === true,
+        revision: block.reuseSource ? source.revision + 1 : 1,
+        updatedBy: actorId,
+        links: block.links,
+      }));
+      page.blocks.splice(index, 1, ...replacement);
       break;
     }
     case "block-remove": {

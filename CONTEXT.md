@@ -24,6 +24,17 @@ Events may trigger follow-up work but do not expose the app's private state.
 **Flow** — A saved orchestration that passes operation outputs to later operations.
 Flows are optional and use no privileged integration path.
 
+**Connector** — An App-declared, versioned source or target for one typed data
+shape. A Connector names the pull Operation, push Event, pull library, or consume
+Operation a Connection may use; it is not itself a grant.
+_Avoid_: direct App integration, storage adapter
+
+**Connection** — A Host-owned saved pairing of compatible source and target
+Connectors plus their App-specific configuration. An enabled Connection grants
+only its declared Connector Operations and remains subject to caller,
+Confirmation, and audit checks.
+_Avoid_: Flow, unrestricted App permission
+
 **Agent** — An AI-controlled caller that can discover and invoke only operations
 exposed to it. Reads and writes remain subject to host authorization and auditing.
 
@@ -231,6 +242,12 @@ paths for private state.
 **Resource reference** — A stable identifier plus media type and revision for
 passing large files between apps without copying their bytes into operation
 payloads.
+
+**Prompt template** — A named, axis-specific Markdown fragment that Image
+combines into a final image-generation Prompt. A local Prompt template is owned
+by Image; a connected Note Page remains owned by Note and is read at its current
+revision.
+_Avoid_: complete generated Prompt, synced file
 
 **Page** — An independently addressable unit of authored knowledge with a title
 that is unique across active and trashed Pages in its Project. Its

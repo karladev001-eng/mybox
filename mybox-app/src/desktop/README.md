@@ -42,6 +42,9 @@ must only be called when `isDesktopRuntime()` returns true.
   rather than Tauri's native drag-drop event, because the window disables
   `dragDropEnabled` (`src-tauri/tauri.conf.json`) so ordinary HTML5
   `draggable` Block reordering keeps working.
+- `image-studio.js`: stores validated reference images, calls the authenticated
+  Codex image bridge with up to four opaque references, and reads generated
+  Image resources without exposing filesystem paths.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

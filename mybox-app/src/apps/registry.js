@@ -125,7 +125,7 @@ export class AppRegistry {
 const builtInDefinitions = [
   {
     id: "knowledge",
-    version: "1.11.0",
+    version: "1.14.0",
     name: "Note",
     icon: "note",
     color: "#ff796f",
@@ -147,6 +147,22 @@ const builtInDefinitions = [
       kind: "module",
       load: () => import("../knowledge/KnowledgeView.jsx"),
       exportName: "KnowledgeView",
+    },
+  },
+  {
+    id: "image-studio",
+    version: "0.3.0",
+    name: "Image",
+    icon: "image",
+    color: "#67d7c4",
+    hint: "テンプレートと参照画像から1枚を生成",
+    builtIn: true,
+    defaultInstalled: true,
+    shortcuts: [],
+    surface: {
+      kind: "module",
+      load: () => import("../image-studio/ImageStudioView.jsx"),
+      exportName: "ImageStudioView",
     },
   },
 ];

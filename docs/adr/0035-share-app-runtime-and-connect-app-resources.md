@@ -1,0 +1,76 @@
+# ADR 0035: Share App runtime and connect typed App resources
+
+- Status: Accepted
+- Date: 2026-08-22
+
+## Context
+
+An App Surface previously created its own `AppHost`. That was sufficient while
+Note was the only built-in App, but an unopened App could not participate in a
+Flow, an Agent call, or an App-to-App transfer. A fixed Image-to-Note call would
+solve one product path while creating an undeclared privileged integration.
+
+Images also cannot safely travel as Base64 in Operation JSON. Generated media
+must survive removal of its source App when a receiving App has incorporated it.
+
+## Decision
+
+The Host composes one shared App runtime and registers every installed first-party
+App at startup. Removing or disabling an App unregisters its Operations and
+Events; Connections that mention a missing or incompatible Connector stop without
+breaking either remaining App.
+
+App manifests may declare typed source and target Connectors. A source is a pull
+Operation or push Event. A target is a pull library or consume Operation. Each
+Connection is Host-owned, persisted, enabled independently, and acts only as a
+grant for the Connector Operations named by that record. The normal caller list,
+Confirmation class, Confirmation level, fresh approval, and audit path still
+apply. Target handlers obtain pull data through `ctx.connections.pull()`.
+
+The first data types are `mybox.prompt-fragment.v1` and
+`mybox.generated-image.v1`. Image consumes the former as a template library and
+publishes the latter after a generated file and its history record are durable.
+Note publishes classified tagged Pages and consumes generated images through a
+recoverable Operation. Deliveries have a stable ID and the consumer records it
+to make retry and restart idempotent.
+
+Large media crosses the boundary as
+`{appId, resourceId, mediaType, revision, name?}`. The Host resource broker
+validates the reference and streams bytes between registered providers and
+importers after authorization. Note imports an Image result into its own
+Knowledge resource namespace before authoring an image Block, so the Page does
+not depend on Image remaining installed.
+
+App storage gains UTF-8 `readText` and `writeText` alongside JSON storage.
+Native storage validates namespace and path components, rejects invalid UTF-8,
+limits text to 256 KiB, and atomically replaces the destination. Image stores
+local Prompt templates as versioned Markdown with YAML front matter.
+
+Image generation uses the existing authenticated Codex App Server bridge rather
+than a direct API credential. Up to four validated references are copied into an
+isolated temporary directory and supplied as `localImage` turn inputs. Generated
+PNG, JPEG, or WebP bytes are limited to 25 MB, inspected for dimensions, and
+persisted under `image-studio`, leaving `ai-chat` storage unchanged.
+
+## Consequences
+
+Connections, Flows, and Agents can invoke an installed App without opening its
+Surface, and all callers share the same public Operation boundary. An App remains
+useful with zero Connections. Connector version incompatibility and removed Apps
+become visible stopped states with retry rather than hidden data loss.
+
+The Host now owns lifecycle and delivery orchestration in addition to routing.
+Consume Operations must be idempotent, and resource-owning Apps must register
+narrow read/import ports. Automatic Image-to-Note delivery can wait for approval
+without rolling back the already successful image generation.
+
+Mask editing, multi-image batches, arbitrary-folder watching, and bidirectional
+file synchronization remain outside this decision.
+
+## Implementation notes
+
+Image `0.2.0` declares its template and generation Operations, two Connectors,
+and `image-studio.generation.completed`. Note `0.1.4` declares tagged-Markdown
+and generated-image Connectors. `core/connections.js`, `resource-broker.js`, and
+`app-runtime.js` implement the shared boundary. Rust workspace text commands and
+`image_studio_resources.rs` implement native persistence and validation.

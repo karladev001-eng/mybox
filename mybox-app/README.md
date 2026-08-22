@@ -18,6 +18,9 @@ Transient menus, App-private selections, drafts, and dialogs always start closed
 
 For UI work, first read `../FRONTEND.md`, then `src/README.md`, `src/App.jsx`, and
 only the relevant component and style files.
+Host surfaces use quiet flat rows and section dividers; repeated secondary
+actions are compact icon controls with accessible themed tooltips rather than
+text pills or permanently outlined cards.
 For app framework work, read `src/core/README.md`, `../docs/app-framework.md`,
 and the ADR being implemented. Avoid build artifacts and screenshots unless visual
 comparison is explicitly required.

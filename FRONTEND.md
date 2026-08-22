@@ -16,6 +16,34 @@ The governing principle is **native behavior, MyBox appearance**. Semantic HTML
 controls, keyboard behavior, focus management, and accessibility are mandatory.
 Any OS or browser default surface visible to the user is an unfinished state.
 
+## Quiet information hierarchy
+
+The interface should explain itself through placement, familiar controls, and
+immediate feedback. Keep persistent explanatory copy to the minimum needed to
+make a decision, recover from an error, or understand an unfamiliar consequence.
+Do not restate what a heading, label, icon, or current state already makes clear.
+
+- Prefer a semantically precise icon by itself for repeated secondary actions
+  such as add, edit, retry, history, export, and remove. Give every icon-only
+  control an accessible name and a MyBox-themed tooltip that appears on pointer
+  hover and keyboard focus. Keep visible text for primary navigation, form
+  labels, consequential choices, and the main action when the icon alone would
+  not establish meaning.
+- Controls may look compact, but their desktop hit target remains at least 40 px.
+  Use a smaller glyph and quiet padding instead of shrinking the operable area.
+- Do not put a permanent outline around every row, card, control group, or empty
+  state. Establish hierarchy with alignment, spacing, type weight, and surface
+  contrast first. Normal controls stay visually quiet; Hover, Pressed, Selected,
+  and Focus-visible states supply emphasis without changing layout.
+- When sibling content needs explicit grouping, use one subtle 1 px divider
+  between semantic groups, inset to the shared content edge. Prefer section and
+  row separators to multiple rounded containers. Do not combine an outer frame,
+  inner card outlines, and dividers for the same hierarchy level.
+- Boundaries remain appropriate when they communicate an actual affordance or
+  layer: editable fields, selection controls, media bounds, dialogs, popups,
+  errors, and destructive confirmation. Even there, avoid decorative outlines
+  that do not clarify interaction.
+
 ## Tokens
 
 Use the semantic CSS variables in `mybox-app/src/styles.css`. Extend that token

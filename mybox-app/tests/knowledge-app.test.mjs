@@ -11,6 +11,8 @@ import {
   indentTextSelection,
   markdownConversion,
   parseMarkdownBlocks,
+  parsePastedBlocks,
+  splitPastedBlock,
   splitListItems,
   toggleInlineWrap,
 } from "../src/knowledge/editor-behavior.js";
@@ -323,7 +325,7 @@ test("describes the Page mutation vocabulary to agents while still accepting the
   assert.deepEqual(mutation.required, ["type"]);
   assert.deepEqual(
     [...mutation.properties.type.enum].sort(),
-    ["block-add", "block-move", "block-remove", "block-update", "link-add", "markdown-set", "rename", "tags-set"],
+    ["block-add", "block-move", "block-paste", "block-remove", "block-update", "link-add", "markdown-set", "rename", "tags-set"],
   );
   assert.ok(mutation.description.includes("block-add"));
   // Without these an agent writes a whole document into one paragraph Block,
@@ -624,6 +626,73 @@ test("parses a Markdown document into typed Blocks, grouping list items into one
     { type: "divider", text: "", checked: false },
     { type: "url-embed", text: "https://example.com", checked: false },
   ]);
+});
+
+test("splits pasted prose at hard line breaks while preserving Markdown structures", () => {
+  assert.deepEqual(parsePastedBlocks([
+    "# 見出し",
+    "1行目",
+    "2行目",
+    "- 項目A",
+    "- 項目B",
+    "```js",
+    "const a = 1;",
+    "const b = 2;",
+    "```",
+  ].join("\n")), [
+    { type: "heading-1", text: "見出し", checked: false },
+    { type: "paragraph", text: "1行目", checked: false },
+    { type: "paragraph", text: "2行目", checked: false },
+    { type: "bulleted-list", text: "項目A\n項目B", checked: false },
+    { type: "code", text: "const a = 1;\nconst b = 2;", checked: false },
+  ]);
+
+  const split = splitPastedBlock(
+    { type: "paragraph", text: "前後", checked: false, links: [] },
+    "# 見出し\n本文",
+    1,
+    1,
+  );
+  assert.deepEqual(split.blocks.map(({ type, text, reuseSource }) => ({ type, text, reuseSource })), [
+    { type: "paragraph", text: "前", reuseSource: true },
+    { type: "heading-1", text: "見出し", reuseSource: false },
+    { type: "paragraph", text: "本文", reuseSource: false },
+    { type: "paragraph", text: "後", reuseSource: false },
+  ]);
+  assert.deepEqual({ start: split.pastedStart, end: split.pastedEnd }, { start: 1, end: 2 });
+});
+
+test("pastes multiline Markdown into one Page as independently editable Blocks", () => {
+  const { state, projectId, idFactory, now } = fixture();
+  const created = createPage(state, { projectId, title: "貼り付け", idFactory, now });
+  const source = created.page.blocks[0];
+  const pasted = updatePage(created.state, {
+    projectId,
+    pageId: created.page.id,
+    expectedRevision: created.page.revision,
+    idFactory,
+    now,
+    mutation: {
+      type: "block-paste",
+      blockId: source.id,
+      text: "# 見出し\n本文1\n本文2",
+      // The editor can contain unsaved characters when paste occurs; the
+      // structural mutation carries that visible source text atomically.
+      sourceText: "前後",
+      selectionStart: 1,
+      selectionEnd: 1,
+    },
+  });
+
+  assert.deepEqual(pasted.page.blocks.map(({ type, text }) => ({ type, text })), [
+    { type: "paragraph", text: "前" },
+    { type: "heading-1", text: "見出し" },
+    { type: "paragraph", text: "本文1" },
+    { type: "paragraph", text: "本文2" },
+    { type: "paragraph", text: "後" },
+  ]);
+  assert.equal(pasted.page.blocks[0].id, source.id);
+  assert.equal(pasted.state.history.length, 1, "the whole paste is one recoverable Page change");
 });
 
 test("writes a whole document through one markdown-set mutation", async () => {

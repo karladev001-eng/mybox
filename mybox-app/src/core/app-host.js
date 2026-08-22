@@ -75,17 +75,23 @@ export class AppHost {
   #clock;
   #storageDriver;
   #ajv;
+  #connections;
+  #resources;
 
   constructor({
     authorize = defaultAuthorize,
     audit = async () => {},
     clock = () => new Date(),
     storageDriver = new MemoryStorageDriver(),
+    connections = null,
+    resources = null,
   } = {}) {
     this.#authorize = authorize;
     this.#audit = audit;
     this.#clock = clock;
     this.#storageDriver = storageDriver;
+    this.#connections = connections;
+    this.#resources = resources;
     this.#ajv = new Ajv({ allErrors: true, strict: false });
   }
 
@@ -159,6 +165,10 @@ export class AppHost {
     return [...this.#operations.values()]
       .map(({ declaration }) => declaration)
       .filter((operation) => callerType === undefined || operation.callers.includes(callerType));
+  }
+
+  getManifest(appId) {
+    return this.#apps.get(appId)?.manifest ?? null;
   }
 
   subscribe(eventId, handler, { subscriberId = null } = {}) {
@@ -259,6 +269,22 @@ export class AppHost {
           ...options,
           actor: { type: "app", id: record.appId },
           correlationId,
+        }),
+        connections: Object.freeze({
+          pull: (targetConnectorId) => {
+            if (!this.#connections?.pull) throw new AppHostError("CONNECTIONS_UNAVAILABLE", "Connection runtime is unavailable");
+            return this.#connections.pull(record.appId, targetConnectorId, { correlationId });
+          },
+        }),
+        resources: Object.freeze({
+          read: (reference) => {
+            if (!this.#resources?.read) throw new AppHostError("RESOURCES_UNAVAILABLE", "Resource broker is unavailable");
+            return this.#resources.read(record.appId, reference);
+          },
+          import: (reference, options) => {
+            if (!this.#resources?.import) throw new AppHostError("RESOURCES_UNAVAILABLE", "Resource broker is unavailable");
+            return this.#resources.import(record.appId, reference, options);
+          },
         }),
       }));
 

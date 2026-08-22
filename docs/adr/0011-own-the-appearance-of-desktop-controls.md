@@ -33,6 +33,14 @@ Repeated settings and list rows use explicit shared tracks. Icons, copy, status,
 and trailing actions align as columns; configuration actions use the same
 accessible gear-only control instead of mixing text pills and icon buttons.
 
+Persistent interfaces use a quiet information hierarchy. Repeated secondary
+actions are icon-only with an accessible name and themed pointer/focus tooltip;
+their visual glyph stays compact while the desktop target remains at least 40 px.
+Explanatory copy is reserved for decisions, recovery, and unfamiliar
+consequences. Sections and repeated rows use shared inset dividers when an
+explicit group boundary is needed instead of stacking rounded frames around
+every item.
+
 ## Consequences
 
 - Popup visuals remain consistent in the Windows WebView dark theme.
@@ -53,3 +61,7 @@ accessible gear-only control instead of mixing text pills and icon buttons.
 - `mybox-app/src/styles.css` defines the semantic design tokens and all affected
   states without exposing a native select popup. Settings rows share fixed icon,
   copy, status, and action tracks; popup copy is explicitly left-aligned.
+- As of 2026-08-22, the Host launcher and Note workspace implement the quiet
+  hierarchy: flat rows, section dividers, compact icon-only secondary actions,
+  and reduced persistent helper copy. Input, popup, dialog, error, and media
+  boundaries remain where the boundary itself communicates an affordance.

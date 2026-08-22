@@ -12,7 +12,7 @@
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
     "test": "npm run test:core",
-    "test:core": "node --test tests/app-host.test.mjs tests/agent-runtime.test.mjs tests/agent-host-registry.test.mjs tests/app-registry.test.mjs tests/chat-history.test.mjs tests/knowledge-app.test.mjs tests/account-identity.test.mjs tests/yjs-document.test.mjs tests/keyboard-shortcuts.test.mjs tests/host-session.test.mjs tests/tag-behavior.test.mjs tests/search-behavior.test.mjs",
+    "test:core": "node --test tests/app-host.test.mjs tests/agent-runtime.test.mjs tests/agent-host-registry.test.mjs tests/app-registry.test.mjs tests/chat-history.test.mjs tests/knowledge-app.test.mjs tests/knowledge-connectors.test.mjs tests/image-studio.test.mjs tests/connections.test.mjs tests/text-storage.test.mjs tests/account-identity.test.mjs tests/yjs-document.test.mjs tests/shared-project.test.mjs tests/keyboard-shortcuts.test.mjs tests/host-session.test.mjs tests/tag-behavior.test.mjs tests/search-behavior.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "test:sync": "node tests/sync-live.mjs"
   },

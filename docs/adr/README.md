@@ -39,3 +39,6 @@ notes of the ADR it realizes.
 - [0031 — Indent Note text with Tab](0031-indent-note-text-with-tab.md)
 - [0032 — Identify shared edits with Project member colors](0032-identify-shared-edits-with-member-colors.md)
 - [0033 — Keyboard-navigate Note Page search results](0033-keyboard-navigate-note-page-search-results.md)
+- [0034 — Split pasted Markdown into Note Blocks](0034-split-pasted-markdown-into-note-blocks.md)
+- [0035 — Share App runtime and connect typed App resources](0035-share-app-runtime-and-connect-app-resources.md)
+- [0036 — Browse Image templates as visual products](0036-browse-image-templates-as-visual-products.md)

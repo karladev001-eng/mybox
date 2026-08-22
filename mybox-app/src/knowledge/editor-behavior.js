@@ -60,7 +60,7 @@ function readFenced(lines, index, closes) {
  * stores list items as newline-separated text. Checklists do not group, because
  * a checklist Block carries one `checked` flag.
  */
-export function parseMarkdownBlocks(markdown) {
+export function parseMarkdownBlocks(markdown, { splitPlainLines = false } = {}) {
   const lines = String(markdown ?? "").replace(/\r\n?/g, "\n").split("\n");
   const blocks = [];
   let index = 0;
@@ -112,16 +112,72 @@ export function parseMarkdownBlocks(markdown) {
       continue;
     }
 
-    // Consecutive plain lines are one paragraph, as in Markdown itself.
+    // A whole imported document follows Markdown paragraph semantics. A paste
+    // can opt into hard line boundaries instead, because each visible line is
+    // more useful as an independently editable Note Block.
     const paragraph = [];
     while (index < lines.length && !startsNewBlock(lines[index].trim())) {
       paragraph.push(lines[index].trim());
       index += 1;
+      if (splitPlainLines) break;
     }
     blocks.push({ type: "paragraph", text: paragraph.join("\n"), checked: false });
   }
 
   return blocks;
+}
+
+/** Parses clipboard text while treating each ordinary hard line as a Block. */
+export function parsePastedBlocks(text) {
+  return parseMarkdownBlocks(text, { splitPlainLines: true });
+}
+
+/**
+ * Replaces a selection inside one text Block with parsed clipboard Blocks.
+ * The first result always reuses the source Block, which lets the shared Yjs
+ * path preserve its collaborative Y.Text instead of deleting and recreating it.
+ */
+export function splitPastedBlock(sourceBlock, pastedText, selectionStart, selectionEnd = selectionStart) {
+  const sourceText = String(sourceBlock?.text ?? "");
+  const start = Math.max(0, Math.min(sourceText.length, Number.isInteger(selectionStart) ? selectionStart : sourceText.length));
+  const end = Math.max(start, Math.min(sourceText.length, Number.isInteger(selectionEnd) ? selectionEnd : start));
+  const parsed = parsePastedBlocks(pastedText);
+  if (!parsed.length) return null;
+
+  const prefix = sourceText.slice(0, start);
+  const suffix = sourceText.slice(end);
+  const sourceLinks = Array.isArray(sourceBlock?.links) ? sourceBlock.links : [];
+  const original = {
+    type: sourceBlock?.type ?? "paragraph",
+    checked: sourceBlock?.checked === true,
+  };
+  const blocks = [];
+
+  if (prefix) {
+    blocks.push({
+      ...original,
+      text: prefix,
+      links: sourceLinks.filter((link) => prefix.includes(link.token)),
+      reuseSource: true,
+    });
+  }
+
+  const pastedStart = blocks.length;
+  for (const block of parsed) {
+    blocks.push({ ...block, links: [], reuseSource: blocks.length === 0 });
+  }
+  const pastedEnd = blocks.length - 1;
+
+  if (suffix) {
+    blocks.push({
+      ...original,
+      text: suffix,
+      links: sourceLinks.filter((link) => suffix.includes(link.token)),
+      reuseSource: false,
+    });
+  }
+
+  return { blocks, pastedStart, pastedEnd };
 }
 
 const INLINE_MARK_PATTERN = /\*\*(?<bold>[^*]+)\*\*|\*(?<italic>[^*]+)\*|__(?<underline>[^_]+)__|~~(?<strike>[^~]+)~~|%%#(?<colorHex>[0-9a-fA-F]{6});(?<colorText>[^%]+)%%|\$(?<math>[^$\n]+)\$/g;

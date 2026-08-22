@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager};
 use tempfile::NamedTempFile;
 
 const MAX_JSON_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_TEXT_BYTES: u64 = 256 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 struct WorkspaceSettings {
@@ -47,6 +48,26 @@ fn atomic_write_json(path: &Path, value: &Value) -> Result<(), String> {
             .flush()
             .map_err(|error| format!("保存を完了できません: {error}"))?;
     }
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("保存を同期できません: {error}"))?;
+    temporary
+        .persist(path)
+        .map_err(|error| format!("保存内容を置き換えられません: {}", error.error))?;
+    Ok(())
+}
+
+fn atomic_write_text(path: &Path, value: &str) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "保存先が不正です".to_string())?;
+    fs::create_dir_all(parent).map_err(|error| format!("保存先を作成できません: {error}"))?;
+    let mut temporary = NamedTempFile::new_in(parent)
+        .map_err(|error| format!("一時ファイルを作成できません: {error}"))?;
+    temporary
+        .write_all(value.as_bytes())
+        .map_err(|error| format!("テキストを保存できません: {error}"))?;
     temporary
         .as_file()
         .sync_all()
@@ -211,6 +232,40 @@ pub fn write_app_json(
 }
 
 #[tauri::command]
+pub fn read_app_text(
+    app: AppHandle,
+    app_id: String,
+    key: String,
+) -> Result<Option<String>, String> {
+    let path = app_value_path(&app, &app_id, &key)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let metadata =
+        fs::metadata(&path).map_err(|error| format!("保存テキストを確認できません: {error}"))?;
+    if metadata.len() > MAX_TEXT_BYTES {
+        return Err("テキストは256KiB以下にしてください".to_string());
+    }
+    fs::read_to_string(path)
+        .map(Some)
+        .map_err(|error| format!("UTF-8テキストを読み込めません: {error}"))
+}
+
+#[tauri::command]
+pub fn write_app_text(
+    app: AppHandle,
+    app_id: String,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    if value.len() as u64 > MAX_TEXT_BYTES {
+        return Err("テキストは256KiB以下にしてください".to_string());
+    }
+    let path = app_value_path(&app, &app_id, &key)?;
+    atomic_write_text(&path, &value)
+}
+
+#[tauri::command]
 pub fn delete_app_value(app: AppHandle, app_id: String, key: String) -> Result<bool, String> {
     let path = app_value_path(&app, &app_id, &key)?;
     if !path.exists() {
@@ -265,7 +320,7 @@ pub fn list_app_keys(
 
 #[cfg(test)]
 mod tests {
-    use super::{atomic_write_json, validate_app_id, validate_key};
+    use super::{atomic_write_json, atomic_write_text, validate_app_id, validate_key};
     use serde_json::json;
 
     #[test]
@@ -291,5 +346,14 @@ mod tests {
             serde_json::from_reader(std::fs::File::open(path).expect("open state"))
                 .expect("read state");
         assert_eq!(value, json!({ "revision": 2 }));
+    }
+
+    #[test]
+    fn atomically_replaces_utf8_text() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let path = directory.path().join("template.md");
+        atomic_write_text(&path, "世界観").expect("initial write");
+        atomic_write_text(&path, "水彩").expect("replacement write");
+        assert_eq!(std::fs::read_to_string(path).expect("read text"), "水彩");
     }
 }

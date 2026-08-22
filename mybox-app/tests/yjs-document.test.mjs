@@ -170,6 +170,31 @@ test("structural mutations apply and project back correctly", () => {
   assert.equal(page.blocks[0].checked, true);
 });
 
+test("a multiline paste creates the same typed Blocks for every peer", () => {
+  const { a, b, sync } = twoPeers();
+  applyPageMutation(a, PAGE.id, {
+    type: "block-paste",
+    blockId: "block-1",
+    text: "## 共有見出し\n本文A\n本文B",
+    sourceText: "前後",
+    selectionStart: 1,
+    selectionEnd: 1,
+  }, { actorId: "profile-a" });
+  sync();
+
+  const blocksA = readPage(a, PAGE.id).blocks;
+  const blocksB = readPage(b, PAGE.id).blocks;
+  assert.deepEqual(blocksA, blocksB);
+  assert.deepEqual(blocksA.slice(0, 5).map(({ type, text }) => ({ type, text })), [
+    { type: "paragraph", text: "前" },
+    { type: "heading-2", text: "共有見出し" },
+    { type: "paragraph", text: "本文A" },
+    { type: "paragraph", text: "本文B" },
+    { type: "paragraph", text: "後" },
+  ]);
+  assert.ok(blocksA.slice(0, 5).every((block) => block.updatedBy === "profile-a"));
+});
+
 test("moving a Block reorders it and keeps its content", () => {
   const doc = createProjectDoc();
   seedPage(doc, PAGE);

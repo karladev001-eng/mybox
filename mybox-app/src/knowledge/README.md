@@ -7,7 +7,10 @@ Implements the first vertical slice of the `knowledge` App described in
   PageLink, Tag, Trash, revision, history, and search rules.
 - `author-color.js`: the accessible member color palette and deterministic
   fallback used by local and shared Projects.
-- `app.js`: public App manifest and Operation handlers backed by App storage.
+- `app.js`: public App manifest, Connector declarations, and Operation handlers
+  backed by App storage. Tagged Markdown Pages can supply Image Prompt templates;
+  generated-image delivery is idempotent and copies media into Knowledge storage
+  before creating an image Block.
 - `client.js`: User-facing Host client used by the React surface. It is the
   only file in this directory allowed to import a `../desktop/*` bridge
   module (sync endpoints, Cloudflare, images, the URL opener, Tauri storage);
@@ -20,7 +23,11 @@ Implements the first vertical slice of the `knowledge` App described in
   It receives Host-dispatched App shortcut commands, focuses Page search for
   `Ctrl+P`, shows a Page-search combobox whose candidates cycle with Tab and
   open with Enter, and renders online collaborators beside history without exposing
-  immutable profile IDs as account names.
+  immutable profile IDs as account names. Multiline clipboard text and Markdown
+  files are submitted as one structural paste, then focus continues in the last
+  pasted Block. Persistent navigation uses section dividers instead of nested
+  card outlines, while repeated Page and Block actions are icon-only controls
+  with accessible names and themed pointer/focus tooltips.
 - `search-behavior.js`: normalized Page candidate filtering and pure keyboard
   actions for the search combobox.
 - `tag-behavior.js`: IME-safe half-width/full-width Space delimiter detection
@@ -31,6 +38,8 @@ Implements the first vertical slice of the `knowledge` App described in
   is its document-level counterpart, turning a whole Markdown text into typed
   Blocks for the `markdown-set` mutation. Consecutive bullets or numbers become
   one list Block, matching how list items are stored as newline-separated text.
+  Clipboard parsing additionally treats ordinary hard line breaks as Block
+  boundaries and preserves the source Block text around the pasted selection.
 - `yjs-document.js`: the shared representation of a Project. Applies the same
   mutation vocabulary as `domain.js` to a Yjs document and projects it back into
   the Page and Block shape, so a shared Project merges concurrent edits where a

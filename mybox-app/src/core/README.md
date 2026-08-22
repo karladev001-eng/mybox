@@ -6,6 +6,12 @@ contract described in `../../../docs/app-framework.md`.
 - `app-contract.js`: manifest constants, validation, and app definition helper.
 - `app-host.js`: registration, removal, operation routing, events, authorization,
   schema validation, and audit metadata.
+- `app-runtime.js`: composes the installed first-party App definitions into one
+  Host so unopened Apps remain callable by Connections, Flows, and Agents.
+- `connections.js`: persists typed Connector pairings, creates Operation-only
+  grants, and runs pull and Event-to-consume delivery with status and retry.
+- `resource-broker.js`: validates opaque resource references and transfers bytes
+  only through registered App providers/importers.
 - `agent-provider.js`: provider descriptor validation and replaceable provider
   registry.
 - `agent-runtime.js`: structured agent loop that invokes apps only through the
@@ -31,7 +37,10 @@ contract described in `../../../docs/app-framework.md`.
   and home commands, and layout-tolerant runtime-neutral key-event resolution.
 - `host-session.js`: versioned last-surface state for restoring a valid Host
   destination and optional installed App at startup.
-- `storage.js`: app-scoped storage port and in-memory test/Web driver.
+- `storage.js`: app-scoped JSON and bounded UTF-8 text storage ports plus the
+  in-memory test/Web driver.
 
 Production filesystem, secrets, network, and cloud adapters belong behind these
-ports. Do not import React, Tauri, provider SDKs, or app-specific modules here.
+ports. `app-runtime.js` is the composition root and may register trusted built-in
+App definitions and their narrow desktop ports; the other core modules do not
+import React, Tauri, provider SDKs, or app-specific modules.

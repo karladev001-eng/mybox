@@ -73,6 +73,15 @@ export class MemoryStorageDriver {
   async list(appId, prefix) {
     return [...this.#namespace(appId).keys()].filter((key) => key.startsWith(prefix)).sort();
   }
+
+  async readText(appId, key) {
+    const value = this.#namespace(appId).get(`text:${key}`);
+    return value === undefined ? undefined : String(value);
+  }
+
+  async writeText(appId, key, value) {
+    this.#namespace(appId).set(`text:${key}`, String(value));
+  }
 }
 
 export function createAppStorage(appId, driver) {
@@ -92,6 +101,26 @@ export function createAppStorage(appId, driver) {
     async writeJson(key, value) {
       validateKey(key);
       await driver.write(appId, key, cloneJson(value));
+    },
+    async readText(key) {
+      validateKey(key);
+      if (typeof driver.readText !== "function") {
+        throw new StorageError("TEXT_STORAGE_UNAVAILABLE", "Storage driver does not support text values");
+      }
+      const value = await driver.readText(appId, key);
+      return value === undefined ? null : value;
+    },
+    async writeText(key, value, { maxBytes = 256 * 1024 } = {}) {
+      validateKey(key);
+      if (typeof value !== "string") throw new StorageError("INVALID_TEXT_VALUE", "Text storage values must be strings");
+      const bytes = new TextEncoder().encode(value).byteLength;
+      if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || bytes > maxBytes) {
+        throw new StorageError("TEXT_TOO_LARGE", "Text storage value exceeds its size limit", { bytes, maxBytes });
+      }
+      if (typeof driver.writeText !== "function") {
+        throw new StorageError("TEXT_STORAGE_UNAVAILABLE", "Storage driver does not support text values");
+      }
+      await driver.writeText(appId, key, value);
     },
     async delete(key) {
       validateKey(key);

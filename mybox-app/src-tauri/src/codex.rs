@@ -170,6 +170,8 @@ pub struct GeneratedImageResource {
     resource_id: String,
     media_type: String,
     revised_prompt: Option<String>,
+    width: u32,
+    height: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -963,14 +965,37 @@ fn collect_text_sources(text: &str, sources: &mut Vec<WebSource>) {
     }
 }
 
-async fn generate_with_server(
+async fn generate_with_server_refs(
     launcher: &CodexLauncher,
     request: CodexGenerateRequest,
+    reference_paths: &[PathBuf],
 ) -> Result<CodexGenerateResponse, String> {
     validate_generate_request(&request)?;
     let expects_data = request.response_schema.is_some();
     let isolated =
         tempfile::tempdir().map_err(|error| format!("AI用の一時領域を作成できません：{error}"))?;
+    if reference_paths.len() > 4 {
+        return Err("参照画像は4枚までです".to_string());
+    }
+    let mut local_images = Vec::new();
+    if !reference_paths.is_empty() {
+        let reference_root = isolated.path().join("references");
+        fs::create_dir_all(&reference_root)
+            .map_err(|error| format!("参照画像領域を作成できません：{error}"))?;
+        for (index, source) in reference_paths.iter().enumerate() {
+            let bytes =
+                fs::read(source).map_err(|error| format!("参照画像を読み込めません：{error}"))?;
+            if bytes.is_empty() || bytes.len() > MAX_IMAGE_BYTES {
+                return Err("参照画像は1枚25MB以下にしてください".to_string());
+            }
+            let (_, extension) = detect_image(&bytes)
+                .ok_or_else(|| "参照画像はPNG・JPEG・WebPのみ対応しています".to_string())?;
+            let destination = reference_root.join(format!("reference-{}.{}", index + 1, extension));
+            fs::write(&destination, bytes)
+                .map_err(|error| format!("参照画像を隔離領域へコピーできません：{error}"))?;
+            local_images.push(destination);
+        }
+    }
     let mut server = AppServer::start(launcher).await?;
     let account = read_account(&mut server).await?;
     if account.auth_mode.as_deref() != Some("chatgpt") {
@@ -1078,6 +1103,9 @@ async fn generate_with_server(
         format!("{skill_markers}\n\n{}", request.prompt)
     };
     let mut input = vec![json!({ "type": "text", "text": prompt })];
+    input.extend(local_images.iter().map(
+        |path| json!({ "type": "localImage", "path": path.to_string_lossy(), "detail": "high" }),
+    ));
     input.extend(selected_skills.iter().map(|skill| {
         json!({
             "type": "skill",
@@ -1193,13 +1221,99 @@ async fn generate_with_server(
     })
 }
 
+async fn generate_with_server(
+    launcher: &CodexLauncher,
+    request: CodexGenerateRequest,
+) -> Result<CodexGenerateResponse, String> {
+    generate_with_server_refs(launcher, request, &[]).await
+}
+
+pub(crate) fn image_dimensions(bytes: &[u8]) -> Option<(u32, u32)> {
+    if bytes.len() >= 24 && bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        return Some((
+            u32::from_be_bytes(bytes[16..20].try_into().ok()?),
+            u32::from_be_bytes(bytes[20..24].try_into().ok()?),
+        ));
+    }
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        let mut offset = 2;
+        while offset + 9 < bytes.len() {
+            if bytes[offset] != 0xff {
+                offset += 1;
+                continue;
+            }
+            let marker = bytes[offset + 1];
+            if matches!(
+                marker,
+                0xc0 | 0xc1
+                    | 0xc2
+                    | 0xc3
+                    | 0xc5
+                    | 0xc6
+                    | 0xc7
+                    | 0xc9
+                    | 0xca
+                    | 0xcb
+                    | 0xcd
+                    | 0xce
+                    | 0xcf
+            ) {
+                return Some((
+                    u16::from_be_bytes([bytes[offset + 7], bytes[offset + 8]]) as u32,
+                    u16::from_be_bytes([bytes[offset + 5], bytes[offset + 6]]) as u32,
+                ));
+            }
+            let length = u16::from_be_bytes([bytes[offset + 2], bytes[offset + 3]]) as usize;
+            if length < 2 {
+                break;
+            }
+            offset += length + 2;
+        }
+    }
+    if bytes.len() >= 30
+        && &bytes[..4] == b"RIFF"
+        && &bytes[8..12] == b"WEBP"
+        && &bytes[12..16] == b"VP8X"
+    {
+        return Some((
+            1 + u32::from_le_bytes([bytes[24], bytes[25], bytes[26], 0]),
+            1 + u32::from_le_bytes([bytes[27], bytes[28], bytes[29], 0]),
+        ));
+    }
+    if bytes.len() >= 25
+        && &bytes[..4] == b"RIFF"
+        && &bytes[8..12] == b"WEBP"
+        && &bytes[12..16] == b"VP8L"
+        && bytes[20] == 0x2f
+    {
+        let width = 1 + (bytes[21] as u32 | ((bytes[22] as u32 & 0x3f) << 8));
+        let height = 1
+            + ((bytes[22] as u32 >> 6)
+                | ((bytes[23] as u32) << 2)
+                | ((bytes[24] as u32 & 0x0f) << 10));
+        return Some((width, height));
+    }
+    if bytes.len() >= 30
+        && &bytes[..4] == b"RIFF"
+        && &bytes[8..12] == b"WEBP"
+        && &bytes[12..16] == b"VP8 "
+        && &bytes[23..26] == [0x9d, 0x01, 0x2a]
+    {
+        let width = u16::from_le_bytes([bytes[26], bytes[27]]) as u32 & 0x3fff;
+        let height = u16::from_le_bytes([bytes[28], bytes[29]]) as u32 & 0x3fff;
+        return Some((width, height));
+    }
+    None
+}
+
 fn persist_generated_image(
     app: &AppHandle,
     image: GeneratedImageData,
+    app_id: &str,
 ) -> Result<GeneratedImageResource, String> {
     let resource_id = format!("{}.{}", uuid::Uuid::new_v4(), image.extension);
     let key = format!("resources/generated-images/{resource_id}");
-    let destination = crate::workspace::app_value_path(app, "ai-chat", &key)?;
+    let destination = crate::workspace::app_value_path(app, app_id, &key)?;
     let parent = destination
         .parent()
         .ok_or_else(|| "生成画像の保存先が不正です".to_string())?;
@@ -1217,10 +1331,14 @@ fn persist_generated_image(
     temporary
         .persist(destination)
         .map_err(|error| format!("生成画像を確定できません：{}", error.error))?;
+    let (width, height) = image_dimensions(&image.bytes)
+        .ok_or_else(|| "生成画像の実寸を取得できません".to_string())?;
     Ok(GeneratedImageResource {
         resource_id,
         media_type: image.media_type,
         revised_prompt: image.revised_prompt,
+        width,
+        height,
     })
 }
 
@@ -1264,14 +1382,100 @@ pub async fn codex_subscription_generate(
     let launcher = find_codex().ok_or_else(|| "Codex CLIをインストールしてください".to_string())?;
     let mut response = generate_with_server(&launcher, request).await?;
     if let Some(image) = response.image_data.take() {
-        response.image = Some(persist_generated_image(&app, image)?);
+        response.image = Some(persist_generated_image(&app, image, "ai-chat")?);
     }
     Ok(response)
+}
+
+pub(crate) async fn generate_image_for_app(
+    app: &AppHandle,
+    prompt: String,
+    reference_paths: Vec<PathBuf>,
+    app_id: &str,
+) -> Result<GeneratedImageResource, String> {
+    let launcher = find_codex()
+        .ok_or_else(|| "CODEX_NOT_INSTALLED: Codex CLIをインストールしてください".to_string())?;
+    let request = CodexGenerateRequest {
+        prompt,
+        response_schema: None,
+        model: None,
+        reasoning_effort: None,
+        web_search: false,
+        image_generation: true,
+        skill_ids: Vec::new(),
+    };
+    let mut response = generate_with_server_refs(&launcher, request, &reference_paths)
+        .await
+        .map_err(|error| {
+            if error.contains("サブスクリプション") {
+                format!("CHATGPT_NOT_CONNECTED: {error}")
+            } else if error.contains("対応していません") {
+                format!("IMAGE_GENERATION_UNSUPPORTED: {error}")
+            } else if error.contains("タイムアウト") {
+                format!("GENERATION_TIMEOUT: {error}")
+            } else if error.to_lowercase().contains("safety") || error.contains("安全") {
+                format!("SAFETY_REFUSAL: {error}")
+            } else {
+                error
+            }
+        })?;
+    let image = response
+        .image_data
+        .take()
+        .ok_or_else(|| "GENERATION_EMPTY: Codexが生成画像を返しませんでした".to_string())?;
+    persist_generated_image(app, image, app_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extracts_png_jpeg_and_webp_dimensions() {
+        let mut png = vec![0; 24];
+        png[..8].copy_from_slice(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]);
+        png[16..20].copy_from_slice(&1024_u32.to_be_bytes());
+        png[20..24].copy_from_slice(&768_u32.to_be_bytes());
+        assert_eq!(image_dimensions(&png), Some((1024, 768)));
+
+        let jpeg = vec![
+            0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x03, 0x00, 0x04, 0x00, 0x03, 0x01, 0x11,
+            0x00, 0xff, 0xd9,
+        ];
+        assert_eq!(image_dimensions(&jpeg), Some((1024, 768)));
+
+        let mut webp = vec![0; 30];
+        webp[..4].copy_from_slice(b"RIFF");
+        webp[8..12].copy_from_slice(b"WEBP");
+        webp[12..16].copy_from_slice(b"VP8X");
+        webp[24..27].copy_from_slice(&[0xff, 0x03, 0]);
+        webp[27..30].copy_from_slice(&[0xff, 0x02, 0]);
+        assert_eq!(image_dimensions(&webp), Some((1024, 768)));
+    }
+
+    #[test]
+    fn rejects_more_than_four_reference_images_before_starting_codex() {
+        tauri::async_runtime::block_on(async {
+            let request = CodexGenerateRequest {
+                prompt: "test".to_string(),
+                response_schema: None,
+                model: None,
+                reasoning_effort: None,
+                web_search: false,
+                image_generation: true,
+                skill_ids: Vec::new(),
+            };
+            let paths = vec![PathBuf::from("reference.png"); 5];
+            let error = generate_with_server_refs(
+                &CodexLauncher::Direct(PathBuf::from("codex-does-not-exist")),
+                request,
+                &paths,
+            )
+            .await
+            .expect_err("five references must be rejected before launching Codex");
+            assert!(error.contains("4枚"));
+        });
+    }
 
     #[cfg(windows)]
     #[test]
@@ -1425,6 +1629,34 @@ mod tests {
             "account": { "type": "chatgpt", "email": "not-an-email" }
         }));
         assert_eq!(malformed.email, None);
+    }
+
+    #[test]
+    #[ignore = "requires a locally installed authenticated Codex CLI with localImage and image generation"]
+    fn live_codex_subscription_arranges_a_reference_image() {
+        tauri::async_runtime::block_on(async {
+            let launcher = find_codex().expect("Codex CLI");
+            let directory = tempfile::tempdir().expect("reference directory");
+            let reference = directory.path().join("reference.png");
+            let png = BASE64_STANDARD.decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=").expect("PNG");
+            fs::write(&reference, png).expect("reference image");
+            let response = generate_with_server_refs(
+                &launcher,
+                CodexGenerateRequest {
+                    prompt: "この参照画像を青い水彩画として全体アレンジしてください。".to_string(),
+                    response_schema: None,
+                    model: None,
+                    reasoning_effort: None,
+                    web_search: false,
+                    image_generation: true,
+                    skill_ids: Vec::new(),
+                },
+                &[reference],
+            )
+            .await
+            .expect("reference image generation");
+            assert!(response.image_data.is_some());
+        });
     }
 
     #[test]

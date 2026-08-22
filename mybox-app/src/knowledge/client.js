@@ -35,14 +35,14 @@ const webDriver = new MemoryStorageDriver();
  * Knowledge surface may import a `desktop/` bridge module from; the View
  * calls these wrappers instead.
  */
-export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID } = {}) {
+export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID, appRuntime = null } = {}) {
   const storageDriver = desktop ? new TauriStorageDriver() : webDriver;
-  const host = new AppHost({ storageDriver });
+  const host = appRuntime?.host ?? new AppHost({ storageDriver });
   // The View owns the live shared session (it needs a socket), but every write
   // has to reach it through Operations, or the assistant writes to the JSON
   // store while the editor reads the document and neither sees the other.
-  const sharedSessions = new Map();
-  host.register(createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } }));
+  const sharedSessions = appRuntime?.sharedSessions ?? new Map();
+  if (!host.getManifest("knowledge")) host.register(createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } }));
   // Lets the assistant panel invoke this App's Operations (ADR 0025) without
   // holding a private reference to Knowledge's client.
   registerAgentHost("knowledge", host);

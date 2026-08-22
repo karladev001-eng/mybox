@@ -17,7 +17,7 @@ import {
  * through the local model, so they are refused with an explanation rather than
  * silently dropped.
  */
-const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-remove", "block-move"]);
+const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-paste", "block-remove", "block-move"]);
 
 export class SharedProjectError extends Error {
   constructor(code, message, details = {}) {

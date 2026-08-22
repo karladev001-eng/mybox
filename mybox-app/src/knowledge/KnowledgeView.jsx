@@ -45,6 +45,7 @@ import {
   indentTextSelection,
   isGroupedListType,
   markdownConversion,
+  parsePastedBlocks,
   splitListItems,
   toggleInlineWrap,
 } from "./editor-behavior.js";
@@ -628,6 +629,7 @@ function BlockRow({
   readOnly,
   onCommit,
   onAddAfter,
+  onPasteBlocks,
   onRemove,
   onOpenPage,
   onOpenUrl,
@@ -875,6 +877,46 @@ function BlockRow({
     }
   };
 
+  const onPaste = (event) => {
+    // Image clipboard items belong to the document-level image handler. Code
+    // and math intentionally keep embedded newlines inside their one Block.
+    const clipboard = event.clipboardData;
+    if (!clipboard || [...(clipboard.items ?? [])].some((item) => item.type.startsWith("image/"))) return;
+    if (blockType === "code" || blockType === "math" || blockType === "image") return;
+
+    const markdownFile = [...(clipboard.files ?? [])].find((file) => (
+      file.type === "text/markdown" || /\.(?:md|markdown)$/i.test(file.name)
+    ));
+    const clipboardText = clipboard.getData("text/markdown") || clipboard.getData("text/plain");
+    // A normal single-line paste retains native caret and undo behavior. A
+    // Markdown file is parsed even when it contains only one line.
+    if (!markdownFile && !/[\r\n]/.test(clipboardText)) return;
+
+    event.preventDefault();
+    const sourceText = text;
+    const selectionStart = event.currentTarget.selectionStart;
+    const selectionEnd = event.currentTarget.selectionEnd;
+    const applyPaste = (pastedText) => {
+      const pasted = parsePastedBlocks(pastedText);
+      if (!pasted.length) return;
+      setEditing(false);
+      onPasteBlocks({
+        type: "block-paste",
+        blockId: block.id,
+        text: pastedText,
+        sourceText,
+        selectionStart,
+        selectionEnd,
+      }, {
+        pastedBlockCount: pasted.length,
+        hasPrefix: Boolean(sourceText.slice(0, selectionStart)),
+      });
+    };
+
+    if (markdownFile) markdownFile.text().then(applyPaste).catch(() => {});
+    else applyPaste(clipboardText);
+  };
+
   const populatedListItems = splitListItems(block.text).filter((item) => item.trim());
   const listItems = populatedListItems.length ? populatedListItems : [""];
   const renderListItem = (item, index) => (
@@ -1001,6 +1043,7 @@ function BlockRow({
             placeholder={blockType === "paragraph" ? "Markdown記号または / で入力…" : blockLabels[blockType]}
             onChange={(event) => changeText(event.target.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             onSelect={trackSelection}
             onClick={trackSelection}
             onKeyUp={trackSelection}
@@ -1269,6 +1312,7 @@ export function KnowledgeView({
   assistantOpen = false,
   onContextChange,
   onToast = () => {},
+  appRuntime = null,
 }) {
   const clientRef = useRef(null);
   // Read through a ref so a sign-in applies to the next Operation without
@@ -1276,7 +1320,7 @@ export function KnowledgeView({
   const profileIdRef = useRef(profileId);
   profileIdRef.current = profileId;
   if (!clientRef.current) {
-    clientRef.current = createKnowledgeClient({ desktop, getProfileId: () => profileIdRef.current });
+    clientRef.current = createKnowledgeClient({ desktop, getProfileId: () => profileIdRef.current, appRuntime });
   }
   const client = clientRef.current;
   const activeProfile = useMemo(() => ({
@@ -1587,6 +1631,16 @@ export function KnowledgeView({
     const result = await runMutation({ type: "block-add", afterBlockId, blockType });
     const added = result?.page.blocks.find((block) => !previousIds.has(block.id));
     if (added) setAutoEditBlockId(added.id);
+  };
+
+  const pasteBlocks = async (mutation, { pastedBlockCount, hasPrefix }) => {
+    const sourceIndex = pageRef.current?.blocks.findIndex((block) => block.id === mutation.blockId) ?? -1;
+    const result = await runMutation(mutation);
+    if (!result || sourceIndex < 0) return result;
+    const focusIndex = sourceIndex + (hasPrefix ? 1 : 0) + pastedBlockCount - 1;
+    const focusBlock = result.page.blocks[focusIndex];
+    if (focusBlock) setAutoEditBlockId(focusBlock.id);
+    return result;
   };
 
   /** Shared by the picker, native OS drop, and clipboard paste — each only differs in how it gets a resource ID. */
@@ -2050,7 +2104,7 @@ export function KnowledgeView({
         <div>
           <ShieldCheck size={42} weight="duotone" aria-hidden="true" />
           <h1 id="knowledge-setup-title">保存場所を設定してください</h1>
-          <p>Knowledge Appは、MyBoxのローカルWorkspaceを正本として使用します。</p>
+          <p>ローカルWorkspaceが必要です。</p>
           <div><button type="button" onClick={onClose}>戻る</button><button type="button" className="knowledge-primary-button" onClick={onOpenSettings}>設定を開く</button></div>
         </div>
       </section>
@@ -2182,7 +2236,6 @@ export function KnowledgeView({
       </header>
 
       <aside className="knowledge-sidebar" aria-label="Projectナビゲーション">
-        <button type="button" className="knowledge-new-page" onClick={createUntitledPage}><Plus size={19} weight="bold" aria-hidden="true" /><span>新しいPage</span></button>
         <nav className="knowledge-nav" aria-label="Pageの状態">
           <button type="button" className={!includeTrash ? "active" : ""} aria-pressed={!includeTrash} onClick={() => setIncludeTrash(false)}><FileText size={18} />Active<span>{currentProject?.activePageCount ?? 0}</span></button>
           <button type="button" className={includeTrash ? "active" : ""} aria-pressed={includeTrash} onClick={() => setIncludeTrash(true)}><Trash size={18} />Trashを含む<span>{currentProject?.trashPageCount ?? 0}</span></button>
@@ -2237,7 +2290,7 @@ export function KnowledgeView({
             ))}
           </ul>
         ) : (
-          <div className="knowledge-list-empty"><FileText size={28} aria-hidden="true" /><strong>{query ? "一致するPageがありません" : "まだPageがありません"}</strong><p>{query ? "検索語または範囲を変更してください。" : "最初のPageを作成して書き始めましょう。"}</p>{!query && <button type="button" onClick={createUntitledPage}><Plus size={17} />Pageを作成</button>}</div>
+          <div className="knowledge-list-empty"><FileText size={28} aria-hidden="true" /><strong>{query ? "一致するPageがありません" : "まだPageがありません"}</strong>{!query && <button type="button" onClick={createUntitledPage}><Plus size={17} />Pageを作成</button>}</div>
         )}
       </section>
 
@@ -2261,13 +2314,13 @@ export function KnowledgeView({
                       {visibleOnlineProfiles.map((onlineProfile) => <OnlineProfileAvatar key={onlineProfile.profileId} profile={onlineProfile} />)}
                     </div>
                   )}
-                  <button type="button" aria-label="Page履歴" onClick={openHistory}><ClockCounterClockwise size={18} /><span>履歴</span></button>
+                  <button type="button" aria-label="Page履歴" data-tooltip="履歴" onClick={openHistory}><ClockCounterClockwise size={18} /></button>
                   {pageState === "active" ? (
-                    <button type="button" aria-label="PageをTrashへ移動" disabled={currentProject?.role === "viewer"} onClick={moveToTrash}><Trash size={18} /><span>Trashへ</span></button>
+                    <button type="button" aria-label="PageをTrashへ移動" data-tooltip="Trashへ" disabled={currentProject?.role === "viewer"} onClick={moveToTrash}><Trash size={18} /></button>
                   ) : (
-                    <button type="button" aria-label="Pageを復元" disabled={currentProject?.role === "viewer"} onClick={restoreCurrentPage}><ArrowUDownLeft size={18} /><span>復元</span></button>
+                    <button type="button" aria-label="Pageを復元" data-tooltip="復元" disabled={currentProject?.role === "viewer"} onClick={restoreCurrentPage}><ArrowUDownLeft size={18} /></button>
                   )}
-                  {currentProject?.role === "owner" && <button type="button" className="danger" aria-label="Pageを完全に削除" onClick={() => setConfirmPurge(true)}><Trash size={18} /><span>完全削除</span></button>}
+                  {currentProject?.role === "owner" && <button type="button" className="danger" aria-label="Pageを完全に削除" data-tooltip="完全削除" onClick={() => setConfirmPurge(true)}><Trash size={18} /></button>}
                 </div>
               </header>
 
@@ -2341,6 +2394,7 @@ export function KnowledgeView({
                     readOnly={readOnly}
                     onCommit={runMutation}
                     onAddAfter={addBlockAfter}
+                    onPasteBlocks={pasteBlocks}
                     onRemove={(blockId) => runMutation({ type: "block-remove", blockId })}
                     onOpenPage={(targetId) => selectPage(projectId, targetId)}
                     onOpenUrl={(url) => client.openExternalUrl(url).catch((nextError) => setError(String(nextError?.message ?? nextError)))}
@@ -2374,8 +2428,8 @@ export function KnowledgeView({
                 )}
                 {!readOnly && (
                   <div className="knowledge-add-block-row">
-                    <button type="button" className="knowledge-add-block" onClick={() => addBlockAfter(pageData.page.blocks.at(-1)?.id)}><Plus size={17} />Blockを追加</button>
-                    <button type="button" className="knowledge-add-block" disabled={!desktop} title={desktop ? undefined : "画像の追加はデスクトップ版で利用できます"} onClick={addImageBlock}><ImageIcon size={17} />画像を追加</button>
+                    <button type="button" className="knowledge-add-block" aria-label="Blockを追加" data-tooltip="Blockを追加" onClick={() => addBlockAfter(pageData.page.blocks.at(-1)?.id)}><Plus size={17} /></button>
+                    <button type="button" className="knowledge-add-block" aria-label="画像を追加" data-tooltip={desktop ? "画像を追加" : "デスクトップ版で利用できます"} disabled={!desktop} onClick={addImageBlock}><ImageIcon size={17} /></button>
                   </div>
                 )}
               </div>
@@ -2390,7 +2444,7 @@ export function KnowledgeView({
           </>
         ) : (
           <div className="knowledge-editor-empty">
-            <div><SidebarSimple size={42} weight="duotone" aria-hidden="true" /><h2>{selectedListPage?.title ?? "Pageを選択してください"}</h2><p>左の一覧からPageを選ぶか、新しいPageを作成します。</p><button type="button" className="knowledge-primary-button knowledge-balanced-action" onClick={createUntitledPage}><Plus size={18} aria-hidden="true" /><span>新しいPage</span></button></div>
+            <div><SidebarSimple size={42} weight="duotone" aria-hidden="true" /><h2>{selectedListPage?.title ?? "Pageを選択"}</h2></div>
           </div>
         )}
       </main>
@@ -2398,9 +2452,8 @@ export function KnowledgeView({
       {historyOpen && (
         <aside className="knowledge-history" aria-labelledby="knowledge-history-title">
           <header><div><ClockCounterClockwise size={21} aria-hidden="true" /><h2 id="knowledge-history-title">Page履歴</h2></div><button type="button" aria-label="履歴を閉じる" onClick={() => setHistoryOpen(false)}><X size={20} /></button></header>
-          <p>30日以内の変更です。復元すると新しいrevisionが作られます。</p>
           <div>{historyEntries.length ? historyEntries.map((entry) => (
-            <article key={entry.id}><div><strong>{entry.snapshot.title}</strong><time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time></div><small className="knowledge-history-author"><span className="knowledge-author-dot" style={{ backgroundColor: authorColorFor(entry.actorId, memberColors[entry.actorId]) }} aria-hidden="true" />{profileNameFor(entry.actorId)}・revision {entry.pageRevision}</small><button type="button" disabled={readOnly} onClick={() => restoreHistoryEntry(entry.id)}><ClockCounterClockwise size={16} />この版を復元</button></article>
+            <article key={entry.id}><div><strong>{entry.snapshot.title}</strong><time dateTime={entry.createdAt}>{formatDate(entry.createdAt)}</time></div><small className="knowledge-history-author"><span className="knowledge-author-dot" style={{ backgroundColor: authorColorFor(entry.actorId, memberColors[entry.actorId]) }} aria-hidden="true" />{profileNameFor(entry.actorId)}・revision {entry.pageRevision}</small><button type="button" aria-label={`revision ${entry.pageRevision}を復元`} data-tooltip="この版を復元" disabled={readOnly} onClick={() => restoreHistoryEntry(entry.id)}><ClockCounterClockwise size={16} /></button></article>
           )) : <div className="knowledge-history-empty">復元できる履歴はまだありません。</div>}</div>
         </aside>
       )}

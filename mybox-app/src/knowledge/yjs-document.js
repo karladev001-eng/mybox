@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { BLOCK_TYPES } from "./domain.js";
+import { splitPastedBlock } from "./editor-behavior.js";
 
 /**
  * The shared representation of one Project. A shared Page lives here instead of
@@ -86,6 +87,10 @@ function newBlock(block = {}) {
   if (block.links?.length) links.push(block.links.map((link) => ({ ...link })));
   map.set("links", links);
   return map;
+}
+
+function newBlockId() {
+  return `block-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
 }
 
 function blockIndex(blocks, blockId) {
@@ -218,6 +223,34 @@ export function applyPageMutation(doc, pageId, mutation, { actorId } = {}) {
         const after = mutation.afterBlockId ? blockIndex(blocks, mutation.afterBlockId) : blocks.length - 1;
         blocks.insert(after < 0 ? blocks.length : after + 1, [newBlock(mutation.block ?? { id: mutation.blockId })]);
         if (actorId) blocks.get(after < 0 ? blocks.length - 1 : after + 1)?.set("updatedBy", actorId);
+        break;
+      }
+
+      case "block-paste": {
+        const index = blockIndex(blocks, mutation.blockId);
+        if (index < 0) throw new Error(`BLOCK_NOT_FOUND: ${mutation.blockId}`);
+        const current = blocks.get(index);
+        const sourceText = mutation.sourceText === undefined ? current.get("text").toString() : mutation.sourceText;
+        const split = splitPastedBlock({
+          id: current.get("id"),
+          type: current.get("type"),
+          text: sourceText,
+          checked: current.get("checked") === true,
+          links: current.get("links").toArray(),
+        }, mutation.text, mutation.selectionStart, mutation.selectionEnd);
+        if (!split) throw new Error("INVALID_PAGE_MUTATION: Pasted text produced no Blocks");
+
+        const [first, ...rest] = split.blocks;
+        current.set("type", BLOCK_TYPES.includes(first.type) ? first.type : "paragraph");
+        current.set("checked", first.checked === true);
+        applyText(current.get("text"), first.text);
+        const links = current.get("links");
+        links.delete(0, links.length);
+        if (first.links.length) links.push(first.links.map((link) => ({ ...link })));
+        if (actorId) current.set("updatedBy", actorId);
+        if (rest.length) {
+          blocks.insert(index + 1, rest.map((block) => newBlock({ ...block, id: newBlockId(), updatedBy: actorId })));
+        }
         break;
       }
 

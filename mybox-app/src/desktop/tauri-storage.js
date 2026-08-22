@@ -17,4 +17,13 @@ export class TauriStorageDriver {
   async list(appId, prefix) {
     return invoke("list_app_keys", { appId, prefix });
   }
+
+  async readText(appId, key) {
+    const value = await invoke("read_app_text", { appId, key });
+    return value === null ? undefined : value;
+  }
+
+  async writeText(appId, key, value) {
+    await invoke("write_app_text", { appId, key, value });
+  }
 }

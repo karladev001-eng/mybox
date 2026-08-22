@@ -72,6 +72,23 @@ test("a mutation changes the document and notifies the view", () => {
   assert.ok(changes.length > before, "an edit re-renders the editor");
 });
 
+test("a multiline paste is supported through the shared mutation vocabulary", () => {
+  const { shared } = session();
+  shared.adopt([PAGE]);
+  shared.mutate("page-1", {
+    type: "block-paste",
+    blockId: "block-1",
+    text: "# 見出し\n本文",
+    sourceText: "hello",
+    selectionStart: 0,
+    selectionEnd: 5,
+  }, "profile-a");
+  assert.deepEqual(shared.readPage("page-1").page.blocks.map(({ type, text }) => ({ type, text })), [
+    { type: "heading-1", text: "見出し" },
+    { type: "paragraph", text: "本文" },
+  ]);
+});
+
 test("backlinks are derived from the document rather than stored", () => {
   const { shared } = session();
   shared.adopt([

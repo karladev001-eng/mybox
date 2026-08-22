@@ -27,6 +27,7 @@ import {
 } from "./domain.js";
 
 const STATE_KEY = "state.json";
+const CONNECTION_DELIVERIES_KEY = "connection-deliveries.json";
 const objectSchema = { type: "object" };
 const actorCallers = ["user", "agent", "flow", "app"];
 
@@ -58,6 +59,22 @@ function operation({ id, title, effect, confirmationClass, callers = actorCaller
     outputSchema: objectSchema,
   };
 }
+
+function blockToMarkdown(block) {
+  const text = block.text ?? "";
+  if (block.type === "heading-1") return `# ${text}`;
+  if (block.type === "heading-2") return `## ${text}`;
+  if (block.type === "heading-3") return `### ${text}`;
+  if (block.type === "bullet-list") return text.split("\n").map((line) => `- ${line}`).join("\n");
+  if (block.type === "number-list") return text.split("\n").map((line, index) => `${index + 1}. ${line}`).join("\n");
+  if (block.type === "checklist") return text.split("\n").map((line) => `- [${block.checked ? "x" : " "}] ${line}`).join("\n");
+  if (block.type === "quote") return text.split("\n").map((line) => `> ${line}`).join("\n");
+  if (block.type === "code") return `\`\`\`\n${text}\n\`\`\``;
+  if (block.type === "divider") return "---";
+  return text;
+}
+
+function pageMarkdown(page) { return page.blocks.filter((block) => block.type !== "image").map(blockToMarkdown).filter(Boolean).join("\n\n"); }
 
 const projectInput = {
   type: "object",
@@ -101,7 +118,7 @@ const pageMutationInput = {
   properties: {
     type: {
       type: "string",
-      enum: ["rename", "markdown-set", "block-add", "block-update", "block-remove", "block-move", "tags-set", "link-add"],
+      enum: ["rename", "markdown-set", "block-add", "block-update", "block-paste", "block-remove", "block-move", "tags-set", "link-add"],
     },
     markdown: { type: "string" },
     mode: { type: "string", enum: ["append", "replace"] },
@@ -111,6 +128,9 @@ const pageMutationInput = {
     beforeBlockId: { type: ["string", "null"] },
     blockType: { type: "string", enum: [...BLOCK_TYPES] },
     text: { type: "string" },
+    sourceText: { type: "string" },
+    selectionStart: { type: "integer", minimum: 0 },
+    selectionEnd: { type: "integer", minimum: 0 },
     checked: { type: "boolean" },
     labels: { type: "array", items: { type: "string" } },
     targetPageId: { type: "string" },
@@ -121,6 +141,7 @@ const pageMutationInput = {
     "rename → title.",
     "block-add → afterBlockId (the Block to insert after, or null for the end), blockType, text.",
     "block-update → blockId, and any of text, blockType, checked.",
+    "block-paste → blockId, text (clipboard text), sourceText, selectionStart, and selectionEnd; Markdown and hard line breaks become typed Blocks.",
     "block-remove → blockId.",
     "block-move → blockId, beforeBlockId (the Block to insert before, or null for the end).",
     "tags-set → labels, the complete replacement list.",
@@ -153,7 +174,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.1.2",
+      version: "0.1.4",
       hostCapabilities: ["app-storage"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema }),
@@ -267,6 +288,9 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
           },
         }),
         operation({ id: "knowledge.tag.list", title: "Tagを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
+        operation({ id: "knowledge.connector.options", title: "Connection設定候補を一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema }),
+        operation({ id: "knowledge.prompt-fragments.list", title: "Tag付きMarkdown Pageを取得", effect: "read", confirmationClass: "review", inputSchema: { type: "object", required: ["config"], properties: { config: { type: "object" } } } }),
+        operation({ id: "knowledge.generated-image.consume", title: "生成画像からPageを作成", effect: "write", confirmationClass: "recoverable", inputSchema: { type: "object", required: ["item", "config", "deliveryId"], properties: { item: { type: "object" }, config: { type: "object" }, deliveryId: { type: "string" }, source: { type: "object" } } } }),
         operation({
           id: "knowledge.profile.link-account",
           title: "ローカルProjectにアカウントを紐付け",
@@ -326,6 +350,10 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
           },
         },
       ],
+      connectors: {
+        sources: [{ id: "knowledge.tagged-markdown", title: "Tag付きMarkdown Page", mode: "pull", dataType: "mybox.prompt-fragment.v1", operationId: "knowledge.prompt-fragments.list", optionsOperationId: "knowledge.connector.options", configSchema: { type: "object", required: ["projectId", "publishTag", "worldTag", "styleTag", "compositionTag", "moodTag"], properties: { projectId: { type: "string", title: "Project", format: "mybox-project" }, publishTag: { type: "string", title: "公開用Tag", format: "mybox-tag" }, worldTag: { type: "string", title: "世界観Tag", format: "mybox-tag" }, styleTag: { type: "string", title: "画風Tag", format: "mybox-tag" }, compositionTag: { type: "string", title: "用途・構図Tag", format: "mybox-tag" }, moodTag: { type: "string", title: "雰囲気Tag", format: "mybox-tag" } } } }],
+        targets: [{ id: "knowledge.generated-image-pages", title: "画像Pageを作成", mode: "consume", dataType: "mybox.generated-image.v1", operationId: "knowledge.generated-image.consume", optionsOperationId: "knowledge.connector.options", configSchema: { type: "object", required: ["projectId"], properties: { projectId: { type: "string", title: "出力Project", format: "mybox-project" }, pageTag: { type: "string", title: "Page Tag", format: "mybox-tag" } } } }],
+      },
     },
     handlers: {
       async "knowledge.project.list"(_input, { actor, storage }) {
@@ -501,6 +529,64 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       async "knowledge.tag.list"({ projectId }, { actor, storage }) {
         const state = await loadState(storage);
         return { tags: getProjectTags(state, { projectId, profileId: profileIdFor(actor) }) };
+      },
+      async "knowledge.connector.options"(_input, { actor, storage }) {
+        const state = await loadState(storage);
+        const projects = listProjects(state, { profileId: profileIdFor(actor) });
+        return { projects: projects.map((project) => ({ id: project.id, label: project.name, tags: getProjectTags(state, { projectId: project.id, profileId: profileIdFor(actor) }).map((tag) => tag.label) })) };
+      },
+      async "knowledge.prompt-fragments.list"({ config }, { actor, storage }) {
+        const state = await loadState(storage);
+        const projectId = config.projectId;
+        const tags = getProjectTags(state, { projectId, profileId: profileIdFor(actor) });
+        const labels = new Map(tags.map((tag) => [tag.id, tag.label]));
+        const categoryTags = config.categoryTags ?? { world: config.worldTag, style: config.styleTag, composition: config.compositionTag, mood: config.moodTag };
+        const items = []; const excluded = [];
+        for (const summary of listPages(state, { projectId, profileId: profileIdFor(actor) })) {
+          const pageLabels = summary.tagIds.map((tagId) => labels.get(tagId)).filter(Boolean);
+          if (!pageLabels.includes(config.publishTag)) { excluded.push({ pageId: summary.id, reason: "公開用Tagがありません" }); continue; }
+          const categories = Object.entries(categoryTags).filter(([, tag]) => tag && pageLabels.includes(tag)).map(([category]) => category);
+          if (categories.length !== 1) { excluded.push({ pageId: summary.id, reason: categories.length ? "分類Tagが複数あります" : "分類Tagがありません" }); continue; }
+          const page = readPage(state, { projectId, pageId: summary.id, profileId: profileIdFor(actor) });
+          const prompt = pageMarkdown(page).trim();
+          if (!prompt) { excluded.push({ pageId: summary.id, reason: "Prompt本文が空です" }); continue; }
+          items.push({ id: `note-${page.id}`, name: page.title, category: categories[0], prompt, source: "note", sourceAppId: "knowledge", sourceId: page.id, revision: page.revision, state: "active" });
+        }
+        return { items, excluded };
+      },
+      async "knowledge.generated-image.consume"({ item, config, deliveryId }, { actor, storage, resources }) {
+        const delivered = await storage.readJson(CONNECTION_DELIVERIES_KEY) ?? { deliveries: {} };
+        if (delivered.deliveries[deliveryId]) return { pageId: delivered.deliveries[deliveryId], duplicate: true };
+        if (!config.projectId || !item.resource || !item.generationId) throw new KnowledgeDomainError("INVALID_CONNECTION_INPUT", "出力Projectと生成画像が必要です");
+        let state = await loadState(storage);
+        const deterministicTitle = `Image · ${(item.finalPrompt || "生成画像").split("\n")[0].replace(/^主題:\s*/, "").slice(0, 80)} · ${item.generationId.slice(-8)}`;
+        const existing = listPages(state, { projectId: config.projectId, profileId: profileIdFor(actor) }).find((page) => page.title === deterministicTitle);
+        if (existing) { delivered.deliveries[deliveryId] = existing.id; await storage.writeJson(CONNECTION_DELIVERIES_KEY, delivered); return { pageId: existing.id, duplicate: true }; }
+        const imported = await resources.import(item.resource, { namespace: "images" });
+        let mutation = createPage(state, { projectId: config.projectId, title: deterministicTitle, profileId: profileIdFor(actor), actorId: actor.id });
+        state = mutation.state; let page = mutation.page;
+        mutation = updatePage(state, { projectId: config.projectId, pageId: page.id, expectedRevision: page.revision, profileId: profileIdFor(actor), actorId: actor.id, mutation: { type: "block-update", blockId: page.blocks[0].id, blockType: "image", text: imported.resourceId } });
+        state = mutation.state; page = mutation.page;
+        const selectionLabels = { world: "世界観", style: "画風", composition: "用途・構図", mood: "雰囲気・装飾" };
+        const selectedTemplates = Object.entries(item.selections ?? {})
+          .filter(([, templateId]) => templateId)
+          .map(([category, templateId]) => `- ${selectionLabels[category] ?? category}: ${templateId}`);
+        const markdown = [
+          `## 生成条件`,
+          ...selectedTemplates,
+          `- 縦横比: ${item.ratio}`,
+          `- 実寸: ${item.width}×${item.height}`,
+          `- 生成日時: ${item.createdAt}`,
+          ``,
+          `## 最終Prompt`,
+          item.finalPrompt,
+        ].join("\n");
+        mutation = updatePage(state, { projectId: config.projectId, pageId: page.id, expectedRevision: page.revision, profileId: profileIdFor(actor), actorId: actor.id, mutation: { type: "markdown-set", markdown, mode: "append" } });
+        state = mutation.state; page = mutation.page;
+        if (config.pageTag) { mutation = updatePage(state, { projectId: config.projectId, pageId: page.id, expectedRevision: page.revision, profileId: profileIdFor(actor), actorId: actor.id, mutation: { type: "tags-set", labels: [config.pageTag] } }); state = mutation.state; page = mutation.page; }
+        await storage.writeJson(STATE_KEY, state);
+        delivered.deliveries[deliveryId] = page.id; await storage.writeJson(CONNECTION_DELIVERIES_KEY, delivered);
+        return { pageId: page.id, duplicate: false };
       },
       async "knowledge.profile.link-account"({ accountId }, { storage }) {
         const mutation = await saveMutation(storage, adoptLocalMemberships(await loadState(storage), { accountId }));
