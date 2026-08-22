@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { chooseWorkspace, getCurrentWorkspace, isDesktopRuntime } from "./desktop/workspace.js";
 import { ChatView } from "./ChatView.jsx";
 import { ThemedSelect } from "./ThemedSelect.jsx";
+import { WorkflowHistoryView, WorkflowView } from "./WorkflowView.jsx";
 import {
   appendChatMessage,
   buildConversationPrompt,
@@ -22,6 +23,7 @@ import { getHostSessionStore } from "./desktop/host-session.js";
 import { createCustomAppDefinition, createMyBoxAppRegistry } from "./apps/registry.js";
 import { createDeviceAppInstallationsStore } from "./desktop/app-installations.js";
 import { getHostUpdaterClient } from "./desktop/app-updater.js";
+import { exitMyBox, getWorkflowBackgroundSettings, listenWorkflowNotifications, setWorkflowBackground } from "./desktop/workflow-background.js";
 import { beginGitHubSignIn, completeGitHubSignIn, getAccountSession, signOutAccount } from "./desktop/accounts.js";
 import { resolveProfilePresentation, signedOutSession } from "./core/account-identity.js";
 import { openExternalUrl } from "./desktop/open-url.js";
@@ -63,7 +65,6 @@ import {
   House,
   Image as ImageIcon,
   Keyboard,
-  LinkSimple,
   MagicWand,
   MagnifyingGlass,
   PaperPlaneTilt,
@@ -91,7 +92,7 @@ const iconMap = {
 };
 
 const navItems = [
-  { id: "connections", label: "連携", icon: FlowArrow },
+  { id: "workflows", label: "ワークフロー", icon: FlowArrow },
   { id: "history", label: "履歴", icon: ClockCounterClockwise },
   { id: "settings", label: "設定", icon: GearSix },
 ];
@@ -239,7 +240,7 @@ const shortcutIcons = {
   "command-palette": MagicWand,
   "new-chat": Plus,
   apps: Cube,
-  connections: FlowArrow,
+  workflows: FlowArrow,
   history: ClockCounterClockwise,
   settings: GearSix,
   chat: Robot,
@@ -431,80 +432,6 @@ function RegisteredAppWorkspace({ app, desktop, profile, appRuntime, shortcutCom
   );
 }
 
-function ConnectionsView({ runtime, onToast }) {
-  const pairs = runtime.connections.listCompatiblePairs();
-  const pairOptions = pairs.map((pair, index) => ({ id: String(index), label: `${pair.source.appName} → ${pair.target.appName}`, description: `${pair.source.connector.title} → ${pair.target.connector.title}` }));
-  const [pairId, setPairId] = useState(pairOptions[0]?.id ?? "");
-  const [records, setRecords] = useState([]);
-  const [sourceConfig, setSourceConfig] = useState({});
-  const [targetConfig, setTargetConfig] = useState({});
-  const [options, setOptions] = useState({ source: { projects: [] }, target: { projects: [] } });
-  const [editingId, setEditingId] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const pair = pairs[Number(pairId)] ?? null;
-  const hasRequiredConfig = (connector, config) => (connector.configSchema?.required ?? []).every((key) => Boolean(config[key]));
-  const refresh = () => setRecords(runtime.connections.list());
-  useEffect(() => { refresh(); }, [runtime]);
-  useEffect(() => {
-    let active = true;
-    if (!pair) return undefined;
-    Promise.all([
-      runtime.connections.options({ appId: pair.source.appId, connectorId: pair.source.connector.id }),
-      runtime.connections.options({ appId: pair.target.appId, connectorId: pair.target.connector.id }),
-    ]).then(([source, target]) => {
-      if (!active) return;
-      setOptions({ source, target });
-      setSourceConfig((current) => current.projectId || !source.projects?.[0] ? current : { ...current, projectId: source.projects[0].id });
-      setTargetConfig((current) => current.projectId || !target.projects?.[0] ? current : { ...current, projectId: target.projects[0].id });
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [runtime, pairId]);
-  const projectFor = (side) => options[side].projects?.find((project) => project.id === (side === "source" ? sourceConfig.projectId : targetConfig.projectId));
-  const renderConfig = (side, connector, config, setConfig) => Object.entries(connector.configSchema?.properties ?? {}).map(([key, schema]) => {
-    const choices = schema.format === "mybox-project"
-      ? (options[side].projects ?? []).map((item) => ({ id: item.id, label: item.label }))
-      : schema.format === "mybox-tag"
-        ? (projectFor(side)?.tags ?? []).map((tag) => ({ id: tag, label: tag }))
-        : [];
-    return <div className="connection-config-field" key={`${side}-${key}`}><ThemedSelect id={`connection-${side}-${key}`} label={schema.title ?? key} options={choices} value={config[key] ?? ""} onChange={(value) => setConfig((current) => ({ ...current, [key]: value }))} placement="bottom" /></div>;
-  });
-  const save = async () => {
-    if (!pair) return;
-    setBusy(true);
-    try {
-      if (!hasRequiredConfig(pair.source.connector, sourceConfig) || !hasRequiredConfig(pair.target.connector, targetConfig)) throw new Error("必須のProjectとTagを選択してください");
-      await runtime.connections.save({ id: editingId, source: { appId: pair.source.appId, connectorId: pair.source.connector.id, config: sourceConfig }, target: { appId: pair.target.appId, connectorId: pair.target.connector.id, config: targetConfig }, enabled: true });
-      setEditingId(null); refresh(); onToast("連携を保存しました");
-    } catch (error) { onToast(`連携を保存できません：${error.message}`); } finally { setBusy(false); }
-  };
-  return (
-    <section className="secondary-view" aria-labelledby="connections-heading">
-      <div className="view-title"><LinkSimple size={24} aria-hidden="true" /><h1 id="connections-heading">連携</h1></div>
-      <div className="connection-builder">
-        {pair ? <><div className="connection-field connection-pair"><ThemedSelect id="connection-pair" label="互換Connector" options={pairOptions} value={pairId} onChange={(value) => { setPairId(value); setEditingId(null); setSourceConfig({}); setTargetConfig({}); }} placement="bottom" /></div><div className="connection-config-side"><strong>{pair.source.appName} · {pair.source.connector.title}</strong>{renderConfig("source", pair.source.connector, sourceConfig, setSourceConfig)}</div><FlowArrow size={34} aria-hidden="true" /><div className="connection-config-side"><strong>{pair.target.appName} · {pair.target.connector.title}</strong>{renderConfig("target", pair.target.connector, targetConfig, setTargetConfig)}</div><button className="primary-button compact" disabled={busy || !hasRequiredConfig(pair.source.connector, sourceConfig) || !hasRequiredConfig(pair.target.connector, targetConfig)} onClick={save}><Check size={20} />{busy ? "保存中…" : editingId ? "更新" : "保存"}</button></> : <p>互換するConnectorがありません。対象Appをインストールしてください。</p>}
-      </div>
-      <div className="connection-list" aria-label="保存済みの連携">{records.map((record) => {
-        const sourceManifest = runtime.host.getManifest(record.source.appId); const targetManifest = runtime.host.getManifest(record.target.appId);
-        return <article className="saved-flow" key={record.id}><div><ImageIcon size={22} /><span>{sourceManifest?.name ?? record.source.appId}</span></div><FlowArrow size={20} /><div><LinkSimple size={22} /><span>{targetManifest?.name ?? record.target.appId}</span></div><span className={`status ${record.status?.state ?? "idle"}`}>{record.status?.state === "succeeded" ? <Check size={15} /> : <ClockCounterClockwise size={15} />}{record.status?.message ?? "未実行"}</span><IconButton className={record.enabled ? "connection-enable active" : "connection-enable"} label={record.enabled ? "連携を停止" : "連携を有効化"} role="switch" aria-checked={record.enabled} onClick={async () => { await runtime.connections.setEnabled(record.id, !record.enabled); refresh(); }}><Power size={18} weight={record.enabled ? "fill" : "regular"} /></IconButton><IconButton label="連携を編集" onClick={() => { const index = pairs.findIndex((item) => item.source.appId === record.source.appId && item.source.connector.id === record.source.connectorId && item.target.appId === record.target.appId && item.target.connector.id === record.target.connectorId); if (index >= 0) setPairId(String(index)); setSourceConfig(record.source.config ?? {}); setTargetConfig(record.target.config ?? {}); setEditingId(record.id); }}><PencilSimpleLine size={18} /></IconButton><IconButton label="連携を再試行" disabled={!record.status?.lastEnvelope} onClick={async () => { try { await runtime.connections.retry(record.id); } catch {} refresh(); }}><ArrowsClockwise size={18} /></IconButton><IconButton className="text-danger" label="連携を削除" onClick={async () => { await runtime.connections.remove(record.id); refresh(); }}><Trash size={18} /></IconButton></article>;
-      })}</div>
-    </section>
-  );
-}
-
-function HistoryView() {
-  const entries = [
-    ["画像", "変換が完了しました", "10:42"],
-    ["公開", "新しいURLを作成しました", "09:18"],
-    ["ファイル", "3件を整理しました", "昨日"],
-  ];
-  return (
-    <section className="secondary-view" aria-labelledby="history-heading">
-      <div className="view-title"><ClockCounterClockwise size={24} aria-hidden="true" /><h1 id="history-heading">履歴</h1></div>
-      <div className="history-list">{entries.map(([name, action, time]) => <div className="history-row" key={`${name}-${time}`}><span className="history-icon"><Check size={18} /></span><strong>{name}</strong><span>{action}</span><time>{time}</time></div>)}</div>
-    </section>
-  );
-}
-
 function agentPlanLabel(status) {
   if (!status?.connected) return status?.available ? "未接続" : "要Codex";
   if (!status.planType) return "接続済み";
@@ -598,6 +525,21 @@ function AgentApprovalModal({ request, onApprove, onReject }) {
         <div className="confirm-actions">
           <button onClick={onReject}>却下</button>
           <button className="danger-button" onClick={onApprove}><Robot size={19} />承認して実行</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function WorkflowBackgroundModal({ onChoose, onClose }) {
+  return (
+    <Modal title="バックグラウンド実行" onClose={onClose} className="confirm-modal">
+      <div className="confirm-body workflow-background-prompt">
+        <FlowArrow size={38} weight="duotone" aria-hidden="true" />
+        <p>ウィンドウを閉じてもスケジュールを実行します。</p>
+        <div className="confirm-actions stacked">
+          <button type="button" onClick={() => onChoose(false)}>MyBox起動中のみ</button>
+          <button type="button" className="primary-button" onClick={() => onChoose(true)}>PC起動時に開始</button>
         </div>
       </div>
     </Modal>
@@ -744,6 +686,9 @@ function SettingsView({
   onSignIn,
   onSignOut,
   hostUpdater,
+  workflowBackground,
+  onWorkflowBackgroundChange,
+  onExit,
 }) {
   const [confirmDelete, setConfirmDelete] = useState(true);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -800,6 +745,9 @@ function SettingsView({
         </button>
         <button role="switch" aria-checked={confirmDelete} onClick={() => setConfirmDelete(!confirmDelete)}><span className="settings-row-icon"><Trash size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>削除前に確認</strong></span><span className="settings-row-control"><span className={confirmDelete ? "switch on" : "switch"}><span /></span></span></button>
         <button role="switch" aria-checked={reduceMotion} onClick={() => setReduceMotion(!reduceMotion)}><span className="settings-row-icon"><SlidersHorizontal size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>動きを抑える</strong></span><span className="settings-row-control"><span className={reduceMotion ? "switch on" : "switch"}><span /></span></span></button>
+        <button role="switch" aria-checked={workflowBackground.background} disabled={!desktop} onClick={() => onWorkflowBackgroundChange({ background: !workflowBackground.background, autostart: workflowBackground.background ? false : workflowBackground.autostart })}><span className="settings-row-icon"><FlowArrow size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>バックグラウンド実行</strong><small>{workflowBackground.background ? "ウィンドウを閉じても実行" : "MyBox起動中のみ"}</small></span><span className="settings-row-control"><span className={workflowBackground.background ? "switch on" : "switch"}><span /></span></span></button>
+        <button role="switch" aria-checked={workflowBackground.autostart} disabled={!desktop || !workflowBackground.background} onClick={() => onWorkflowBackgroundChange({ background: true, autostart: !workflowBackground.autostart })}><span className="settings-row-icon"><Power size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>PC起動時に開始</strong></span><span className="settings-row-control"><span className={workflowBackground.autostart ? "switch on" : "switch"}><span /></span></span></button>
+        <button className="text-danger" disabled={!desktop} onClick={onExit}><span className="settings-row-icon"><Power size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>MyBoxを終了</strong></span><span className="settings-row-control">終了</span></button>
       </div>
     </section>
   );
@@ -914,6 +862,10 @@ export function App() {
   const [agentStatus, setAgentStatus] = useState(null);
   const [providerSettings, setProviderSettings] = useState(initialProviderSettings);
   const [providerModal, setProviderModal] = useState(null);
+  const [backgroundPromptOpen, setBackgroundPromptOpen] = useState(false);
+  const [workflowBackground, setWorkflowBackgroundState] = useState({ background: false, autostart: false, desktop });
+  const [notificationRunId, setNotificationRunId] = useState(null);
+  useEffect(() => { if (view !== "history") setNotificationRunId(null); }, [view]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [accountSession, setAccountSession] = useState(signedOutSession);
   const [deviceLogin, setDeviceLogin] = useState(null);
@@ -1009,8 +961,39 @@ export function App() {
 
   useEffect(() => {
     appRuntime.syncInstalled(apps.map((app) => app.id));
-    if (!desktop || workspace) appRuntime.start().catch((error) => setToast(`連携を復元できません：${String(error)}`));
+    if (!desktop || workspace) appRuntime.start().then(async () => {
+      if (desktop && appRuntime.workflows.hasEnabledSchedules()) {
+        setWorkflowBackgroundState(await setWorkflowBackground({ background: true }));
+      }
+    }).catch((error) => setToast(`ワークフローを復元できません：${String(error)}`));
   }, [appRuntime, apps, desktop, workspace]);
+
+  useEffect(() => {
+    if (!desktop) return undefined;
+    let active = true;
+    let stop = () => {};
+    getWorkflowBackgroundSettings().then((settings) => active && setWorkflowBackgroundState(settings)).catch(() => {});
+    listenWorkflowNotifications((extra) => {
+      setSelectedApp(null);
+      setNotificationRunId(extra.runId ?? null);
+      setView("history");
+    }).then((listener) => { if (active) stop = listener; else listener(); }).catch(() => {});
+    return () => { active = false; stop(); };
+  }, [desktop]);
+
+  const changeWorkflowBackground = async (settings) => {
+    try {
+      setWorkflowBackgroundState(await setWorkflowBackground(settings));
+      setToast(settings.background ? "バックグラウンド実行を更新しました" : "バックグラウンド実行を停止しました");
+    } catch (error) {
+      setToast(`バックグラウンド設定を変更できません：${String(error?.message ?? error)}`);
+    }
+  };
+
+  const chooseScheduleBackground = async (autostart) => {
+    setBackgroundPromptOpen(false);
+    await changeWorkflowBackground({ background: true, autostart });
+  };
 
   useEffect(() => {
     if (view !== "chat") lastNonChatView.current = view;
@@ -1660,7 +1643,7 @@ export function App() {
         break;
       case "apps": navigateWithKeyboard("apps"); break;
       case "home": navigateWithKeyboard("apps"); break;
-      case "connections": navigateWithKeyboard("connections"); break;
+      case "connections": navigateWithKeyboard("workflows"); break;
       case "history": navigateWithKeyboard("history"); break;
       case "settings": navigateWithKeyboard("settings"); break;
       case "chat": navigateWithKeyboard("chat"); break;
@@ -1698,7 +1681,7 @@ export function App() {
     }
   };
 
-  const blockingModalOpen = addOpen || Boolean(pendingDelete) || Boolean(pendingApproval)
+  const blockingModalOpen = addOpen || Boolean(pendingDelete) || Boolean(pendingApproval) || backgroundPromptOpen
     || Boolean(deviceLogin) || Boolean(providerModal);
 
   useEffect(() => {
@@ -1795,9 +1778,9 @@ export function App() {
             </div>
           </section>
         )}
-        {view === "connections" && <ConnectionsView runtime={appRuntime} onToast={setToast} />}
-        {view === "history" && <HistoryView />}
-        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} />}
+        {view === "workflows" && <WorkflowView runtime={appRuntime} onToast={setToast} backgroundSettings={workflowBackground} onScheduleEnabled={() => desktop && !workflowBackground.background && setBackgroundPromptOpen(true)} />}
+        {view === "history" && <WorkflowHistoryView runtime={appRuntime} onToast={setToast} targetRunId={notificationRunId} />}
+        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} workflowBackground={workflowBackground} onWorkflowBackgroundChange={changeWorkflowBackground} onExit={exitMyBox} />}
         {view === "chat" && <ChatView
           {...sharedChatProps}
           onBack={() => setView("apps")}
@@ -1855,6 +1838,7 @@ export function App() {
       />}
       {pendingDelete && <Modal title="アプリを削除" onClose={() => setPendingDelete(null)} className="confirm-modal"><div className="confirm-body"><AppGlyph icon={pendingDelete.icon} color={pendingDelete.color} size={52} /><p><strong>{pendingDelete.name}</strong>をMyBoxから削除しますか？</p><div className="confirm-actions"><button onClick={() => setPendingDelete(null)}>キャンセル</button><button className="danger-button" onClick={deleteApp}><Trash size={19} />削除</button></div></div></Modal>}
       {pendingApproval && <AgentApprovalModal request={pendingApproval} onApprove={() => resolveApproval(true)} onReject={() => resolveApproval(false)} />}
+      {backgroundPromptOpen && <WorkflowBackgroundModal onChoose={chooseScheduleBackground} onClose={() => setBackgroundPromptOpen(false)} />}
       <UpdatePrompt updater={hostUpdater} />
       {deviceLogin && <DeviceLoginModal login={deviceLogin} onClose={cancelSignIn} />}
       {providerModal === "openai" && <OpenAiConfigModal settings={providerSettings.openaiApi} busy={agentBusy} onClose={() => setProviderModal(null)} onSave={saveOpenAi} onDisconnect={removeOpenAi} />}

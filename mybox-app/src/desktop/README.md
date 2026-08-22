@@ -45,6 +45,9 @@ must only be called when `isDesktopRuntime()` returns true.
 - `image-studio.js`: stores validated reference images, calls the authenticated
   Codex image bridge with up to four opaque references, and reads generated
   Image resources without exposing filesystem paths.
+- `workflow-background.js`: controls Workflow Tray execution, optional
+  operating-system startup, notifications, window restoration, and explicit
+  process exit without exposing those native capabilities to individual Apps.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.

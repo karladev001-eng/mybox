@@ -1,11 +1,12 @@
 import { registerAgentHost } from "./agent-host-registry.js";
 import { AppHost } from "./app-host.js";
-import { ConnectionManager } from "./connections.js";
+import { WorkflowManager } from "./workflow-manager.js";
 import { ResourceBroker } from "./resource-broker.js";
 import { createAppStorage, MemoryStorageDriver } from "./storage.js";
 import { TauriStorageDriver } from "../desktop/tauri-storage.js";
 import { deleteImageStudioResource, readImageStudioResource, storeImageStudioReferenceBase64, generateImageStudio } from "../desktop/image-studio.js";
 import { readKnowledgeImage, storeKnowledgeImageBytes } from "../desktop/knowledge-images.js";
+import { notifyWorkflow } from "../desktop/workflow-background.js";
 import { createKnowledgeApp } from "../knowledge/app.js";
 import { createImageStudioApp } from "../image-studio/app.js";
 
@@ -17,17 +18,22 @@ function payload(dataUri) { return String(dataUri).replace(/^data:image\/(?:png|
 export function createSharedAppRuntime({ desktop = false, getConfirmationLevel = () => "review", getUserId = () => "local-user" } = {}) {
   const storageDriver = desktop ? new TauriStorageDriver() : webDriver;
   const resources = new ResourceBroker();
-  let connections;
+  let workflows;
   const host = new AppHost({
     storageDriver,
     resources,
-    connections: { pull: (...args) => connections.pull(...args) },
+    workflows: { request: (...args) => workflows.request(...args) },
+    connections: { pull: (...args) => workflows.request(...args) },
   });
-  connections = new ConnectionManager({
+  workflows = new WorkflowManager({
     host,
     storage: createAppStorage(HOST_APP_ID, storageDriver),
     confirmationLevel: getConfirmationLevel,
     userId: getUserId,
+    notify: async (notice) => {
+      if (!desktop) return;
+      await notifyWorkflow(notice);
+    },
   });
   const sharedSessions = new Map();
   const definitions = new Map([
@@ -60,7 +66,12 @@ export function createSharedAppRuntime({ desktop = false, getConfirmationLevel =
   syncInstalled(["knowledge", "image-studio"]);
 
   return Object.freeze({
-    host, connections, sharedSessions, syncInstalled,
-    start: () => connections.load(),
+    host,
+    workflows,
+    connections: workflows,
+    sharedSessions,
+    syncInstalled,
+    start: () => workflows.load(),
+    stop: () => workflows.stop(),
   });
 }

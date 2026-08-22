@@ -43,3 +43,5 @@ notes of the ADR it realizes.
 - [0035 — Share App runtime and connect typed App resources](0035-share-app-runtime-and-connect-app-resources.md)
 - [0036 — Browse Image templates as visual products](0036-browse-image-templates-as-visual-products.md)
 - [0037 — Edit and import the final Image Prompt](0037-edit-and-import-the-final-image-prompt.md)
+- [0038 — Run App automation as durable Workflows](0038-run-app-automation-as-durable-workflows.md)
+- [0039 — Use one JSON document as the Workflow data plane](0039-use-one-json-document-as-workflow-data-plane.md)

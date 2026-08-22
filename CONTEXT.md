@@ -21,19 +21,41 @@ explicit set of callers.
 **Event** — An immutable notification that something already happened in an app.
 Events may trigger follow-up work but do not expose the app's private state.
 
-**Flow** — A saved orchestration that passes operation outputs to later operations.
-Flows are optional and use no privileged integration path.
+**Workflow** — A Host-owned, saved automation that starts from an Event, User
+action, schedule, or App request and passes typed Operation output to ordered
+later Steps. Workflows use no privileged integration path. The serialized caller
+type remains `flow` for App contract compatibility.
+_Avoid_: direct App integration, script
+
+**Workflow Command** — A visual pass-through Step projected by the Host from a
+non-destructive Operation exposed to both Agent and Flow callers. Its saved
+configuration and optional Workflow JSON mappings form the Operation input, it
+keeps any typed item from the preceding Step unchanged, and its validated result
+is recorded in the Workflow JSON document. Normal grants, Confirmation, audit,
+and Project role checks still apply.
+_Avoid_: script step, privileged command
+
+**Workflow JSON document** — The single Host-owned, versioned JSON working file
+for one Workflow. User values live below `$.data`; Trigger and actual Step inputs,
+outputs, states, and errors are retained under reserved Run records. It contains
+Resource references, never resource bytes.
+_Avoid_: App storage, audit log, binary payload file
+
+**Workflow JSON mapping** — A restricted JSON-path binding that reads a Workflow
+document value into an Operation input or writes an Operation result value below
+`$.data`. It supports properties, numeric indexes, and read-only array wildcards,
+but no expressions or wildcard destinations.
+_Avoid_: script, expression, unrestricted JSONPath
 
 **Connector** — An App-declared, versioned source or target for one typed data
 shape. A Connector names the pull Operation, push Event, pull library, or consume
-Operation a Connection may use; it is not itself a grant.
+Operation a Workflow may use; it is not itself a grant.
 _Avoid_: direct App integration, storage adapter
 
-**Connection** — A Host-owned saved pairing of compatible source and target
-Connectors plus their App-specific configuration. An enabled Connection grants
-only its declared Connector Operations and remains subject to caller,
-Confirmation, and audit checks.
-_Avoid_: Flow, unrestricted App permission
+**Connection** — The legacy saved pairing of one source and one target Connector.
+Connections migrate to Workflows; the term remains only for the compatibility
+storage and API bridge during migration.
+_Avoid_: current automation, unrestricted App permission
 
 **Agent** — An AI-controlled caller that can discover and invoke only operations
 exposed to it. Reads and writes remain subject to host authorization and auditing.

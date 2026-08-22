@@ -37,7 +37,7 @@ audit metadata without logging payload contents.
 
 Events describe completed facts. The emitting app validates the payload against
 its manifest before publication. Subscriber failure does not roll back the
-operation that emitted the event; retries and compensation belong to the flow or
+operation that emitted the event; retries and compensation belong to the Workflow or
 subscriber. Cross-app atomic transactions are intentionally unsupported.
 
 Large files are passed as resource references rather than embedded payloads. A
@@ -82,7 +82,7 @@ The target desktop layout is:
 
 ```text
 <workspace>/
-  .mybox/             host metadata, registry, grants, audit and flow definitions
+  .mybox/             host metadata, registry, grants, audit and Workflow definitions
   apps/<app-id>/      common private state owned by one app
   resources/          host-managed large resources and revisions
 
@@ -97,9 +97,10 @@ Google Cloud and other providers are opt-in adapters for import, export, backup,
 or synchronization. They exchange versioned changes and do not become a direct
 shared database or alternate access path into App internals.
 
-## Agent and flow access
+## Agent and Workflow access
 
-Agents and flows discover only manifest operations that list their caller type.
+Agents and Workflows discover only manifest operations that list their caller
+type. The internal caller value remains `flow` for contract compatibility.
 An agent's model is supplied through a replaceable agent provider. The provider
 receives prompt/context data and returns text or a structured decision; it never
 receives an app storage port or raw workspace path. Subscription authentication,
@@ -146,9 +147,26 @@ may change its knowledge and use recoverable Trash operations, and Viewers are
 limited to read and search Operations. Permanent Page deletion and Project
 lifecycle Operations require Owner authority.
 
-Flows persist operation IDs, contract major versions, input mappings, and grants.
-They pause with an actionable error when an app is missing, disabled, incompatible,
-or no longer authorized.
+Workflows persist a Trigger, ordered Action IDs and static configuration, exact
+versioned input/output data types, durable Runs, and grants limited to their Step
+Operations. A Host-owned JSON document records each resolved Step input and
+validated output. Restricted property/index mappings may read that document into
+an input and write a result below `$.data`; expressions, filters, branches,
+loops, and parallel Steps remain unavailable.
+Runs pause with an actionable error when an App is missing, disabled,
+incompatible, awaiting approval, or no longer authorized. Event Runs are queued
+without loss, transient failures receive bounded retries, and a crashed Step
+resumes with the same Run and delivery IDs.
+
+The Host additionally projects non-destructive Operations shared by `agent` and
+`flow` into visual Workflow Commands. Their input Schema becomes the configuration
+form, their output Schema supplies result-path candidates, and an incoming typed
+item passes through unchanged. Their validated input and result are stored in the
+Workflow JSON document. They retain the same scoped grant, Confirmation,
+Project role, and audit checks as Agent invocation. Because an original command
+API has no delivery ID, interrupted non-read Commands stop with an uncertain
+outcome instead of being replayed automatically; Apps use an explicit Workflow
+Action for typed output or idempotent recovery.
 
 ## Example: note to slide
 

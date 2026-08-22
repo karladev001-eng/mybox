@@ -3,6 +3,7 @@ import test from "node:test";
 import { AppHost } from "../src/core/app-host.js";
 import { createProfilePreferencesStore } from "../src/core/profile-preferences.js";
 import { createAppStorage, MemoryStorageDriver } from "../src/core/storage.js";
+import { workflowSchemaPaths } from "../src/core/workflow-json.js";
 import { createKnowledgeApp } from "../src/knowledge/app.js";
 import {
   applyColorWrap,
@@ -34,6 +35,13 @@ function deterministicIds() {
   let value = 0;
   return (prefix) => `${prefix}-${++value}`;
 }
+
+test("publishes Page title paths for Workflow command output mapping", () => {
+  const app = createKnowledgeApp();
+  const operation = app.manifest.operations.find((item) => item.id === "knowledge.page.list");
+  assert.equal(app.manifest.version, "0.4.0");
+  assert.ok(workflowSchemaPaths(operation.outputSchema).includes("$.pages[*].title"));
+});
 
 function fixture() {
   const idFactory = deterministicIds();

@@ -48,7 +48,7 @@ async function saveMutation(storage, mutation) {
   return mutation;
 }
 
-function operation({ id, title, effect, confirmationClass, callers = actorCallers, inputSchema = objectSchema }) {
+function operation({ id, title, effect, confirmationClass, callers = actorCallers, inputSchema = objectSchema, outputSchema = objectSchema }) {
   return {
     id,
     title,
@@ -56,7 +56,7 @@ function operation({ id, title, effect, confirmationClass, callers = actorCaller
     confirmationClass,
     callers,
     inputSchema,
-    outputSchema: objectSchema,
+    outputSchema,
   };
 }
 
@@ -88,6 +88,48 @@ const pageInput = {
   properties: {
     projectId: { type: "string", minLength: 1 },
     pageId: { type: "string", minLength: 1 },
+  },
+};
+
+const projectSummarySchema = {
+  type: "object",
+  required: ["id", "name", "role"],
+  properties: {
+    id: { type: "string", title: "Project ID" },
+    name: { type: "string", title: "Project名" },
+    role: { type: "string", title: "Role" },
+    activePageCount: { type: "integer", title: "Page数" },
+    trashPageCount: { type: "integer", title: "Trash数" },
+  },
+};
+
+const pageSummarySchema = {
+  type: "object",
+  required: ["id", "title"],
+  properties: {
+    id: { type: "string", title: "Page ID" },
+    projectId: { type: "string", title: "Project ID" },
+    title: { type: "string", title: "Pageタイトル" },
+    state: { type: "string", title: "状態" },
+    revision: { type: "integer", title: "Revision" },
+    updatedAt: { type: "string", title: "更新日時" },
+    tagIds: { type: "array", title: "Tag ID", items: { type: "string" } },
+    excerpt: { type: "string", title: "抜粋" },
+  },
+};
+
+const searchResultSchema = {
+  type: "object",
+  required: ["projectId", "pageId", "pageTitle"],
+  properties: {
+    projectId: { type: "string", title: "Project ID" },
+    pageId: { type: "string", title: "Page ID" },
+    pageTitle: { type: "string", title: "Pageタイトル" },
+    pageState: { type: "string", title: "状態" },
+    pageRevision: { type: "integer", title: "Revision" },
+    blockId: { type: ["string", "null"], title: "Block ID" },
+    excerpt: { type: "string", title: "抜粋" },
+    reason: { type: "string", title: "一致箇所" },
   },
 };
 
@@ -174,10 +216,10 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.1.5",
-      hostCapabilities: ["app-storage"],
+      version: "0.4.0",
+      hostCapabilities: ["app-storage", "workflows"],
       operations: [
-        operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema }),
+        operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema, outputSchema: { type: "object", required: ["projects"], properties: { projects: { type: "array", title: "Projects", items: projectSummarySchema } } } }),
         operation({ id: "knowledge.project.members.list", title: "Projectメンバー色を一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
         operation({
           id: "knowledge.project.member-color.set",
@@ -200,7 +242,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
           title: "Projectを作成",
           effect: "write",
           confirmationClass: "always-confirm",
-          callers: ["user", "agent"],
+          callers: ["user", "agent", "flow"],
           inputSchema: {
             type: "object",
             required: ["name"],
@@ -230,9 +272,9 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
           callers: ["user"],
           inputSchema: projectInput,
         }),
-        operation({ id: "knowledge.page.list", title: "Pageを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
-        operation({ id: "knowledge.page.read", title: "Pageを読む", effect: "read", confirmationClass: "review", inputSchema: pageInput }),
-        operation({ id: "knowledge.page.markdown.read", title: "PageをMarkdownで読む", effect: "read", confirmationClass: "review", inputSchema: pageInput }),
+        operation({ id: "knowledge.page.list", title: "Pageを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput, outputSchema: { type: "object", required: ["pages"], properties: { pages: { type: "array", title: "Pages", items: pageSummarySchema } } } }),
+        operation({ id: "knowledge.page.read", title: "Pageを読む", effect: "read", confirmationClass: "review", inputSchema: pageInput, outputSchema: { type: "object", required: ["page"], properties: { page: { ...pageSummarySchema, title: "Page" }, tags: { type: "array", title: "Tags", items: { type: "object" } }, backlinks: { type: "array", title: "Backlinks", items: { type: "object" } } } } }),
+        operation({ id: "knowledge.page.markdown.read", title: "PageをMarkdownで読む", effect: "read", confirmationClass: "review", inputSchema: pageInput, outputSchema: { type: "object", required: ["page", "markdown"], properties: { page: pageSummarySchema, markdown: { type: "string", title: "Markdown" } } } }),
         operation({
           id: "knowledge.page.search",
           title: "Pageを検索",
@@ -246,6 +288,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
               includeTrash: { type: "boolean" },
             },
           },
+          outputSchema: { type: "object", required: ["results"], properties: { results: { type: "array", title: "検索結果", items: searchResultSchema } } },
         }),
         operation({ id: "knowledge.page.backlinks", title: "被リンクを読む", effect: "read", confirmationClass: "review", inputSchema: pageInput }),
         operation({
@@ -288,7 +331,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
             properties: { ...revisionInput.properties, historyId: { type: "string", minLength: 1 } },
           },
         }),
-        operation({ id: "knowledge.tag.list", title: "Tagを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
+        operation({ id: "knowledge.tag.list", title: "Tagを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput, outputSchema: { type: "object", required: ["tags"], properties: { tags: { type: "array", title: "Tags", items: { type: "object", required: ["id", "projectId", "label"], properties: { id: { type: "string", title: "Tag ID" }, projectId: { type: "string", title: "Project ID" }, label: { type: "string", title: "Tag名" }, pageCount: { type: "integer", title: "Page数" } } } } } } }),
         operation({ id: "knowledge.connector.options", title: "Connection設定候補を一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema }),
         operation({ id: "knowledge.prompt-fragments.list", title: "Tag付きMarkdown Pageを取得", effect: "read", confirmationClass: "review", inputSchema: { type: "object", required: ["config"], properties: { config: { type: "object" } } } }),
         operation({ id: "knowledge.generated-image.consume", title: "生成画像からPageを作成", effect: "write", confirmationClass: "recoverable", inputSchema: { type: "object", required: ["item", "config", "deliveryId"], properties: { item: { type: "object" }, config: { type: "object" }, deliveryId: { type: "string" }, source: { type: "object" } } } }),
@@ -355,6 +398,16 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         sources: [{ id: "knowledge.tagged-markdown", title: "Tag付きMarkdown Page", mode: "pull", dataType: "mybox.prompt-fragment.v1", operationId: "knowledge.prompt-fragments.list", optionsOperationId: "knowledge.connector.options", configSchema: { type: "object", required: ["projectId", "publishTag", "worldTag", "styleTag", "compositionTag", "moodTag"], properties: { projectId: { type: "string", title: "Project", format: "mybox-project" }, publishTag: { type: "string", title: "公開用Tag", format: "mybox-tag" }, worldTag: { type: "string", title: "世界観Tag", format: "mybox-tag" }, styleTag: { type: "string", title: "画風Tag", format: "mybox-tag" }, compositionTag: { type: "string", title: "用途・構図Tag", format: "mybox-tag" }, moodTag: { type: "string", title: "雰囲気Tag", format: "mybox-tag" } } } }],
         targets: [{ id: "knowledge.generated-image-pages", title: "画像Pageを作成", mode: "consume", dataType: "mybox.generated-image.v1", operationId: "knowledge.generated-image.consume", optionsOperationId: "knowledge.connector.options", configSchema: { type: "object", required: ["projectId"], properties: { projectId: { type: "string", title: "出力Project", format: "mybox-project" }, pageTag: { type: "string", title: "Page Tag", format: "mybox-tag" } } } }],
       },
+      workflowActions: [{
+        id: "knowledge.workflow.create-generated-image-page",
+        title: "画像Pageを作成",
+        operationId: "knowledge.generated-image.consume",
+        inputDataType: "mybox.generated-image.v1",
+        outputDataType: null,
+        configSchema: { type: "object", required: ["projectId"], properties: { projectId: { type: "string", title: "出力Project", format: "mybox-project" }, pageTag: { type: "string", title: "Page Tag", format: "mybox-tag" } } },
+        optionsOperationId: "knowledge.connector.options",
+        connectorId: "knowledge.generated-image-pages",
+      }],
     },
     handlers: {
       async "knowledge.project.list"(_input, { actor, storage }) {
@@ -562,13 +615,19 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { items, excluded };
       },
       async "knowledge.generated-image.consume"({ item, config, deliveryId }, { actor, storage, resources }) {
-        const delivered = await storage.readJson(CONNECTION_DELIVERIES_KEY) ?? { deliveries: {} };
+        const delivered = await storage.readJson(CONNECTION_DELIVERIES_KEY) ?? { deliveries: {}, generations: {} };
+        delivered.generations ??= {};
         if (delivered.deliveries[deliveryId]) return { pageId: delivered.deliveries[deliveryId], duplicate: true };
         if (!config.projectId || !item.resource || !item.generationId) throw new KnowledgeDomainError("INVALID_CONNECTION_INPUT", "出力Projectと生成画像が必要です");
+        if (delivered.generations[item.generationId]) {
+          delivered.deliveries[deliveryId] = delivered.generations[item.generationId];
+          await storage.writeJson(CONNECTION_DELIVERIES_KEY, delivered);
+          return { pageId: delivered.generations[item.generationId], duplicate: true };
+        }
         let state = await loadState(storage);
         const deterministicTitle = `Image · ${(item.finalPrompt || "生成画像").split("\n")[0].replace(/^主題:\s*/, "").slice(0, 80)} · ${item.generationId.slice(-8)}`;
         const existing = listPages(state, { projectId: config.projectId, profileId: profileIdFor(actor) }).find((page) => page.title === deterministicTitle);
-        if (existing) { delivered.deliveries[deliveryId] = existing.id; await storage.writeJson(CONNECTION_DELIVERIES_KEY, delivered); return { pageId: existing.id, duplicate: true }; }
+        if (existing) { delivered.deliveries[deliveryId] = existing.id; delivered.generations[item.generationId] = existing.id; await storage.writeJson(CONNECTION_DELIVERIES_KEY, delivered); return { pageId: existing.id, duplicate: true }; }
         const imported = await resources.import(item.resource, { namespace: "images" });
         let mutation = createPage(state, { projectId: config.projectId, title: deterministicTitle, profileId: profileIdFor(actor), actorId: actor.id });
         state = mutation.state; let page = mutation.page;
@@ -592,7 +651,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         state = mutation.state; page = mutation.page;
         if (config.pageTag) { mutation = updatePage(state, { projectId: config.projectId, pageId: page.id, expectedRevision: page.revision, profileId: profileIdFor(actor), actorId: actor.id, mutation: { type: "tags-set", labels: [config.pageTag] } }); state = mutation.state; page = mutation.page; }
         await storage.writeJson(STATE_KEY, state);
-        delivered.deliveries[deliveryId] = page.id; await storage.writeJson(CONNECTION_DELIVERIES_KEY, delivered);
+        delivered.deliveries[deliveryId] = page.id; delivered.generations[item.generationId] = page.id; await storage.writeJson(CONNECTION_DELIVERIES_KEY, delivered);
         return { pageId: page.id, duplicate: false };
       },
       async "knowledge.profile.link-account"({ accountId }, { storage }) {

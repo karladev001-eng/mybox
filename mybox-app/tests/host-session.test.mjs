@@ -26,3 +26,7 @@ test("drops a remembered App surface that is no longer installed", async () => {
     appId: null,
   });
 });
+
+test("normalizes the legacy Connections destination to Workflows", () => {
+  assert.equal(resolveHostSession({ schemaVersion: 1, view: "connections", appId: null }, []).view, "workflows");
+});

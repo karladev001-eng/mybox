@@ -5,7 +5,11 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "autostart:allow-enable",
+    "autostart:allow-disable",
+    "autostart:allow-is-enabled",
     "dialog:allow-open",
+    "notification:default",
     "opener:allow-open-url",
     "opener:allow-default-urls",
     "updater:default",

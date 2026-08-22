@@ -74,3 +74,8 @@ and `image-studio.generation.completed`. Note `0.1.4` declares tagged-Markdown
 and generated-image Connectors. `core/connections.js`, `resource-broker.js`, and
 `app-runtime.js` implement the shared boundary. Rust workspace text commands and
 `image_studio_resources.rs` implement native persistence and validation.
+
+ADR 0038 supersedes the User-facing Connection runtime with durable, ordered
+Workflows. Connector declarations and Resource transfer remain the typed App
+boundary decided here; the legacy Connection file and `ctx.connections.pull()`
+remain for one compatibility release while records migrate.

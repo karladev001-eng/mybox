@@ -1,6 +1,6 @@
 const HOST_SESSION_SCHEMA_VERSION = 1;
 const HOST_SESSION_KEY = "ui/session.json";
-const HOST_VIEWS = new Set(["apps", "connections", "history", "settings", "chat"]);
+const HOST_VIEWS = new Set(["apps", "workflows", "connections", "history", "settings", "chat"]);
 
 function clone(value) {
   return structuredClone(value);
@@ -23,7 +23,7 @@ export function validateHostSession(value) {
   ) {
     throw new TypeError("Host session is invalid");
   }
-  return value;
+  return value.view === "connections" ? { ...value, view: "workflows" } : value;
 }
 
 export function resolveHostSession(value, installedAppIds = []) {

@@ -76,6 +76,7 @@ export class AppHost {
   #storageDriver;
   #ajv;
   #connections;
+  #workflows;
   #resources;
 
   constructor({
@@ -84,6 +85,7 @@ export class AppHost {
     clock = () => new Date(),
     storageDriver = new MemoryStorageDriver(),
     connections = null,
+    workflows = null,
     resources = null,
   } = {}) {
     this.#authorize = authorize;
@@ -91,8 +93,11 @@ export class AppHost {
     this.#clock = clock;
     this.#storageDriver = storageDriver;
     this.#connections = connections;
+    this.#workflows = workflows;
     this.#resources = resources;
     this.#ajv = new Ajv({ allErrors: true, strict: false });
+    this.#ajv.addFormat("mybox-project", true);
+    this.#ajv.addFormat("mybox-tag", true);
   }
 
   register(definition) {
@@ -272,8 +277,16 @@ export class AppHost {
         }),
         connections: Object.freeze({
           pull: (targetConnectorId) => {
-            if (!this.#connections?.pull) throw new AppHostError("CONNECTIONS_UNAVAILABLE", "Connection runtime is unavailable");
-            return this.#connections.pull(record.appId, targetConnectorId, { correlationId });
+            const request = this.#workflows?.request ?? this.#connections?.pull;
+            if (!request) throw new AppHostError("WORKFLOWS_UNAVAILABLE", "Workflow runtime is unavailable");
+            return request(record.appId, targetConnectorId, { correlationId });
+          },
+        }),
+        workflows: Object.freeze({
+          request: (targetConnectorId) => {
+            const request = this.#workflows?.request ?? this.#connections?.pull;
+            if (!request) throw new AppHostError("WORKFLOWS_UNAVAILABLE", "Workflow runtime is unavailable");
+            return request(record.appId, targetConnectorId, { correlationId });
           },
         }),
         resources: Object.freeze({

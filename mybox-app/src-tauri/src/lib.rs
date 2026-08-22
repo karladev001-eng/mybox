@@ -7,6 +7,42 @@ mod knowledge_resources;
 mod sync_endpoints;
 mod workspace;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::Manager;
+
+#[derive(Default)]
+struct WorkflowBackground(AtomicBool);
+
+fn restore_main_window(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
+#[tauri::command]
+fn workflow_background_enabled(state: tauri::State<'_, WorkflowBackground>) -> bool {
+    state.0.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn set_workflow_background(state: tauri::State<'_, WorkflowBackground>, enabled: bool) -> bool {
+    state.0.store(enabled, Ordering::SeqCst);
+    enabled
+}
+
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle) {
+    restore_main_window(&app);
+}
+
+#[tauri::command]
+fn exit_mybox(app: tauri::AppHandle, state: tauri::State<'_, WorkflowBackground>) {
+    state.0.store(false, Ordering::SeqCst);
+    app.exit(0);
+}
+
 #[cfg(windows)]
 fn disable_browser_accelerators(webview: tauri::webview::PlatformWebview) -> Result<(), String> {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
@@ -63,10 +99,51 @@ fn configure_windows_webview(app: &tauri::App) -> Result<(), Box<dyn std::error:
 
 pub fn run() {
     tauri::Builder::default()
+        .manage(WorkflowBackground::default())
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            restore_main_window(app);
+        }))
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            Some(vec!["--background"]),
+        ))
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             #[cfg(windows)]
             configure_windows_webview(app)?;
+            let mut tray = tauri::tray::TrayIconBuilder::with_id("mybox")
+                .tooltip("MyBox")
+                .show_menu_on_left_click(false);
+            if let Some(icon) = app.default_window_icon() {
+                tray = tray.icon(icon.clone());
+            }
+            tray.on_tray_icon_event(|tray, event| {
+                if matches!(event, tauri::tray::TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, button_state: tauri::tray::MouseButtonState::Up, .. }) {
+                    restore_main_window(tray.app_handle());
+                }
+            })
+            .build(app)?;
+            if std::env::args().any(|arg| arg == "--background") {
+                app.state::<WorkflowBackground>()
+                    .0
+                    .store(true, Ordering::SeqCst);
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+            }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window
+                    .state::<WorkflowBackground>()
+                    .0
+                    .load(Ordering::SeqCst)
+                {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .manage(agent_providers::ProviderSecretLock::default())
         .plugin(tauri_plugin_dialog::init())
@@ -121,6 +198,10 @@ pub fn run() {
             workspace::write_app_text,
             workspace::delete_app_value,
             workspace::list_app_keys,
+            workflow_background_enabled,
+            set_workflow_background,
+            show_main_window,
+            exit_mybox,
         ])
         .run(tauri::generate_context!())
         .expect("failed to run MyBox");

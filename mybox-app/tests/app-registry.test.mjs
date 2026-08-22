@@ -15,13 +15,13 @@ test("registers the Note and Image module surfaces in the default installed cata
   assert.equal(knowledge.surface.kind, "module");
   assert.equal(knowledge.surface.exportName, "KnowledgeView");
   assert.equal(typeof knowledge.surface.load, "function");
-  assert.equal(knowledge.version, "1.14.1");
+  assert.equal(knowledge.version, "1.17.0");
   assert.deepEqual(knowledge.shortcuts.map(({ id, displayKeys }) => ({ id, displayKeys })), [
     { id: "page-search", displayKeys: ["Ctrl", "P"] },
   ]);
   assert.equal(registry.listDefaultInstalled().some((app) => app.id === "knowledge"), true);
   const image = registry.get("image-studio");
-  assert.equal(image.version, "0.4.1");
+  assert.equal(image.version, "0.5.0");
   assert.equal(image.surface.exportName, "ImageStudioView");
   assert.equal(image.icon, "image");
   assert.equal(image.color, "#67d7c4");

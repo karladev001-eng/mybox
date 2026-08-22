@@ -7,9 +7,16 @@ contract described in `../../../docs/app-framework.md`.
 - `app-host.js`: registration, removal, operation routing, events, authorization,
   schema validation, and audit metadata.
 - `app-runtime.js`: composes the installed first-party App definitions into one
-  Host so unopened Apps remain callable by Connections, Flows, and Agents.
-- `connections.js`: persists typed Connector pairings, creates Operation-only
-  grants, and runs pull and Event-to-consume delivery with status and retry.
+  Host so unopened Apps remain callable by Workflows and Agents.
+- `workflow-manager.js`: persists typed, ordered Workflow definitions and Runs;
+  projects Agent Operations as pass-through Commands, migrates legacy
+  Connections, and owns event queues, App requests, schedules, approval stops,
+  bounded retry, crash recovery, Step-level run history, and per-Workflow JSON
+  document persistence.
+- `workflow-json.js`: parses the restricted Workflow JSON path language, applies
+  safe input/output mappings, and bounds each Workflow's single working document.
+- `connections.js`: the one-release legacy Connection implementation retained
+  for compatibility tests; the shared runtime routes new work through Workflows.
 - `resource-broker.js`: validates opaque resource references and transfers bytes
   only through registered App providers/importers.
 - `agent-provider.js`: provider descriptor validation and replaceable provider

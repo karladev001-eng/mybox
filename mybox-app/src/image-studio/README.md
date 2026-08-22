@@ -3,10 +3,13 @@
 `image-studio` is MyBox's local-first image generation App. It owns prompt
 templates, generation history, reference resources, and generated images.
 
-Read `domain.js` for prompt/template rules, `app.js` for public Operations and
-Connectors, `client.js` for the host/native boundary, and `ImageStudioView.jsx`
+Read `domain.js` for prompt/template rules, `app.js` for public Operations,
+Workflow Actions, and Connectors, `client.js` for the host/native boundary, and `ImageStudioView.jsx`
 plus `image-studio.css` for the Surface. Other Apps may interact only through
 the declared Connectors, Operations, Events, and Host resource broker.
+The no-input `画像を生成` Workflow Action returns the same
+`mybox.generated-image.v1` item that the completion Event publishes, after both
+the resource and generation history are durable.
 
 `template-samples.webp` is the offline comparison atlas used by the visual
 template catalog. It keeps one subject constant across world, style,

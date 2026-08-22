@@ -1,4 +1,4 @@
-export const APP_SCHEMA_VERSION = 2;
+export const APP_SCHEMA_VERSION = 3;
 
 export const OPERATION_EFFECTS = Object.freeze([
   "read",
@@ -80,6 +80,33 @@ function validateSchema(schema, label) {
 
 const CONNECTOR_MODES = Object.freeze({ source: ["pull", "push"], target: ["pull", "consume"] });
 const DATA_TYPE_PATTERN = /^mybox\.[a-z][a-z0-9-]*\.v\d+$/;
+
+function validateWorkflowActions(manifest, seenIds) {
+  if (manifest.workflowActions === undefined) return;
+  assert(Array.isArray(manifest.workflowActions), "workflowActions must be an array");
+  const operations = new Map(manifest.operations.map((operation) => [operation.id, operation]));
+  for (const action of manifest.workflowActions) {
+    assert(isObject(action), "Workflow Action declaration must be an object");
+    validateCapabilityId(manifest.id, action.id, "Workflow Action");
+    assert(!seenIds.has(action.id), "Capability IDs must be unique in an app", { id: action.id });
+    seenIds.add(action.id);
+    assert(typeof action.title === "string" && action.title.trim(), "Workflow Action title is required", { id: action.id });
+    validateCapabilityId(manifest.id, action.operationId, "Operation");
+    const operation = operations.get(action.operationId);
+    assert(operation, "Workflow Action Operation must be declared by the same app", { id: action.id, operationId: action.operationId });
+    assert(operation.callers.includes("flow"), "Workflow Action Operation must allow the flow caller", { id: action.id, operationId: action.operationId });
+    for (const field of ["inputDataType", "outputDataType"]) {
+      if (action[field] !== undefined && action[field] !== null) {
+        assert(typeof action[field] === "string" && DATA_TYPE_PATTERN.test(action[field]), `Workflow Action ${field} is invalid`, { id: action.id, dataType: action[field] });
+      }
+    }
+    validateSchema(action.configSchema ?? { type: "object" }, `${action.id} configSchema`);
+    if (action.optionsOperationId !== undefined) {
+      validateCapabilityId(manifest.id, action.optionsOperationId, "Operation");
+      assert(operations.has(action.optionsOperationId), "Workflow Action options Operation must be declared by the same app", { id: action.id, operationId: action.optionsOperationId });
+    }
+  }
+}
 
 function validateConnectors(manifest, seenIds) {
   if (manifest.connectors === undefined) return;
@@ -164,6 +191,7 @@ export function validateAppManifest(manifest) {
   }
 
   validateConnectors(manifest, seenIds);
+  validateWorkflowActions(manifest, seenIds);
 
   if (manifest.hostCapabilities !== undefined) {
     assert(Array.isArray(manifest.hostCapabilities), "hostCapabilities must be an array");

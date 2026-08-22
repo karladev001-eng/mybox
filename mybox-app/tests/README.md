@@ -30,6 +30,9 @@ Contains Node tests for framework behavior and Sites packaging.
   commands for installed Apps and MyBox home.
 - `host-session.test.mjs`: validated Host last-surface persistence, including
   fallback when an App is no longer installed.
+- `workflows.test.mjs`: durable typed Workflow migration, Agent Operation
+  projection, pass-through Commands, event ordering, approval resume, safe
+  command crash recovery, retry limits, Step snapshots, and schedule catch-up.
 - `tag-behavior.test.mjs`: IME-safe physical/full-width Space confirmation,
   composition-end delimiter detection, multi-Tag splitting, and used-only
   candidate filtering.

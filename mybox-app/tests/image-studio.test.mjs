@@ -103,3 +103,33 @@ test("requires fresh confirmation for agent reference generation and keeps purge
   await host.invoke("image-studio.generation.purge", { id: result.generation.id }, { actor: user, approval: { granted: true, fresh: true } });
   assert.equal(purgedResourceId, reference.resourceId);
 });
+
+test("keeps Workflow reference generation on an always-confirm Operation", async () => {
+  const host = new AppHost({ workflows: { request: async () => ({ items: [] }) } });
+  host.register(createImageStudioApp({ generator: {
+    generate: async () => ({ resource: reference, actual: { width: 1024, height: 1024 } }),
+  } }));
+  const input = {
+    config: { subject: "arrange", ratio: "1:1", references: [reference] },
+    runId: "run-1",
+    stepId: "step-1",
+    deliveryId: "delivery-1",
+    trigger: { kind: "schedule" },
+    source: null,
+  };
+  const options = {
+    actor: { type: "flow", id: "workflow-1" },
+    grant: { operationIds: ["image-studio.workflow.generate-from-reference"] },
+    confirmationLevel: "autonomous",
+  };
+  await assert.rejects(
+    host.invoke("image-studio.workflow.generate-from-reference", input, options),
+    (error) => error.code === "ALWAYS_CONFIRM_REQUIRED",
+  );
+  await assert.rejects(
+    host.invoke("image-studio.workflow.generate", input, { ...options, grant: { operationIds: ["image-studio.workflow.generate"] } }),
+    (error) => error.code === "INVALID_OPERATION_INPUT",
+  );
+  const result = await host.invoke("image-studio.workflow.generate-from-reference", input, { ...options, approval: { granted: true, fresh: true } });
+  assert.equal(result.item.resource.resourceId, reference.resourceId);
+});

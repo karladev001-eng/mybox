@@ -69,3 +69,10 @@ plain text, or an enabled Note App. Its Note Page picker searches normalized Pag
 titles and Tags, while Image keeps ratio selection independent from generated
 pixel dimensions. Image Registry `0.4.1` and Note Registry `1.14.1` expose the
 corresponding App updates.
+
+Release `0.8.0` replaces one-to-one Connections with durable visual Workflows,
+projects shared Agent Operations as Workflow Commands, and adds manual, Event,
+App-request, and scheduled execution with Tray recovery. Each Workflow owns one
+bounded JSON document whose restricted path mappings can feed command input and
+retain validated output such as Note Page titles. Image Registry `0.5.0` and Note
+Registry `1.17.0` expose the corresponding App updates.

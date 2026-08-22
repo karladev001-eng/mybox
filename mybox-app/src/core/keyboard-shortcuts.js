@@ -4,7 +4,7 @@ export const HOST_KEYBOARD_SHORTCUTS = Object.freeze([
   Object.freeze({ id: "command-palette", group: "操作", label: "コマンドパレットを開く", key: "k", code: "KeyK", displayKeys: ["Ctrl", "K"] }),
   Object.freeze({ id: "new-chat", group: "AI", label: "新しいチャット", key: "n", code: "KeyN", shiftKey: true, displayKeys: ["Ctrl", "Shift", "N"] }),
   Object.freeze({ id: "apps", group: "移動", label: "アプリを開く", key: "1", code: "Digit1", displayKeys: ["Ctrl", "1"] }),
-  Object.freeze({ id: "connections", group: "移動", label: "連携を開く", key: "2", code: "Digit2", displayKeys: ["Ctrl", "2"] }),
+  Object.freeze({ id: "connections", group: "移動", label: "ワークフローを開く", key: "2", code: "Digit2", displayKeys: ["Ctrl", "2"] }),
   Object.freeze({ id: "history", group: "移動", label: "履歴を開く", key: "3", code: "Digit3", displayKeys: ["Ctrl", "3"] }),
   Object.freeze({ id: "settings", group: "移動", label: "設定を開く", key: "4", code: "Digit4", displayKeys: ["Ctrl", "4"] }),
   Object.freeze({ id: "chat", group: "移動", label: "AIチャットを開く", key: "5", code: "Digit5", displayKeys: ["Ctrl", "5"] }),

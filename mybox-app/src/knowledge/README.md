@@ -7,11 +7,16 @@ Implements the first vertical slice of the `knowledge` App described in
   PageLink, Tag, Trash, revision, history, and search rules.
 - `author-color.js`: the accessible member color palette and deterministic
   fallback used by local and shared Projects.
-- `app.js`: public App manifest, Connector declarations, and Operation handlers
+- `app.js`: public App manifest, Connector and Workflow Action declarations, and Operation handlers
   backed by App storage. Tagged Markdown Pages can supply Image Prompt templates;
+  non-destructive Agent Operations shared with the Flow caller appear as visual
+  Workflow Commands, including always-confirm Project creation. Project, Page,
+  search, Markdown, and Tag reads publish concrete output schemas so Workflow
+  JSON mappings can offer fields such as Page titles;
   `knowledge.page.markdown.read` exposes an authorized Page body for explicit
   imports without exposing Knowledge storage or requiring a saved Connection;
-  generated-image delivery is idempotent and copies media into Knowledge storage
+  generated-image delivery is idempotent by both delivery ID and source
+  generation ID, and copies media into Knowledge storage
   before creating an image Block.
 - `client.js`: User-facing Host client used by the React surface. It is the
   only file in this directory allowed to import a `../desktop/*` bridge

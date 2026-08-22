@@ -16,7 +16,7 @@ of handlers, and its own storage namespace. The host (`mybox-app/src/core/`)
 validates the manifest, authorizes every call, and routes it. An App never
 reads or writes another App's storage, imports another App's internal modules,
 or calls Tauri directly. Everything an App exposes to the rest of MyBox — the
-UI shell, Flows, and Agents — goes through its declared Operations and Events.
+UI shell, Workflows, and Agents — goes through its declared Operations and Events.
 
 Background: `docs/app-framework.md` explains *why* the contract looks like
 this. You do not need to read it to build an App; this document restates
@@ -58,7 +58,7 @@ import { APP_SCHEMA_VERSION, defineApp } from "../core/app-contract.js";
 export function createMyApp() {
   return defineApp({
     manifest: {
-      schemaVersion: APP_SCHEMA_VERSION,   // currently 2 — copy this constant, never hardcode the number
+      schemaVersion: APP_SCHEMA_VERSION,   // currently 3 — copy this constant, never hardcode the number
       id: "my-app",
       name: "表示名",
       version: "0.1.0",                    // SemVer; bump on every behavior change
@@ -66,6 +66,7 @@ export function createMyApp() {
       operations: [ /* operation({...}) entries, see below */ ],
       events: [ /* event declarations, see below */ ],
       connectors: { sources: [], targets: [] }, // optional typed App-to-App endpoints
+      workflowActions: [ /* optional ordered Workflow steps, see below */ ],
     },
     handlers: {
       "my-app.thing.read"(input, ctx) { /* ... */ },
@@ -138,7 +139,8 @@ Every handler receives `(input, ctx)` where `ctx` is:
   storage,        // your app-scoped storage port, see below
   emit,           // (eventId, payload) => Promise<{ envelope, results }>
   invoke,         // (operationId, input, options) => Promise — call another App's Operation
-  connections,    // pull(targetConnectorId) reads connected typed sources
+  workflows,      // request(targetConnectorId) runs a typed App-request Workflow
+  connections,    // legacy alias: pull(id) delegates to workflows.request(id)
   resources,      // read/import validated large-resource references
 }
 ```
@@ -151,11 +153,50 @@ the same authorization as any other caller.
 
 A Connector ID is App-namespaced. Sources use `mode: "pull"` with an
 `operationId`, or `mode: "push"` with an `eventId`. Targets use
-`mode: "pull"` for a library read through `ctx.connections.pull(id)`, or
+`mode: "pull"` for a library read through `ctx.workflows.request(id)`, or
 `mode: "consume"` with an `operationId`. Both ends declare the same versioned
 `dataType` and a JSON `configSchema`; `optionsOperationId` may provide settings
-candidates. A saved Connection grants only these named Operations. It does not
-bypass caller types, Confirmation, or audit checks.
+candidates. A saved Workflow grants only these named Operations. It does not
+bypass caller types, Confirmation, or audit checks. `ctx.connections.pull(id)`
+remains only as a compatibility wrapper while legacy Connection records migrate.
+
+### Workflow Actions
+
+An App can expose an Operation as an ordered Workflow step:
+
+```js
+{
+  id: "my-app.workflow.publish",
+  title: "公開する",
+  operationId: "my-app.publish",
+  inputDataType: "mybox.document.v1", // omit or null for a starting Action
+  outputDataType: "mybox.result.v1",  // omit or null only for a final Action
+  configSchema: { type: "object", properties: {} },
+  optionsOperationId: "my-app.publish.options", // optional
+}
+```
+
+The Operation must allow the internal `flow` caller. The Host invokes it with
+`{item, config, trigger, runId, stepId, deliveryId, source}` and expects
+`{item?}`. Workflow v1 passes the preceding Action's whole `item` only when the
+versioned data types match exactly. A restricted Workflow JSON mapping may also
+copy document fields into Operation input and validated result fields below
+`$.data`; it does not provide expressions, filters, branches, loops, or parallel
+execution. Use `deliveryId` or a stable source ID to make writes idempotent
+because a crashed Step resumes with the same IDs.
+
+The Host automatically presents a non-destructive Operation as a searchable
+Workflow Command when its `callers` include both `agent` and `flow`, unless the
+same Operation is already represented by an explicit Action or consume
+Connector. A Command's saved configuration and optional JSON input mappings form
+the Operation input; any typed item already moving through the Workflow passes
+around it unchanged. The validated result is recorded in the one Workflow JSON
+document and output mappings may copy fields into `$.data`. Publish a concrete
+`outputSchema` so paths such as `$.pages[*].title` are discoverable. Keep an
+Operation Agent-only to omit it from Workflows. Do not rely on automatic replay for a write
+or external Command: after an interrupted invocation the Run stops for review,
+because the original Agent API has no Workflow delivery ID. Use an explicit
+Action when output typing or idempotent crash recovery matters.
 
 Large binary content stays out of Operation JSON. Pass
 `{appId, resourceId, mediaType, revision, name?}` and use the Host resource
@@ -190,7 +231,7 @@ Add one entry to `mybox-app/src/apps/registry.js`'s `builtInDefinitions`:
 ```js
 {
   id: "my-app",
-  version: "0.1.0",       // match app.js's manifest.version; raise both together
+  version: "0.1.0",       // installed-catalog SemVer; raise when the App changes
   name: "表示名",
   icon: "note",            // a key in App.jsx's iconMap, see below
   color: "#RRGGBB",         // six-digit hex
