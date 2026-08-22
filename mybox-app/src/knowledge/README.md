@@ -9,6 +9,8 @@ Implements the first vertical slice of the `knowledge` App described in
   fallback used by local and shared Projects.
 - `app.js`: public App manifest, Connector declarations, and Operation handlers
   backed by App storage. Tagged Markdown Pages can supply Image Prompt templates;
+  `knowledge.page.markdown.read` exposes an authorized Page body for explicit
+  imports without exposing Knowledge storage or requiring a saved Connection;
   generated-image delivery is idempotent and copies media into Knowledge storage
   before creating an image Block.
 - `client.js`: User-facing Host client used by the React surface. It is the

@@ -19,6 +19,11 @@ export function createImageStudioClient({ desktop = false, appRuntime = null, ho
     listGenerations: (includeTrash = false) => invoke("image-studio.generation.list", { includeTrash }), readGeneration: (id) => invoke("image-studio.generation.read", { id }),
     generate: (input) => invoke((input.references?.length ?? 0) ? "image-studio.generation.create-from-reference" : "image-studio.generation.create", input),
     trashGeneration: (id) => invoke("image-studio.generation.trash", { id }), restoreGeneration: (id) => invoke("image-studio.generation.restore", { id }), purgeGeneration: (id) => invoke("image-studio.generation.purge", { id }),
+    isNoteAvailable: () => Boolean(host.getManifest("knowledge")),
+    listNoteProjects: () => invoke("knowledge.project.list"),
+    listNotePages: (projectId) => invoke("knowledge.page.list", { projectId }),
+    listNoteTags: (projectId) => invoke("knowledge.tag.list", { projectId }),
+    readNotePageMarkdown: (projectId, pageId) => invoke("knowledge.page.markdown.read", { projectId, pageId }),
     pickReference: () => pickImageStudioReference(), storeReference: (file) => storeImageStudioReferenceBytes(file), readResource: (id) => readImageStudioResource(id), subscribe: (eventId, handler) => host.subscribe(eventId, handler),
   });
 }

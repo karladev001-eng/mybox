@@ -63,3 +63,9 @@ Release `0.7.0` ships the shared App runtime and Connector foundation, the
 default-installed Image App, improved Note Markdown editing, and the quiet
 icon-led interface rules. The package, Tauri configuration, and Rust crate use
 the same version so the tag produces one coherent signed update.
+
+Release `0.7.1` makes Image's final Prompt editable and importable from Markdown,
+plain text, or an enabled Note App. Its Note Page picker searches normalized Page
+titles and Tags, while Image keeps ratio selection independent from generated
+pixel dimensions. Image Registry `0.4.1` and Note Registry `1.14.1` expose the
+corresponding App updates.

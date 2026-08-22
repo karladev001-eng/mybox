@@ -39,8 +39,12 @@ perspective, natural light, restrained decoration, and readable dark values.
 
 All five dimensions provide `指定なし`. For Prompt axes, the selected template
 has an empty fragment and the compiler omits that line. Aspect ratio uses `auto`;
-the compiler omits ratio and target-dimension guidance while retaining a square
-preview placeholder until a result supplies its actual dimensions.
+the compiler omits ratio guidance while retaining a square preview placeholder
+until a result supplies its actual dimensions. A selected ratio adds only that
+ratio to the compiled Prompt; Image does not request or normalize a pixel size.
+The pending preview reserves the selected shape, then a completed preview uses
+the returned image dimensions so it is neither cropped nor stretched to the
+requested ratio.
 
 The catalog stays in the existing condition panel. Each category is one
 horizontal product shelf with a themed scrollbar, previous/next controls, and
@@ -84,4 +88,7 @@ outlines. Image `0.3.0` expands every bundled template into a production-quality
 Prompt fragment, adds a `21:9` panorama target, and makes reference generation
 preserve the main image's composition and spatial relationships by default while
 explicitly rejecting collages. The App Registry version follows the App version
-so installed devices can surface each update.
+so installed devices can surface each update. Image `0.3.1` removes target pixel
+dimensions from ratio cards and compiled Prompts, displays completed images at
+their returned aspect ratio, and keeps ratio cards to the ratio name alone
+without explanatory copy.

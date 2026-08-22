@@ -125,7 +125,7 @@ export class AppRegistry {
 const builtInDefinitions = [
   {
     id: "knowledge",
-    version: "1.14.0",
+    version: "1.14.1",
     name: "Note",
     icon: "note",
     color: "#ff796f",
@@ -151,7 +151,7 @@ const builtInDefinitions = [
   },
   {
     id: "image-studio",
-    version: "0.3.0",
+    version: "0.4.1",
     name: "Image",
     icon: "image",
     color: "#67d7c4",

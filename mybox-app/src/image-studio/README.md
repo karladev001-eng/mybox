@@ -27,4 +27,18 @@ color, and atmosphere. Their wording favors deliberate silhouettes, focal-only
 detail, natural light, and restrained decoration while retaining the distinct
 meaning of every option. Reference generation defaults to preserving the main
 image's spatial structure instead of making a collage. The catalog includes a
-`21:9` cinematic panorama target in addition to the original ratios.
+`21:9` cinematic panorama target in addition to the original ratios. Ratio
+selection adds only the aspect ratio to the compiled Prompt; it never requests
+a pixel size. Once generation finishes, the preview uses the image's actual
+dimensions and preserves the returned image without cropping or stretching it
+to the requested ratio.
+
+The large final Prompt panel is an editable draft. A User may keep the compiler
+output, replace it manually, import UTF-8 Markdown or plain text, or import the
+current Markdown body of a Note Page. The Note Page source is offered only while
+the Note App manifest is registered; Image reads it through
+`knowledge.page.markdown.read` and never reads Note storage. Rebuild restores the
+current subject, templates, ratio, references, and additional input.
+The picker combines Page and Tag summaries from Note's public Operations. Its
+single search field matches normalized title and Tag text, and result rows show
+their Tags without opening each Page.

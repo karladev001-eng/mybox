@@ -4,9 +4,28 @@ import { AppHost } from "../src/core/app-host.js";
 import { MemoryStorageDriver } from "../src/core/storage.js";
 import { createImageStudioApp } from "../src/image-studio/app.js";
 import { BUILT_IN_TEMPLATES, compilePrompt, parseTemplateMarkdown, RATIOS, serializeTemplateMarkdown } from "../src/image-studio/domain.js";
+import { filterNotePageChoices } from "../src/image-studio/note-page-search.js";
 
 const user = { type: "user", id: "local-user" };
 const reference = { appId: "image-studio", resourceId: "reference.png", mediaType: "image/png", revision: 1 };
+
+test("filters Note Page choices by normalized title and Tag text", () => {
+  const pages = [
+    { id: "page-1", title: "静かな海", tagIds: ["tag-world", "tag-blue"] },
+    { id: "page-2", title: "ＡＦＴＥＲ ＴＨＥ ＲＡＩＮ", tagIds: ["tag-poster"] },
+    { id: "page-3", title: "都市", tagIds: [] },
+  ];
+  const tags = [
+    { id: "tag-world", label: "幻想" },
+    { id: "tag-blue", label: "Blue" },
+    { id: "tag-poster", label: "ポスター" },
+  ];
+
+  assert.deepEqual(filterNotePageChoices(pages, tags, "#幻想 blue").map((page) => page.id), ["page-1"]);
+  assert.deepEqual(filterNotePageChoices(pages, tags, "after rain").map((page) => page.id), ["page-2"]);
+  assert.deepEqual(filterNotePageChoices(pages, tags, "見つからない"), []);
+  assert.deepEqual(filterNotePageChoices(pages, tags).find((page) => page.id === "page-1").tags, ["幻想", "Blue"]);
+});
 
 test("parses and serializes versioned Markdown prompt templates", () => {
   const markdown = serializeTemplateMarkdown({ name: "雨の街", category: "world", prompt: "濡れた路面と静かな夜" });
@@ -22,6 +41,8 @@ test("compiles prompt fragments in the fixed order and maps every ratio", () => 
     assert.deepEqual(markers.map((marker) => result.prompt.indexOf(marker)), [...markers.map((marker) => result.prompt.indexOf(marker))].sort((a, b) => a - b));
   }
   assert.doesNotMatch(compilePrompt({ subject: "白いロボット", ratio: "auto" }).prompt, /出力:/);
+  assert.deepEqual(compilePrompt({ subject: "", ratio: "16:9", promptOverride: "# Imported\n\n静かな海" }), { prompt: "# Imported\n\n静かな海", target: RATIOS["16:9"] });
+  assert.throws(() => compilePrompt({ subject: "", ratio: "1:1", promptOverride: "   " }), (error) => error.code === "PROMPT_REQUIRED");
   assert.throws(() => compilePrompt({ subject: "x", references: [1, 2, 3, 4, 5] }), (error) => error.code === "TOO_MANY_REFERENCES");
 });
 
@@ -36,27 +57,35 @@ test("ships detailed versioned templates and preserves reference composition by 
     }
   }
 
-  assert.deepEqual(RATIOS["21:9"], { width: 1792, height: 768 });
+  assert.deepEqual(RATIOS["21:9"], { ratio: "21:9" });
   const prompt = compilePrompt({ subject: "海辺の駅", ratio: "21:9", references: [reference] }).prompt;
   assert.match(prompt, /コラージュせず/);
   assert.match(prompt, /位置・大きさ・奥行き・シルエット/);
   assert.match(prompt, /縦横比 21:9/);
+  assert.doesNotMatch(prompt, /目標寸法|px|\d+×\d+/);
 });
 
 test("persists completed generation before publishing its Event", async () => {
   const storageDriver = new MemoryStorageDriver();
   let generated = 0;
+  let generatedPrompt = "";
   const connections = { pull: async () => ({ items: [], failures: [] }) };
   const host = new AppHost({ storageDriver, connections });
-  host.register(createImageStudioApp({ generator: { generate: async () => { generated += 1; return { resource: { appId: "image-studio", resourceId: "result.png", mediaType: "image/png", revision: 1 }, actual: { width: 1024, height: 1024 } }; } } }));
+  host.register(createImageStudioApp({ generator: { generate: async ({ prompt }) => { generated += 1; generatedPrompt = prompt; return { resource: { appId: "image-studio", resourceId: "result.png", mediaType: "image/png", revision: 1 }, actual: { width: 1200, height: 800 } }; } } }));
   let event;
   host.subscribe("image-studio.generation.completed", (envelope) => { event = envelope; });
-  const result = await host.invoke("image-studio.generation.create", { subject: "花", ratio: "1:1", selections: {} }, { actor: user });
+  const result = await host.invoke("image-studio.generation.create", { subject: "", ratio: "1:1", selections: {}, promptOverride: "編集した全体Prompt" }, { actor: user });
   assert.equal(generated, 1);
+  assert.equal(generatedPrompt, "編集した全体Prompt");
   assert.equal(result.generation.state, "complete");
+  assert.equal(result.generation.finalPrompt, "編集した全体Prompt");
+  assert.deepEqual(result.generation.actual, { width: 1200, height: 800 });
+  assert.match(result.generation.warning, /選択した比率/);
   const read = await host.invoke("image-studio.generation.read", { id: result.generation.id }, { actor: user });
   assert.equal(read.generation.resource.resourceId, "result.png");
   assert.equal(event.payload.generationId, result.generation.id);
+  assert.equal(event.payload.width, 1200);
+  assert.equal(event.payload.height, 800);
   assert.equal(BUILT_IN_TEMPLATES.length, 30);
 });
 

@@ -48,9 +48,7 @@
 .image-ratio-window.ratio-9-16{width:38px}
 .image-ratio-window.ratio-4-5,.image-ratio-window.ratio-3-4{width:48px}
 .image-ratio-window svg{position:absolute;top:4px;right:4px;padding:3px;border-radius:999px;color:var(--bg);background:var(--accent)}
-.image-ratio-card>span:last-child{min-width:0;display:grid;gap:4px}
 .image-ratio-card strong{font-size:12px}
-.image-ratio-card small{color:var(--muted);font-size:11px;line-height:1.45}
 .image-template-tools{padding:0;overflow:hidden}
 .image-template-tools summary{min-height:48px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;cursor:pointer;list-style:none}
 .image-template-tools summary::-webkit-details-marker{display:none}
@@ -172,4 +170,47 @@
 @media(max-width:620px){
   .image-template-shelf>header{align-items:center}
   .image-shelf-actions{align-items:center;flex-direction:row}
+}
+
+/* The final Prompt is an editable draft. Import stays a compact secondary
+   action and expands only while the User is choosing its source. */
+.image-prompt-panel>header{overflow:visible}
+.image-prompt-actions{flex:none;display:flex;align-items:center;gap:2px}
+.image-prompt-actions>small{margin-right:4px;color:var(--subtle);font-size:11px;font-variant-numeric:tabular-nums}
+.image-prompt-actions button{position:relative;width:40px;height:40px;display:grid;place-items:center;padding:0;border:0;border-radius:var(--radius-sm);color:var(--muted);background:transparent}
+.image-prompt-actions button:hover{color:var(--text);background:var(--surface-hover)}
+.image-prompt-actions button:active{color:var(--accent);background:var(--surface-strong)}
+.image-prompt-import-root{position:relative}
+.image-prompt-file-input{display:none}
+.image-prompt-import-menu{position:absolute;z-index:60;top:calc(100% + 6px);right:0;width:168px;display:grid;gap:2px;padding:6px;border:1px solid var(--line);border-radius:var(--radius-popup);background:var(--surface-elevated);box-shadow:var(--shadow-popup)}
+.image-prompt-import-menu button{width:100%;height:40px;grid-template-columns:22px minmax(0,1fr);justify-items:start;gap:8px;padding:0 10px;text-align:left}
+.image-prompt-import-menu button span{display:block;color:inherit;font-size:12px;line-height:1.4}
+.image-prompt-panel>textarea{box-sizing:border-box;width:100%;min-height:0;flex:1;margin:0;padding:12px;overflow:auto;resize:none;scrollbar-width:thin;scrollbar-color:var(--line-strong) var(--surface);border:1px solid transparent;border-radius:var(--radius-sm);color:var(--text);background:var(--bg);font:12px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace}
+.image-prompt-panel>textarea:hover{border-color:var(--line-strong)}
+.image-prompt-panel>textarea:focus{border-color:var(--accent)}
+.image-page-dialog{width:min(560px,100%);max-height:min(680px,90dvh)}
+.image-page-dialog>.composer-picker{width:100%}
+.image-page-dialog .composer-picker-trigger{width:100%;max-width:none;min-height:40px;justify-content:space-between;background:var(--surface-strong)}
+.image-page-dialog .composer-picker-popup{top:calc(100% + 6px);bottom:auto;width:100%;z-index:80}
+.image-note-page-search{display:grid;gap:4px;color:var(--muted);font-size:11px}
+.image-note-page-search>span:last-child{min-height:40px;display:grid;grid-template-columns:22px minmax(0,1fr);align-items:center;padding:0 10px;border:1px solid transparent;border-radius:var(--radius-sm);color:var(--muted);background:var(--surface-strong);transition:border-color var(--motion-fast) var(--ease-standard),background var(--motion-fast) var(--ease-standard)}
+.image-note-page-search>span:last-child:hover{border-color:var(--line-strong);background:var(--surface-hover)}
+.image-note-page-search>span:last-child:focus-within{border-color:var(--focus);background:var(--surface-strong);box-shadow:0 0 0 2px color-mix(in srgb,var(--focus) 28%,transparent)}
+.image-note-page-search input{min-width:0;width:100%;height:38px;padding:0;border:0;outline:0;color:var(--text);background:transparent;font:inherit;font-size:12px}
+.image-note-page-search input::placeholder{color:var(--subtle);opacity:1}
+.image-note-page-search input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none}
+.image-note-page-list{min-height:180px;display:grid;align-content:start;gap:2px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line-strong) var(--surface)}
+.image-note-page-list>.image-spinner{align-self:center;justify-self:center;margin-top:70px;color:var(--accent)}
+.image-note-page-list>button{width:100%;min-height:52px;display:grid;grid-template-columns:24px minmax(0,1fr);align-items:center;gap:8px;padding:6px 8px;border:0;border-radius:var(--radius-sm);color:var(--muted);text-align:left;background:transparent}
+.image-note-page-list>button:hover{color:var(--text);background:var(--surface-hover)}
+.image-note-page-list>button:active{background:var(--surface-strong)}
+.image-note-page-list>button>span{min-width:0;display:grid;gap:2px}
+.image-note-page-list strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text);font-size:12px}
+.image-note-page-list small{color:var(--subtle);font-size:11px}
+.image-note-page-list>p{margin:auto;color:var(--subtle);font-size:12px}
+
+@media(max-width:620px){
+  .image-prompt-actions>small{display:none}
+  .image-prompt-import-menu{position:fixed;top:76px;right:12px}
+  .image-page-dialog{max-height:calc(100dvh - 24px)}
 }

@@ -249,6 +249,12 @@ by Image; a connected Note Page remains owned by Note and is read at its current
 revision.
 _Avoid_: complete generated Prompt, synced file
 
+**Final Prompt** — The complete text Image submits for one generation. It may be
+compiled from the current subject and Prompt templates or explicitly replaced by
+an edited or imported draft. A Final Prompt is copied into generation history;
+its source file or Note Page remains independently owned.
+_Avoid_: Prompt template, live file link
+
 **Page** — An independently addressable unit of authored knowledge with a title
 that is unique across active and trashed Pages in its Project. Its
 identity persists when its title or content changes. Titles that differ only by

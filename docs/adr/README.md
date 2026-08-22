@@ -42,3 +42,4 @@ notes of the ADR it realizes.
 - [0034 — Split pasted Markdown into Note Blocks](0034-split-pasted-markdown-into-note-blocks.md)
 - [0035 — Share App runtime and connect typed App resources](0035-share-app-runtime-and-connect-app-resources.md)
 - [0036 — Browse Image templates as visual products](0036-browse-image-templates-as-visual-products.md)
+- [0037 — Edit and import the final Image Prompt](0037-edit-and-import-the-final-image-prompt.md)

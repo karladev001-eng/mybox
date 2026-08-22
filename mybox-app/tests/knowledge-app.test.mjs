@@ -310,6 +310,15 @@ test("routes Knowledge Operations through AppHost and persists them", async () =
     pageId: created.page.id,
   }, { actor });
   assert.equal(read.page.title, "Operation Page");
+  const written = await host.invoke("knowledge.page.update", {
+    projectId: projects[0].id,
+    pageId: created.page.id,
+    expectedRevision: read.page.revision,
+    mutation: { type: "markdown-set", markdown: "# 構図\n\n- 静かな海\n- 小さな人物", mode: "replace" },
+  }, { actor });
+  const markdown = await host.invoke("knowledge.page.markdown.read", { projectId: projects[0].id, pageId: written.page.id }, { actor });
+  assert.equal(markdown.page.title, "Operation Page");
+  assert.equal(markdown.markdown, "# 構図\n\n- 静かな海\n- 小さな人物");
   assert.equal(host.listOperations({ callerType: "agent" }).some((item) => item.id === "knowledge.page.search"), true);
 });
 

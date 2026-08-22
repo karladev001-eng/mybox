@@ -65,8 +65,8 @@ function blockToMarkdown(block) {
   if (block.type === "heading-1") return `# ${text}`;
   if (block.type === "heading-2") return `## ${text}`;
   if (block.type === "heading-3") return `### ${text}`;
-  if (block.type === "bullet-list") return text.split("\n").map((line) => `- ${line}`).join("\n");
-  if (block.type === "number-list") return text.split("\n").map((line, index) => `${index + 1}. ${line}`).join("\n");
+  if (block.type === "bulleted-list") return text.split("\n").map((line) => `- ${line}`).join("\n");
+  if (block.type === "numbered-list") return text.split("\n").map((line, index) => `${index + 1}. ${line}`).join("\n");
   if (block.type === "checklist") return text.split("\n").map((line) => `- [${block.checked ? "x" : " "}] ${line}`).join("\n");
   if (block.type === "quote") return text.split("\n").map((line) => `> ${line}`).join("\n");
   if (block.type === "code") return `\`\`\`\n${text}\n\`\`\``;
@@ -174,7 +174,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.1.4",
+      version: "0.1.5",
       hostCapabilities: ["app-storage"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema }),
@@ -232,6 +232,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         }),
         operation({ id: "knowledge.page.list", title: "Pageを一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
         operation({ id: "knowledge.page.read", title: "Pageを読む", effect: "read", confirmationClass: "review", inputSchema: pageInput }),
+        operation({ id: "knowledge.page.markdown.read", title: "PageをMarkdownで読む", effect: "read", confirmationClass: "review", inputSchema: pageInput }),
         operation({
           id: "knowledge.page.search",
           title: "Pageを検索",
@@ -419,6 +420,12 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         const tags = getProjectTags(state, { projectId, profileId }).filter((tag) => page.tagIds.includes(tag.id));
         const backlinks = getBacklinks(state, { projectId, pageId, profileId });
         return { page, tags, backlinks };
+      },
+      async "knowledge.page.markdown.read"({ projectId, pageId }, { actor, storage }) {
+        const session = sharedSessions.get(projectId);
+        const page = session ? session.readPage(pageId)?.page : readPage(await loadState(storage), { projectId, pageId, profileId: profileIdFor(actor) });
+        if (!page) throw new KnowledgeDomainError("PAGE_NOT_FOUND", "Page was not found", { pageId });
+        return { page: { id: page.id, projectId: page.projectId, title: page.title, revision: page.revision }, markdown: pageMarkdown(page) };
       },
       async "knowledge.page.search"({ query = "", projectIds, includeTrash = false }, { actor, storage }) {
         const state = await loadState(storage);

@@ -11,10 +11,11 @@ const callers = ["user", "agent", "flow", "app"];
 const op = (id, title, effect, confirmationClass, inputSchema = objectSchema, allowed = callers) => ({ id, title, effect, confirmationClass, callers: allowed, inputSchema, outputSchema: objectSchema });
 const idInput = { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } };
 const generateInput = {
-  type: "object", required: ["subject", "ratio"],
+  type: "object", required: ["ratio"],
   properties: {
-    subject: { type: "string", minLength: 1, maxLength: 4000 }, ratio: { type: "string", enum: ["auto", "1:1", "4:5", "3:4", "3:2", "16:9", "21:9", "9:16"] },
+    subject: { type: "string", maxLength: 4000 }, ratio: { type: "string", enum: ["auto", "1:1", "4:5", "3:4", "3:2", "16:9", "21:9", "9:16"] },
     selections: { type: "object" }, references: { type: "array", maxItems: 4, items: { type: "object" } }, referenceInstruction: { type: "string", maxLength: 4000 }, extra: { type: "string", maxLength: 4000 },
+    promptOverride: { type: "string", minLength: 1, maxLength: 16000 },
   },
 };
 
@@ -45,7 +46,7 @@ export function createImageStudioApp({ generator = null } = {}) {
 
   return defineApp({
     manifest: {
-      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.3.0", hostCapabilities: ["app-storage", "connections", "resources", "codex-image-generation"],
+      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.4.1", hostCapabilities: ["app-storage", "connections", "resources", "codex-image-generation"],
       operations: [
         op("image-studio.template.list", "Prompt templateを一覧", "read", "review"), op("image-studio.template.read", "Prompt templateを読む", "read", "review", idInput),
         op("image-studio.template.create", "Prompt templateを作成", "write", "recoverable", { type: "object", required: ["markdown"], properties: { markdown: { type: "string", minLength: 1, maxLength: 262144 } } }),

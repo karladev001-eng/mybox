@@ -4,14 +4,14 @@ export const MAX_REFERENCE_IMAGES = 4;
 export const MAX_PROMPT_LENGTH = 16_000;
 
 export const RATIOS = Object.freeze({
-  auto: { width: 1024, height: 1024, unspecified: true },
-  "1:1": { width: 1024, height: 1024 },
-  "4:5": { width: 1024, height: 1280 },
-  "3:4": { width: 1024, height: 1365 },
-  "3:2": { width: 1536, height: 1024 },
-  "16:9": { width: 1536, height: 864 },
-  "21:9": { width: 1792, height: 768 },
-  "9:16": { width: 864, height: 1536 },
+  auto: { ratio: null, unspecified: true },
+  "1:1": { ratio: "1:1" },
+  "4:5": { ratio: "4:5" },
+  "3:4": { ratio: "3:4" },
+  "3:2": { ratio: "3:2" },
+  "16:9": { ratio: "16:9" },
+  "21:9": { ratio: "21:9" },
+  "9:16": { ratio: "9:16" },
 });
 
 const builtIns = {
@@ -112,23 +112,31 @@ export function updateTemplate(state, id, changes, { now = () => new Date() } = 
 
 export function setTemplateState(state, id, nextState, options) { return updateTemplate(state, id, { state: nextState }, options); }
 
-export function compilePrompt({ subject, selections = {}, templates = [], ratio = "1:1", references = [], referenceInstruction = "", extra = "" }) {
-  const cleanSubject = subject?.trim(); if (!cleanSubject) throw new ImageStudioError("SUBJECT_REQUIRED", "主題を入力してください");
+export function normalizeFinalPrompt(value) {
+  const prompt = typeof value === "string" ? value.trim() : "";
+  if (!prompt) throw new ImageStudioError("PROMPT_REQUIRED", "全体Promptを入力してください");
+  if (prompt.length > MAX_PROMPT_LENGTH) throw new ImageStudioError("PROMPT_TOO_LONG", "全体Promptが長すぎます");
+  return prompt;
+}
+
+export function compilePrompt({ subject, selections = {}, templates = [], ratio = "1:1", references = [], referenceInstruction = "", extra = "", promptOverride = null }) {
   if (!RATIOS[ratio]) throw new ImageStudioError("INVALID_RATIO", "出力比率が不正です");
   if (!Array.isArray(references) || references.length > MAX_REFERENCE_IMAGES) throw new ImageStudioError("TOO_MANY_REFERENCES", "参照画像は4枚までです");
+  const target = RATIOS[ratio];
+  if (promptOverride !== null && promptOverride !== undefined) return { prompt: normalizeFinalPrompt(promptOverride), target };
+  const cleanSubject = subject?.trim(); if (!cleanSubject) throw new ImageStudioError("SUBJECT_REQUIRED", "主題を入力してください");
   const byId = new Map([...BUILT_IN_TEMPLATES, ...templates].map((item) => [item.id, item]));
   const parts = [`主題: ${cleanSubject}`];
   for (const [category, label] of [["world", "世界観"], ["style", "画風"], ["composition", "用途・構図"], ["mood", "雰囲気・装飾"]]) {
     const chosen = selections[category] ? byId.get(selections[category]) : null;
     if (chosen?.prompt) parts.push(`${label}: ${chosen.prompt}`);
   }
-  const size = RATIOS[ratio];
-  if (!size.unspecified) parts.push(`出力: 縦横比 ${ratio}、目標寸法 ${size.width}×${size.height}px`);
+  if (!target.unspecified) parts.push(`出力: 縦横比 ${ratio}`);
   if (references.length) parts.push(`参照画像: ${referenceInstruction.trim() || "参照画像をコラージュせず、主参照の構図と空間構造を基準にする。被写体の位置・大きさ・奥行き・シルエット・光の方向・視線誘導・遠近関係を不用意に変えず、選択した世界観と画風で画像全体を再解釈する"}`);
   if (extra?.trim()) parts.push(`追加入力: ${extra.trim()}`);
   const prompt = parts.join("\n");
   if (prompt.length > MAX_PROMPT_LENGTH) throw new ImageStudioError("PROMPT_TOO_LONG", "最終Promptが長すぎます");
-  return { prompt, target: size };
+  return { prompt, target };
 }
 
 export function createPendingGeneration(state, input, compiled, { now = () => new Date(), idFactory = uid } = {}) {
@@ -141,8 +149,10 @@ export function finishGeneration(state, id, result, { now = () => new Date() } =
   const copy = structuredClone(validateImageStudioState(state)); const generation = copy.generations.find((item) => item.id === id);
   if (!generation) throw new ImageStudioError("GENERATION_NOT_FOUND", "Generation was not found");
   Object.assign(generation, result, { state: "complete", updatedAt: nowIso(now), error: null });
-  const actualRatio = result.actual?.width / result.actual?.height; const targetRatio = generation.target.width / generation.target.height;
-  if (!generation.target.unspecified && actualRatio && Math.abs(actualRatio / targetRatio - 1) > 0.01) generation.warning = "選択した比率と生成画像の実寸が1%を超えて異なります";
+  const actualRatio = result.actual?.width / result.actual?.height;
+  const [ratioWidth, ratioHeight] = generation.target?.ratio?.split(":").map(Number) ?? [];
+  const targetRatio = ratioWidth && ratioHeight ? ratioWidth / ratioHeight : generation.target?.width / generation.target?.height;
+  if (!generation.target?.unspecified && actualRatio && targetRatio && Math.abs(actualRatio / targetRatio - 1) > 0.01) generation.warning = "選択した比率と生成画像の実寸が1%を超えて異なります";
   copy.revision += 1; return { state: copy, generation };
 }
 
