@@ -58,3 +58,8 @@ key and the endpoint and enables `bundle.createUpdaterArtifacts`,
 `mybox-app/src/desktop/app-updater.js` wraps check, download, and relaunch, and
 `mybox-app/src/App.jsx` renders the update row in Settings. The web build
 resolves the updater to a no-op so the browser preview keeps working.
+
+Release `0.7.0` ships the shared App runtime and Connector foundation, the
+default-installed Image App, improved Note Markdown editing, and the quiet
+icon-led interface rules. The package, Tauri configuration, and Rust crate use
+the same version so the tag produces one coherent signed update.

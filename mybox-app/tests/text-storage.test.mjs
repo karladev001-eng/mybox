@@ -9,4 +9,3 @@ test("stores UTF-8 text independently and enforces byte limits", async () => {
   await assert.rejects(storage.writeText("templates/large.md", "あ".repeat(100), { maxBytes: 16 }), (error) => error.code === "TEXT_TOO_LARGE");
   await assert.rejects(storage.writeText("../escape.md", "x"), (error) => error.code === "INVALID_STORAGE_KEY");
 });
-
