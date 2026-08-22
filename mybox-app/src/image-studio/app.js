@@ -69,7 +69,7 @@ export function createImageStudioApp({ generator = null } = {}) {
 
   return defineApp({
     manifest: {
-      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.5.0", hostCapabilities: ["app-storage", "workflows", "connections", "resources", "codex-image-generation"],
+      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.5.1", hostCapabilities: ["app-storage", "workflows", "connections", "resources", "codex-image-generation"],
       operations: [
         op("image-studio.template.list", "Prompt templateを一覧", "read", "review"), op("image-studio.template.read", "Prompt templateを読む", "read", "review", idInput),
         op("image-studio.template.create", "Prompt templateを作成", "write", "recoverable", { type: "object", required: ["markdown"], properties: { markdown: { type: "string", minLength: 1, maxLength: 262144 } } }),

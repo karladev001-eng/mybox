@@ -34,7 +34,12 @@ image's spatial structure instead of making a collage. The catalog includes a
 selection adds only the aspect ratio to the compiled Prompt; it never requests
 a pixel size. Once generation finishes, the preview uses the image's actual
 dimensions and preserves the returned image without cropping or stretching it
-to the requested ratio.
+to the requested ratio. Selecting that preview opens a keyboard-contained,
+full-window viewer; Escape, the close control, and backdrop input return focus to
+the preview. The additional-input field grows with its text up to a readable
+desktop height, then uses the same themed scrollbar as the App's other vertical
+and horizontal overflow regions. A compact Prompt rebuild control sits directly
+beside the primary generation action.
 
 The large final Prompt panel is an editable draft. A User may keep the compiler
 output, replace it manually, import UTF-8 Markdown or plain text, or import the

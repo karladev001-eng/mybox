@@ -151,7 +151,7 @@ const builtInDefinitions = [
   },
   {
     id: "image-studio",
-    version: "0.5.0",
+    version: "0.5.1",
     name: "Image",
     icon: "image",
     color: "#67d7c4",

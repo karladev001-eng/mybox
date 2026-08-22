@@ -21,7 +21,7 @@ test("registers the Note and Image module surfaces in the default installed cata
   ]);
   assert.equal(registry.listDefaultInstalled().some((app) => app.id === "knowledge"), true);
   const image = registry.get("image-studio");
-  assert.equal(image.version, "0.5.0");
+  assert.equal(image.version, "0.5.1");
   assert.equal(image.surface.exportName, "ImageStudioView");
   assert.equal(image.icon, "image");
   assert.equal(image.color, "#67d7c4");

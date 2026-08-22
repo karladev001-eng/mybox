@@ -1,5 +1,5 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowsClockwise, CaretDown, CaretLeft, CaretRight, Check, ClipboardText, ClockCounterClockwise, DownloadSimple, FileText, Image as ImageIcon, MagicWand, MagnifyingGlass, Notebook, PencilSimple, Plus, Robot, Trash, UploadSimple, X } from "@phosphor-icons/react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ArrowsClockwise, CaretDown, CaretLeft, CaretRight, Check, ClipboardText, ClockCounterClockwise, DownloadSimple, FileText, Image as ImageIcon, MagicWand, MagnifyingGlass, MagnifyingGlassPlus, Notebook, PencilSimple, Plus, Robot, Trash, UploadSimple, X } from "@phosphor-icons/react";
 import { ThemedSelect } from "../ThemedSelect.jsx";
 import { createImageStudioClient } from "./client.js";
 import { compilePrompt, MAX_PROMPT_LENGTH, normalizeFinalPrompt, RATIOS, serializeTemplateMarkdown, TEMPLATE_CATEGORIES } from "./domain.js";
@@ -17,6 +17,15 @@ const sampleColumns = {
   mood: { none: 0, minimal: 1, editorial: 2, retro: 3, neon: 4, cinematic: 4, cute: 5, dark: 6 },
 };
 const sourceLabels = { "built-in": "組み込み", local: "マイテンプレート", note: "Note" };
+const EXTRA_INPUT_MAX_HEIGHT = 320;
+
+function resizeTextareaToContent(textarea) {
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  const nextHeight = Math.min(textarea.scrollHeight, EXTRA_INPUT_MAX_HEIGHT);
+  textarea.style.height = `${Math.max(58, nextHeight)}px`;
+  textarea.style.overflowY = textarea.scrollHeight > EXTRA_INPUT_MAX_HEIGHT ? "auto" : "hidden";
+}
 
 function sampleStyle(template, fallbackCategory) {
   const category = template.category ?? fallbackCategory;
@@ -108,6 +117,33 @@ function PromptPanel({ prompt, selections, ratio, customized, noteAvailable, onC
   </aside>;
 }
 
+function ImagePreviewDialog({ src, alt, width, height, onClose }) {
+  const closeRef = useRef(null);
+  useEffect(() => {
+    const previousFocus = document.activeElement;
+    closeRef.current?.focus();
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "Tab") {
+        event.preventDefault();
+        closeRef.current?.focus();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus?.();
+    };
+  }, [onClose]);
+
+  return <div className="image-lightbox-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+    <section className="image-lightbox-dialog" role="dialog" aria-modal="true" aria-label="生成画像の拡大表示" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <button ref={closeRef} type="button" aria-label="拡大表示を閉じる" data-tooltip="閉じる" onClick={onClose}><X size={20} /></button>
+      <img src={src} alt={alt} width={width} height={height} />
+    </section>
+  </div>;
+}
+
 function NotePageDialog({ client, onImport, onClose }) {
   const [projects, setProjects] = useState([]);
   const [projectId, setProjectId] = useState("");
@@ -192,6 +228,9 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
   const [promptOverride, setPromptOverride] = useState(null);
   const [pagePickerOpen, setPagePickerOpen] = useState(false);
   const [editor, setEditor] = useState(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const extraInputRef = useRef(null);
+  const closePreview = useCallback(() => setPreviewOpen(false), []);
 
   const refresh = async () => {
     const [templateResult, generationResult] = await Promise.all([client.listTemplates(), client.listGenerations(includeTrash)]);
@@ -201,6 +240,13 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
 
   useEffect(() => { if (!persistenceReady) return; refresh().catch((next) => setError(next.message)); }, [persistenceReady, includeTrash]);
   useEffect(() => { onContextChange?.({ label: "Image", appId: "image-studio", operationContext: { generationId: selectedId } }); }, [onContextChange, selectedId]);
+  useEffect(() => { setPreviewOpen(false); }, [selectedId]);
+  useEffect(() => {
+    const resize = () => resizeTextareaToContent(extraInputRef.current);
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, [extra]);
 
   const selected = generations.find((item) => item.id === selectedId) ?? null;
   useEffect(() => { let active = true; if (!selected?.resource?.resourceId) { setPreview(null); return; } client.readResource(selected.resource.resourceId).then((value) => active && setPreview(value)).catch((next) => active && setError(next.message)); return () => { active = false; }; }, [selected?.resource?.resourceId]);
@@ -232,6 +278,7 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
   const promptPreview = promptOverride ?? compiledPrompt;
   const noteAvailable = client.isNoteAvailable();
   const importPrompt = (value) => { try { setPromptOverride(normalizeFinalPrompt(value)); setError(""); onToast("全体Promptをインポートしました"); } catch (next) { setError(next.message); } };
+  const rebuildPrompt = () => { setPromptOverride(null); onToast("全体Promptを更新しました"); };
 
   const addReference = async (file = null) => {
     if (references.length >= 4) { setError("参照画像は4枚までです"); return; }
@@ -274,12 +321,12 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
       <div className="image-history-list">{generations.length ? generations.map((generation) => <button key={generation.id} className={selectedId === generation.id ? "selected" : ""} aria-current={selectedId === generation.id ? "true" : undefined} onClick={() => selectGeneration(generation)}><span className={`image-status ${generation.state}`} aria-hidden="true" /><span><strong>{generation.input?.subject || "カスタムPrompt"}</strong><small>{generation.state === "complete" ? `${generation.actual?.width}×${generation.actual?.height}` : generation.state === "error" ? "エラー" : generation.state === "trash" ? "Trash" : "生成中"}</small></span></button>) : <p className="image-empty-list">生成すると、ここに履歴が並びます。</p>}</div>
     </aside>
 
-    {promptOpen && <PromptPanel prompt={promptPreview} selections={selectedTemplateSummary} ratio={ratio} customized={promptOverride !== null} noteAvailable={noteAvailable} onChange={(value) => setPromptOverride(value)} onReset={() => setPromptOverride(null)} onImportFile={async (file) => importPrompt(await file.text())} onOpenPage={() => setPagePickerOpen(true)} />}
+    {promptOpen && <PromptPanel prompt={promptPreview} selections={selectedTemplateSummary} ratio={ratio} customized={promptOverride !== null} noteAvailable={noteAvailable} onChange={(value) => setPromptOverride(value)} onReset={rebuildPrompt} onImportFile={async (file) => importPrompt(await file.text())} onOpenPage={() => setPagePickerOpen(true)} />}
 
     <main className="image-preview-pane">
       <div className="image-preview-frame" style={{ aspectRatio: previewAspectRatio }}>
         {busy ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>画像を生成しています</strong><p>ChatGPTが構図と画風を組み立てています。画面を閉じずにお待ちください。</p></div>
-          : preview ? <img src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} />
+          : preview ? <button type="button" className="image-preview-zoom" aria-label="生成画像を拡大表示" aria-haspopup="dialog" onClick={() => setPreviewOpen(true)}><img src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} /><span aria-hidden="true"><MagnifyingGlassPlus size={20} /></span></button>
           : selected?.state === "error" ? <div className="image-preview-empty error"><ImageIcon size={46} /><strong>生成できませんでした</strong><p>{selected.error?.message}</p><button onClick={generate}><ArrowsClockwise size={18} />再試行</button></div>
           : <div className="image-preview-empty"><MagicWand size={48} weight="duotone" /><strong>イメージを形にする</strong></div>}
       </div>
@@ -298,9 +345,10 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
       <nav className="image-template-nav" aria-label="テンプレートカテゴリー">{TEMPLATE_CATEGORIES.map((category) => <button type="button" key={category} onClick={() => document.getElementById(`image-template-${category}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{categoryLabels[category]}</button>)}<button type="button" onClick={() => document.getElementById("image-template-ratio")?.scrollIntoView({ behavior: "smooth", block: "start" })}>縦横比</button></nav>
       {TEMPLATE_CATEGORIES.map((category) => <TemplateShelf key={category} category={category} items={templatesFor(category)} value={selections[category]} onChange={(value) => setSelections((items) => ({ ...items, [category]: value }))} />)}
       <RatioShelf value={ratio} onChange={setRatio} />
-      <label htmlFor="image-extra">追加入力</label><textarea id="image-extra" className="image-extra" value={extra} onChange={(event) => setExtra(event.target.value)} placeholder="色、文字を入れない、余白など" maxLength={4000} />
-      <button className="image-generate" disabled={busy || (!subject.trim() && !promptOverride?.trim())} onClick={generate}>{busy ? <span className="image-spinner" /> : <MagicWand size={21} weight="fill" />}<span>{busy ? "生成中…" : references.length ? "参照画像からアレンジ" : "画像を生成"}</span></button>
+      <label htmlFor="image-extra">追加入力</label><textarea ref={extraInputRef} id="image-extra" className="image-extra" value={extra} onChange={(event) => setExtra(event.target.value)} placeholder="色、文字を入れない、余白など" maxLength={4000} />
+      <div className="image-generation-actions"><button type="button" className="image-prompt-refresh" aria-label="選択内容から全体Promptを更新" data-tooltip="Promptを更新" disabled={busy} onClick={rebuildPrompt}><ArrowsClockwise size={19} /></button><button className="image-generate" disabled={busy || (!subject.trim() && !promptOverride?.trim())} onClick={generate}>{busy ? <span className="image-spinner" /> : <MagicWand size={21} weight="fill" />}<span>{busy ? "生成中…" : references.length ? "参照画像からアレンジ" : "画像を生成"}</span></button></div>
     </aside>
+    {previewOpen && preview && <ImagePreviewDialog src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} onClose={closePreview} />}
     {editor && <TemplateEditor template={editor.id ? editor : null} onClose={() => setEditor(null)} onSave={async (markdown) => { if (editor.id) await client.updateTemplate(editor.id, markdown); else await client.createTemplate(markdown); await refresh(); }} />}
     {pagePickerOpen && <NotePageDialog client={client} onImport={importPrompt} onClose={() => setPagePickerOpen(false)} />}
   </section>;

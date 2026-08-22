@@ -76,3 +76,9 @@ App-request, and scheduled execution with Tray recovery. Each Workflow owns one
 bounded JSON document whose restricted path mappings can feed command input and
 retain validated output such as Note Page titles. Image Registry `0.5.0` and Note
 Registry `1.17.0` expose the corresponding App updates.
+
+Release `0.8.1` updates Image Registry `0.5.1` with a full-window generated-image
+viewer, content-responsive additional Prompt input, a Prompt rebuild action next
+to generation, and consistent themed scrollbars across Image's horizontal and
+vertical overflow regions. The viewer preserves the generated resource and its
+actual dimensions; this patch changes only Surface interaction and delivery.
