@@ -1,8 +1,10 @@
 import { createSyncClient, encodeDocState } from "./sync-client.js";
 import { isAuthorColor } from "./author-color.js";
+import { normalizePageTitle } from "./domain.js";
 import {
   applyPageMutation,
   createProjectDoc,
+  deletePage,
   listMemberColors as listDocumentMemberColors,
   listMemberProfiles as listDocumentMemberProfiles,
   listPageIds,
@@ -11,6 +13,13 @@ import {
   setMemberProfile as setDocumentMemberProfile,
   seedPage,
 } from "./yjs-document.js";
+
+/** Encodes local JSON Pages into the same Yjs state used by a Project store. */
+export function encodeProjectPages(pages) {
+  const doc = createProjectDoc();
+  for (const page of pages) seedPage(doc, page);
+  return encodeDocState(doc);
+}
 
 /**
  * Mutations the document can apply today. Tags and PageLink creation still run
@@ -30,6 +39,10 @@ export class SharedProjectError extends Error {
 
 function newBlockId() {
   return `block-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
+function newPageId() {
+  return `page-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
 }
 
 /** The document wants a whole Block where the domain names a type and text. */
@@ -97,10 +110,10 @@ export function createSharedProject({
       client.connect();
     },
 
-    listPages() {
+    listPages(includeTrash = false) {
       return listPageIds(doc)
         .map((id) => readPage(doc, id))
-        .filter((page) => page && page.state === "active")
+        .filter((page) => page && (includeTrash || page.state === "active"))
         .map((page) => ({
           id: page.id,
           projectId,
@@ -172,9 +185,50 @@ export function createSharedProject({
       return setDocumentMemberProfile(doc, profile);
     },
 
-    createPage(page) {
+    createPage(title, actorId) {
+      const displayTitle = typeof title === "string" ? title.trim() : "";
+      const normalizedTitle = normalizePageTitle(displayTitle);
+      const conflict = listPageIds(doc)
+        .map((id) => readPage(doc, id))
+        .some((page) => normalizePageTitle(page.title) === normalizedTitle);
+      if (conflict) {
+        throw new SharedProjectError(
+          "PAGE_TITLE_CONFLICT",
+          "A Page with this title already exists in the Project or Trash",
+          { title: displayTitle },
+        );
+      }
+      const timestamp = new Date().toISOString();
+      const page = {
+        id: newPageId(),
+        projectId,
+        title: displayTitle,
+        state: "active",
+        revision: 0,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        createdBy: actorId,
+        updatedBy: actorId,
+        tagIds: [],
+        blocks: [{
+          id: newBlockId(),
+          type: "paragraph",
+          text: "",
+          checked: false,
+          updatedBy: actorId,
+          links: [],
+        }],
+      };
       seedPage(doc, page);
-      return readPage(doc, page.id);
+      return { ...page, ...readPage(doc, page.id) };
+    },
+
+    purgePage(pageId) {
+      if (client.role !== "owner") {
+        throw new SharedProjectError("PROJECT_ROLE_REQUIRED", "Owner Project role is required");
+      }
+      const page = deletePage(doc, pageId);
+      return { pageId, releasedTitle: page.title };
     },
 
     /** Copies Pages already held locally into the shared document. */

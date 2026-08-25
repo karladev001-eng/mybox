@@ -21,10 +21,10 @@ can be merged instead of overwritten.
 
 ## Decision
 
-**Every moved or shared Note Project has one authoritative Project store.** Its
+**Every Note Project has one authoritative Project store.** Its
 location is either MyBox's private application-data directory or a directory the
-User selects. Projects that have never moved or been shared retain the existing
-App-internal JSON representation and are presented as "MyBoxアプリ内".
+User selects. Existing Projects that still live only in the common App JSON are
+seeded into individual Project stores under the Note workspace when first listed.
 
 A Project store contains a non-secret versioned manifest and append-only Yjs
 update files. Every write has a globally unique filename, so two offline devices
@@ -36,9 +36,17 @@ The native Host owns Project-store paths, validates manifests and symlinks, and
 performs bounded atomic file access. Note receives the current path only for the
 User-facing Project settings row; App Operations receive no path. Update
 transport still uses only opaque update IDs/bytes. Changing the location copies
-the existing update set to the new store before the Host switches its local
-catalog record. The old directory is retained as a recoverable copy and is never
-deleted implicitly.
+the existing update set and writes a full current Page snapshot to the new store
+before the Host switches its local catalog record. The old directory is retained
+as a recoverable copy and is never deleted implicitly.
+
+Each Project store has its own directory, named exactly after the Project. A
+selected directory is the parent of that Project directory; the Host does not
+insert a shared wrapper directory or expose the stable Project ID as its folder
+name. Names that are not safe as one Windows directory component are rejected
+before any store is created. Renaming a Project copies its store to a sibling
+directory with the new name and then switches the catalog, retaining the prior
+directory as a recoverable copy under the same rule as a location change.
 
 **Cloudflare sharing is a separate transport on the same Yjs document.** A
 Project-store transport persists every document update, while the WebSocket
@@ -66,6 +74,11 @@ accounts.
 ## Implementation notes
 
 - Project設定ではWindowsの内部的な拡張長パス接頭辞（`\\?\`）を表示から除き、通常のドライブパスまたはUNCパスとして示す。保存先の解決やファイルアクセスには正規化前の`PathBuf`を使い続ける。
+- 保存場所の変更では、未共有でApp内部JSONだけにあるProjectもTrashを含む全PageをYjsスナップショットへ変換し、Native Hostが新しいProjectディレクトリへ書き終えてから接続設定を切り替える。
+- 旧実装の`MyBox Projects/<Project ID>`ディレクトリは起動時のstore一覧で検出する。Note clientがローカルJSONの全Pageをスナップショット化してProject名のディレクトリへコピーし、接続先を自動更新する。
+- 共通`apps/knowledge/state.json`だけに残る既存Projectもworkspaceの復元完了後のstore一覧読み込み時に検出し、Trashを含む全Pageを`apps/knowledge/<Project名>`へ書いてからProject storeとして登録する。旧App-data内storeも同じworkspace配下へ移す。
+- Project storeへ接続した後のPage作成・一覧・件数はローカルJSONではなく同じYjs documentを参照する。これにより保存先移行後のPageが一覧から消えたり、見えないローカルPageとタイトル競合したりしない。
+- Project storeまたはCloudflareへ接続したProjectのTrash移動・復元・完全削除も同じYjs documentへ適用する。ローカルJSONのrevisionやPage有無を判定に使わない。
 - メンバー設定はアカウント名、Role、色を固定列にした表として表示し、共有中のOwnerは見出し横の招待ボタンから既存の一度限り招待フローを開く。
 
 `src-tauri/src/project_stores.rs` owns manifests, paths, location changes, and

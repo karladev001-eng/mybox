@@ -13,7 +13,7 @@ use uuid::Uuid;
 const SETTINGS_VERSION: u32 = 1;
 const MANIFEST_VERSION: u32 = 1;
 const MANIFEST_KIND: &str = "mybox-note-project-store";
-const PROJECTS_DIRECTORY: &str = "MyBox Projects";
+const LEGACY_PROJECTS_DIRECTORY: &str = "MyBox Projects";
 const MAX_UPDATE_BYTES: usize = 10 * 1024 * 1024;
 const MAX_RESPONSE_BYTES: usize = 128 * 1024 * 1024;
 const MAX_KNOWN_IDS: usize = 100_000;
@@ -63,6 +63,7 @@ pub struct ProjectStoreView {
     location_label: String,
     connected_at: String,
     empty: bool,
+    needs_migration: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -99,6 +100,37 @@ fn validate_project_name(name: &str) -> Result<String, String> {
         return Err("Project名を確認してください".to_string());
     }
     Ok(trimmed.to_string())
+}
+
+fn validate_project_directory_name(name: &str) -> Result<String, String> {
+    let name = validate_project_name(name)?;
+    if name == "."
+        || name == ".."
+        || name.ends_with([' ', '.'])
+        || name.chars().any(|character| {
+            character.is_control()
+                || matches!(
+                    character,
+                    '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'
+                )
+        })
+    {
+        return Err("Project名にはフォルダー名に使用できない文字を含められません".to_string());
+    }
+    let stem = name
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.as_bytes()[3].is_ascii_digit()
+            && stem.as_bytes()[3] != b'0')
+    {
+        return Err("Project名はWindowsの予約済みフォルダー名にできません".to_string());
+    }
+    Ok(name)
 }
 
 fn path_for_display(path: &Path) -> String {
@@ -193,7 +225,7 @@ fn location_label(project_directory: &Path) -> String {
     let project_parent = project_directory.parent();
     let provider = project_parent
         .and_then(|path| {
-            if path.file_name().and_then(|name| name.to_str()) == Some(PROJECTS_DIRECTORY) {
+            if path.file_name().and_then(|name| name.to_str()) == Some(LEGACY_PROJECTS_DIRECTORY) {
                 path.parent()
             } else {
                 Some(path)
@@ -221,12 +253,25 @@ fn store_is_empty(directory: &Path) -> bool {
         .unwrap_or(true)
 }
 
-fn internal_store_directory(app: &AppHandle, project_id: &str) -> Result<PathBuf, String> {
-    let root = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| format!("MyBoxの保存場所を取得できません：{error}"))?;
-    Ok(root.join("project-stores").join(project_id))
+fn store_directory_needs_migration(path: &Path, manifest: &ProjectManifest) -> bool {
+    path.file_name().and_then(|value| value.to_str()) != Some(manifest.name.as_str())
+        || path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|value| value.to_str())
+            == Some(LEGACY_PROJECTS_DIRECTORY)
+}
+
+fn internal_store_directory(app: &AppHandle, project_name: &str) -> Result<PathBuf, String> {
+    let state_path = crate::workspace::app_value_path(app, "knowledge", "state.json")?;
+    let root = state_path
+        .parent()
+        .ok_or_else(|| "Noteの保存場所を取得できません".to_string())?;
+    Ok(root.join(project_name))
+}
+
+fn same_path(left: &Path, right: &Path) -> bool {
+    path_for_display(left).eq_ignore_ascii_case(&path_for_display(right))
 }
 
 fn record_store(
@@ -262,6 +307,7 @@ fn record_store(
         location_label: label,
         connected_at,
         empty,
+        needs_migration: false,
     })
 }
 
@@ -295,22 +341,38 @@ fn prepare_store(
     project_id: &str,
     name: &str,
 ) -> Result<ProjectManifest, String> {
+    let manifest_path = directory.join("manifest.json");
+    if directory.exists() {
+        if !directory.is_dir() {
+            return Err("Project名と同じファイルが保存先にあります".to_string());
+        }
+        reject_symlink(directory, "Project store")?;
+        if manifest_path.exists() {
+            let mut existing = read_manifest(directory)?;
+            if existing.project_id != project_id {
+                return Err("同じ保存先に別のProjectがあります".to_string());
+            }
+            if existing.name != name {
+                existing.name = name.to_string();
+                atomic_write_json(&manifest_path, &existing)?;
+            }
+            fs::create_dir_all(directory.join("updates"))
+                .map_err(|error| format!("更新フォルダーを作成できません：{error}"))?;
+            reject_symlink(&directory.join("updates"), "更新フォルダー")?;
+            return Ok(existing);
+        }
+        if fs::read_dir(directory)
+            .map_err(|error| format!("保存先を確認できません：{error}"))?
+            .next()
+            .is_some()
+        {
+            return Err("Project名と同じ空でないフォルダーが保存先にあります".to_string());
+        }
+    }
     fs::create_dir_all(directory.join("updates"))
         .map_err(|error| format!("Project storeを作成できません：{error}"))?;
     reject_symlink(directory, "Project store")?;
     reject_symlink(&directory.join("updates"), "更新フォルダー")?;
-    let manifest_path = directory.join("manifest.json");
-    if manifest_path.exists() {
-        let mut existing = read_manifest(directory)?;
-        if existing.project_id != project_id {
-            return Err("同じ保存先に別のProjectがあります".to_string());
-        }
-        if existing.name != name {
-            existing.name = name.to_string();
-            atomic_write_json(&manifest_path, &existing)?;
-        }
-        return Ok(existing);
-    }
     let manifest = ProjectManifest {
         version: MANIFEST_VERSION,
         kind: MANIFEST_KIND.to_string(),
@@ -374,6 +436,38 @@ fn copy_existing_updates(
     Ok(())
 }
 
+fn write_snapshot(directory: &Path, snapshot: Option<&str>) -> Result<(), String> {
+    let Some(snapshot) = snapshot else {
+        return Ok(());
+    };
+    let bytes = BASE64
+        .decode(snapshot)
+        .map_err(|_| "ProjectのPageスナップショット形式が不正です".to_string())?;
+    if bytes.is_empty() || bytes.len() > MAX_UPDATE_BYTES {
+        return Err("ProjectのPageスナップショットサイズが不正です".to_string());
+    }
+    let updates_directory = directory.join("updates");
+    let id = Uuid::new_v4().to_string();
+    atomic_write_bytes(&updates_directory.join(format!("{id}.bin")), &bytes)
+}
+
+fn renamed_store_directory(record: &ProjectStoreRecord, name: &str) -> Result<PathBuf, String> {
+    let parent = record
+        .path
+        .parent()
+        .ok_or_else(|| "現在のProject storeの場所が不正です".to_string())?;
+    let base = if record.location_type == "external"
+        && parent.file_name().and_then(|value| value.to_str()) == Some(LEGACY_PROJECTS_DIRECTORY)
+    {
+        parent
+            .parent()
+            .ok_or_else(|| "現在のProject storeの場所が不正です".to_string())?
+    } else {
+        parent
+    };
+    Ok(base.join(name))
+}
+
 #[tauri::command]
 pub fn project_stores(app: AppHandle) -> Result<Vec<ProjectStoreView>, String> {
     let settings = load_settings(&app)?;
@@ -388,6 +482,12 @@ pub fn project_stores(app: AppHandle) -> Result<Vec<ProjectStoreView>, String> {
         if manifest.project_id != record.project_id {
             continue;
         }
+        let needs_migration = store_directory_needs_migration(&record.path, &manifest)
+            || (record.location_type == "app"
+                && !same_path(
+                    &record.path,
+                    &internal_store_directory(&app, &manifest.name)?,
+                ));
         result.push(ProjectStoreView {
             project_id: record.project_id,
             name: manifest.name,
@@ -395,6 +495,7 @@ pub fn project_stores(app: AppHandle) -> Result<Vec<ProjectStoreView>, String> {
             location_label: record.location_label,
             connected_at: record.connected_at,
             empty: store_is_empty(&record.path),
+            needs_migration,
         });
     }
     Ok(result)
@@ -423,9 +524,10 @@ pub fn move_project_store(
     project_id: String,
     project_name: String,
     parent_path: String,
+    snapshot: Option<String>,
 ) -> Result<ProjectStoreView, String> {
     validate_project_id(&project_id)?;
-    let name = validate_project_name(&project_name)?;
+    let name = validate_project_directory_name(&project_name)?;
     let parent = PathBuf::from(parent_path);
     if !parent.is_dir() {
         return Err("選択した保存先が見つかりません".to_string());
@@ -434,9 +536,10 @@ pub fn move_project_store(
     let canonical_parent = parent
         .canonicalize()
         .map_err(|error| format!("保存先を確認できません：{error}"))?;
-    let project_directory = canonical_parent.join(PROJECTS_DIRECTORY).join(&project_id);
+    let project_directory = canonical_parent.join(&name);
     let manifest = prepare_store(&project_directory, &project_id, &name)?;
     copy_existing_updates(&app, &project_id, &project_directory)?;
+    write_snapshot(&project_directory, snapshot.as_deref())?;
     record_store(&app, project_directory, &manifest, "external")
 }
 
@@ -459,15 +562,28 @@ pub fn ensure_app_project_store(
     app: AppHandle,
     project_id: String,
     project_name: String,
+    snapshot: Option<String>,
 ) -> Result<ProjectStoreView, String> {
     validate_project_id(&project_id)?;
-    let name = validate_project_name(&project_name)?;
+    let name = validate_project_directory_name(&project_name)?;
     if let Some(record) = load_settings(&app)?
         .stores
         .into_iter()
         .find(|item| item.project_id == project_id)
     {
+        if record.path.file_name().and_then(|value| value.to_str()) != Some(name.as_str()) {
+            return rename_project_store(app, project_id, name, snapshot);
+        }
         let manifest = read_manifest(&record.path)?;
+        let needs_migration = store_directory_needs_migration(&record.path, &manifest)
+            || (record.location_type == "app"
+                && !same_path(
+                    &record.path,
+                    &internal_store_directory(&app, &manifest.name)?,
+                ));
+        if store_is_empty(&record.path) {
+            write_snapshot(&record.path, snapshot.as_deref())?;
+        }
         return Ok(ProjectStoreView {
             project_id,
             name: manifest.name,
@@ -475,10 +591,12 @@ pub fn ensure_app_project_store(
             location_label: record.location_label,
             connected_at: record.connected_at,
             empty: store_is_empty(&record.path),
+            needs_migration,
         });
     }
-    let directory = internal_store_directory(&app, &project_id)?;
+    let directory = internal_store_directory(&app, &name)?;
     let manifest = prepare_store(&directory, &project_id, &name)?;
+    write_snapshot(&directory, snapshot.as_deref())?;
     record_store(&app, directory, &manifest, "app")
 }
 
@@ -487,12 +605,14 @@ pub fn move_project_store_to_app(
     app: AppHandle,
     project_id: String,
     project_name: String,
+    snapshot: Option<String>,
 ) -> Result<ProjectStoreView, String> {
     validate_project_id(&project_id)?;
-    let name = validate_project_name(&project_name)?;
-    let directory = internal_store_directory(&app, &project_id)?;
+    let name = validate_project_directory_name(&project_name)?;
+    let directory = internal_store_directory(&app, &name)?;
     let manifest = prepare_store(&directory, &project_id, &name)?;
     copy_existing_updates(&app, &project_id, &directory)?;
+    write_snapshot(&directory, snapshot.as_deref())?;
     record_store(&app, directory, &manifest, "app")
 }
 
@@ -509,11 +629,24 @@ pub fn rename_project_store(
     app: AppHandle,
     project_id: String,
     project_name: String,
-) -> Result<(), String> {
-    let name = validate_project_name(&project_name)?;
-    let (directory, mut manifest) = configured_store(&app, &project_id)?;
-    manifest.name = name;
-    atomic_write_json(&directory.join("manifest.json"), &manifest)
+    snapshot: Option<String>,
+) -> Result<ProjectStoreView, String> {
+    validate_project_id(&project_id)?;
+    let name = validate_project_directory_name(&project_name)?;
+    let settings = load_settings(&app)?;
+    let record = settings
+        .stores
+        .into_iter()
+        .find(|item| item.project_id == project_id)
+        .ok_or_else(|| "このProjectの保存場所が設定されていません".to_string())?;
+    let (source, _) = configured_store(&app, &project_id)?;
+    let destination = renamed_store_directory(&record, &name)?;
+    let manifest = prepare_store(&destination, &project_id, &name)?;
+    if source != destination {
+        copy_existing_updates(&app, &project_id, &destination)?;
+    }
+    write_snapshot(&destination, snapshot.as_deref())?;
+    record_store(&app, destination, &manifest, &record.location_type)
 }
 
 #[tauri::command]
@@ -663,5 +796,80 @@ mod tests {
             path_for_display(Path::new(r"E:\notes\state.json")),
             r"E:\notes\state.json"
         );
+    }
+
+    #[test]
+    fn project_names_are_safe_exact_directory_names() {
+        assert_eq!(
+            validate_project_directory_name("製品ロードマップ").expect("valid name"),
+            "製品ロードマップ"
+        );
+        for invalid in [".", "..", "CON", "com1.txt", "a/b", "a\\b", "name."] {
+            assert!(
+                validate_project_directory_name(invalid).is_err(),
+                "{invalid} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn renamed_legacy_external_stores_leave_the_wrapper_directory() {
+        let record = ProjectStoreRecord {
+            project_id: "project-1".to_string(),
+            path: PathBuf::from("D:/Cloud/MyBox Projects/project-1"),
+            location_type: "external".to_string(),
+            location_label: "Cloud / project-1".to_string(),
+            connected_at: "1".to_string(),
+        };
+        assert_eq!(
+            renamed_store_directory(&record, "Roadmap").expect("destination"),
+            PathBuf::from("D:/Cloud/Roadmap")
+        );
+    }
+
+    #[test]
+    fn legacy_id_directories_are_reported_for_migration() {
+        let manifest = ProjectManifest {
+            version: MANIFEST_VERSION,
+            kind: MANIFEST_KIND.to_string(),
+            project_id: "project-1".to_string(),
+            name: "Prompts".to_string(),
+            created_at: "1".to_string(),
+        };
+        assert!(store_directory_needs_migration(
+            Path::new("G:/MyBox Projects/project-1"),
+            &manifest
+        ));
+        assert!(!store_directory_needs_migration(
+            Path::new("G:/Prompts"),
+            &manifest
+        ));
+    }
+
+    #[test]
+    fn page_snapshot_is_written_before_a_store_can_be_recorded() {
+        let temporary = tempfile::tempdir().expect("temp dir");
+        let directory = temporary.path().join("Roadmap");
+        fs::create_dir_all(directory.join("updates")).expect("updates dir");
+
+        write_snapshot(&directory, Some("cGFnZXM=")).expect("snapshot");
+
+        let files = fs::read_dir(directory.join("updates"))
+            .expect("updates")
+            .filter_map(Result::ok)
+            .collect::<Vec<_>>();
+        assert_eq!(files.len(), 1);
+        assert_eq!(fs::read(files[0].path()).expect("bytes"), b"pages");
+    }
+
+    #[test]
+    fn a_nonempty_same_named_directory_is_not_claimed_as_a_project_store() {
+        let temporary = tempfile::tempdir().expect("temp dir");
+        let directory = temporary.path().join("Roadmap");
+        fs::create_dir_all(&directory).expect("project dir");
+        fs::write(directory.join("personal.txt"), b"keep me").expect("existing file");
+
+        assert!(prepare_store(&directory, "project-1", "Roadmap").is_err());
+        assert!(!directory.join("manifest.json").exists());
     }
 }

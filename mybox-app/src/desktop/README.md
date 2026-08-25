@@ -31,7 +31,11 @@ must only be called when `isDesktopRuntime()` returns true.
 - `project-stores.js`: opens the native directory picker and bridges Note's
   Project-store moves and existing-folder attachment. Selected paths stay in
   this bridge and the native host; Note receives a location label and opaque
-  Yjs update records only.
+  Yjs update records only. A selected path is the parent of one directory per
+  Project, named after that Project, and a move includes its current Page
+  snapshot before the native catalog switches locations. Legacy ID-named store
+  directories and Projects still backed only by the common JSON are reported to
+  Note so it can migrate them with that snapshot.
 - `open-url.js`: opens a link in the User's own browser through Tauri's opener
   plugin, since the WebView ignores `target="_blank"`. Falls back to
   `window.open` in the Web preview rather than staying unsupported, because it

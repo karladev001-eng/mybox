@@ -298,6 +298,14 @@ export function createPage(doc, page) {
   return readPage(doc, page.id);
 }
 
+/** Removes a Page from the shared document for an explicit owner purge. */
+export function deletePage(doc, pageId) {
+  const page = readPage(doc, pageId);
+  if (!page) throw new Error(`PAGE_NOT_FOUND: ${pageId}`);
+  doc.transact(() => pagesOf(doc).delete(pageId));
+  return page;
+}
+
 /** The bytes a peer needs to reach this document's current state. */
 export function encodeState(doc) {
   return Y.encodeStateAsUpdate(doc);

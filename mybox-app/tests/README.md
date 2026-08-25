@@ -24,6 +24,9 @@ Contains Node tests for framework behavior and Sites packaging.
   revisions, search, and App Operations.
 - `project-store-client.test.mjs`: append-only Project-store convergence,
   pulled update de-duplication, and retry after a store becomes unavailable.
+- `shared-project.test.mjs`: live shared-Project behavior plus full local Page
+  snapshots used when a Project store moves, including shared Trash, restore,
+  and owner purge behavior.
 - `app-registry.test.mjs`: validated versioned App definitions, SemVer update
   checks, installation migration and persistence, duplicate protection, built-in
   defaults, and extensible lazy Surface contracts.

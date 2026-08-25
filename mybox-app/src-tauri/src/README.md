@@ -23,9 +23,14 @@
   this crate compiles. The token and the generated `SERVER_SECRET` live in OS
   credential storage next to the other provider secrets this file governs.
 - `project_stores.rs`: validates User-selected Project directories, moves the
-  authoritative append-only Yjs store between MyBox and external folders, and
-  exposes only a display label plus opaque update IDs/bytes
+  authoritative append-only Yjs store and its full Page snapshot between MyBox
+  and one Project-named external folder, and exposes only a display label plus
+  opaque update IDs/bytes. Legacy ID-named directories are flagged for the Note
+  client to migrate with the current local Page snapshot
   ([ADR 0040](../../../docs/adr/0040-store-note-projects-in-user-selected-directories.md)).
+  App-internal stores live as `apps/knowledge/<Project name>` inside the selected
+  workspace; existing common-JSON Projects and older App-data stores are moved
+  there with a complete Yjs snapshot.
 - `knowledge_resources.rs`: copies a User-picked image (path supplied by their
   own OS file dialog, the same trusted precedent `open_workspace` already
   sets) into the Knowledge App's private resource namespace and returns an

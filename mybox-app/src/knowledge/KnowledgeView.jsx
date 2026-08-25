@@ -1766,9 +1766,9 @@ export function KnowledgeView({
   };
 
   useEffect(() => {
-    if (!desktop) return;
+    if (!desktop || !persistenceReady) return;
     refreshConnections().catch(() => {});
-  }, [desktop]);
+  }, [desktop, persistenceReady]);
 
   useEffect(() => {
     let active = true;
@@ -2073,7 +2073,10 @@ export function KnowledgeView({
     try {
       if (name !== currentProject?.name) {
         await client.renameProject(projectId, name);
-        if (storeByProject[projectId]) await client.renameProjectStore(projectId, name);
+        if (storeByProject[projectId]) {
+          await client.renameProjectStore(projectId, name);
+          await refreshConnections();
+        }
       }
       const changedColors = Object.entries(colors).filter(([memberProfileId, color]) => memberColors[memberProfileId] !== color);
       for (const [memberProfileId, color] of changedColors) {

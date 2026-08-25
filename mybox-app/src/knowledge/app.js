@@ -217,7 +217,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.5.5",
+      version: "0.5.8",
       hostCapabilities: ["app-storage", "workflows"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema, outputSchema: { type: "object", required: ["projects"], properties: { projects: { type: "array", title: "Projects", items: projectSummarySchema } } } }),
@@ -428,7 +428,17 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
     handlers: {
       async "knowledge.project.list"(_input, { actor, storage }) {
         const state = await loadState(storage);
-        return { projects: listProjects(state, { profileId: profileIdFor(actor) }) };
+        const projects = listProjects(state, { profileId: profileIdFor(actor) }).map((project) => {
+          const session = sharedSessions.get(project.id);
+          if (!session) return project;
+          const pages = session.listPages(true);
+          return {
+            ...project,
+            activePageCount: pages.filter((page) => page.state === "active").length,
+            trashPageCount: pages.filter((page) => page.state === "trash").length,
+          };
+        });
+        return { projects };
       },
       async "knowledge.project.attach"({ projectId, name }, { actor, storage }) {
         const mutation = await saveMutation(storage, attachProject(await loadState(storage), {
@@ -480,7 +490,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       },
       async "knowledge.page.list"({ projectId, includeTrash = false }, { actor, storage }) {
         const session = sharedSessions.get(projectId);
-        if (session) return { pages: session.listPages() };
+        if (session) return { pages: session.listPages(includeTrash) };
         const state = await loadState(storage);
         return { pages: listPages(state, { projectId, includeTrash, profileId: profileIdFor(actor) }) };
       },
@@ -513,6 +523,17 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { backlinks: getBacklinks(state, { projectId, pageId, profileId: profileIdFor(actor) }) };
       },
       async "knowledge.page.create"({ projectId, title }, { actor, storage, emit }) {
+        const session = sharedSessions.get(projectId);
+        if (session) {
+          const page = session.createPage(title, actor.id);
+          await emit("knowledge.page.changed", {
+            projectId,
+            pageId: page.id,
+            revision: page.revision,
+            state: page.state,
+          });
+          return { page };
+        }
         const mutation = await saveMutation(storage, createPage(await loadState(storage), {
           projectId,
           title,
@@ -556,6 +577,18 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { page: mutation.page };
       },
       async "knowledge.page.move-to-trash"(input, { actor, storage, emit }) {
+        const session = sharedSessions.get(input.projectId);
+        if (session) {
+          session.mutate(input.pageId, { type: "page-state", state: "trash" }, actor.id);
+          const shared = session.readPage(input.pageId);
+          await emit("knowledge.page.changed", {
+            projectId: input.projectId,
+            pageId: input.pageId,
+            revision: shared.page.revision,
+            state: shared.page.state,
+          });
+          return { page: shared.page };
+        }
         const mutation = await saveMutation(storage, movePageToTrash(await loadState(storage), {
           ...input,
           profileId: profileIdFor(actor),
@@ -570,6 +603,18 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { page: mutation.page };
       },
       async "knowledge.page.restore"(input, { actor, storage, emit }) {
+        const session = sharedSessions.get(input.projectId);
+        if (session) {
+          session.mutate(input.pageId, { type: "page-state", state: "active" }, actor.id);
+          const shared = session.readPage(input.pageId);
+          await emit("knowledge.page.changed", {
+            projectId: input.projectId,
+            pageId: input.pageId,
+            revision: shared.page.revision,
+            state: shared.page.state,
+          });
+          return { page: shared.page };
+        }
         const mutation = await saveMutation(storage, restorePage(await loadState(storage), {
           ...input,
           profileId: profileIdFor(actor),
@@ -584,6 +629,12 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { page: mutation.page };
       },
       async "knowledge.page.purge"(input, { actor, storage, emit }) {
+        const session = sharedSessions.get(input.projectId);
+        if (session) {
+          const mutation = session.purgePage(input.pageId, actor.id);
+          await emit("knowledge.page.purged", { projectId: input.projectId, pageId: mutation.pageId });
+          return mutation;
+        }
         const mutation = await saveMutation(storage, purgePage(await loadState(storage), {
           ...input,
           profileId: profileIdFor(actor),

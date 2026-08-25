@@ -90,3 +90,10 @@ table, use a neutral default author color, and render configured author colors
 consistently in local and shared Projects. GitHub-linked sessions use the login
 name for account presentation without exposing credentials or replacing the
 stable internal profile ID.
+
+Release `0.8.4` updates Note Registry `1.19.2` so every existing Project is
+migrated from the common JSON state or legacy App-data store into its own
+Project-named directory after the workspace is ready. Location changes retain a
+full Page snapshot, including Trash. Project-store and Cloudflare Pages now use
+the same Yjs document for creation, Trash moves, restoration, and permanent
+deletion, avoiding stale local revisions and missing-Page errors.

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as Y from "yjs";
-import { createSharedProject } from "../src/knowledge/shared-project.js";
+import { createSharedProject, encodeProjectPages } from "../src/knowledge/shared-project.js";
 
 const PAGE = Object.freeze({
   id: "page-1",
@@ -12,7 +12,7 @@ const PAGE = Object.freeze({
 });
 
 /** Replaces the sync client so the session can be driven without a network. */
-function stubClient() {
+function stubClient(role = "editor") {
   const calls = { connected: 0, disconnected: 0, awareness: [] };
   let handlers = {};
   const factory = (options) => {
@@ -21,14 +21,14 @@ function stubClient() {
       connect: () => { calls.connected += 1; },
       disconnect: () => { calls.disconnected += 1; },
       sendAwareness: (state) => calls.awareness.push(state),
-      get role() { return "editor"; },
+      get role() { return role; },
     };
   };
   return { factory, calls, emit: () => handlers };
 }
 
-function session(extra = {}) {
-  const stub = stubClient();
+function session({ role = "editor", ...extra } = {}) {
+  const stub = stubClient(role);
   const changes = [];
   const shared = createSharedProject({
     endpoint: "https://sync.test",
@@ -61,6 +61,25 @@ test("reads a Page back in the shape the editor expects", () => {
   assert.equal(result.page.blocks[0].text, "hello");
   assert.deepEqual(result.backlinks, []);
   assert.equal(shared.readPage("missing"), null);
+});
+
+test("creates Pages in the shared document and reserves titles in Trash", () => {
+  const { shared } = session({ role: "owner" });
+  const created = shared.createPage("無題", "local-user");
+  assert.equal(shared.readPage(created.id).page.title, "無題");
+
+  shared.mutate(created.id, { type: "page-state", state: "trash" }, "local-user");
+  assert.deepEqual(shared.listPages(), []);
+  assert.deepEqual(shared.listPages(true).map((page) => page.title), ["無題"]);
+  assert.throws(
+    () => shared.createPage("無題", "local-user"),
+    (error) => error.code === "PAGE_TITLE_CONFLICT",
+  );
+
+  shared.mutate(created.id, { type: "page-state", state: "active" }, "local-user");
+  assert.equal(shared.readPage(created.id).page.state, "active");
+  assert.deepEqual(shared.purgePage(created.id), { pageId: created.id, releasedTitle: "無題" });
+  assert.equal(shared.readPage(created.id), null);
 });
 
 test("a mutation changes the document and notifies the view", () => {
@@ -157,6 +176,19 @@ test("exports a full Yjs update before the Project store moves", () => {
   const restored = new Y.Doc();
   Y.applyUpdate(restored, update);
   assert.equal(restored.getMap("pages").size, 1);
+});
+
+test("encodes every local Page for a Project-store move, including Trash", () => {
+  const encoded = encodeProjectPages([
+    PAGE,
+    { ...PAGE, id: "page-trash", title: "Trash Page", state: "trash" },
+  ]);
+  const binary = atob(encoded);
+  const update = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const restored = new Y.Doc();
+  Y.applyUpdate(restored, update);
+
+  assert.deepEqual([...restored.getMap("pages").keys()].sort(), ["page-1", "page-trash"]);
 });
 
 test("status and role come from the sync client", () => {

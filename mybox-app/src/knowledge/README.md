@@ -65,12 +65,20 @@ Implements the first vertical slice of the `knowledge` App described in
   resolve a shared Project through it. Nothing outside that path writes to the
   document — two write paths are what once made assistant edits invisible
   ([ADR 0023](../../../docs/adr/0023-user-operated-sync-servers-with-yjs.md)).
+  Page creation, Trash-aware listing, Project Page counts, Trash transitions,
+  restore, and owner purge use this same live document, so a stored Page never
+  remains hidden in or conflicts with the local JSON model.
+  It also encodes every local Page, including Trash, into the full Yjs snapshot
+  written before an unshared Project changes storage location. Existing Projects
+  that have no store are seeded into `apps/knowledge/<Project name>` when stores
+  are first listed.
 - `sync-client.js`: keeps that document in step with a Project's sync endpoint.
   Relayed updates carry a remote origin so they are never echoed back, and a
   Viewer sends nothing because the server would refuse it anyway.
 - `project-store-client.js`: persists the same Yjs document through bounded,
   append-only update files in MyBox or a User-selected Google Drive, OneDrive,
-  Dropbox, Syncthing, or similar desktop folder. It receives opaque update
+  Dropbox, Syncthing, or similar desktop folder. Each Project uses its own
+  Project-named directory. It receives opaque update
   records from `client.js` and never receives a native path. The Cloudflare
   client may run beside it on the same document.
 - `knowledge.css`: Knowledge App layout and component states using root tokens.

@@ -42,7 +42,7 @@ function deterministicIds() {
 test("publishes Page title paths for Workflow command output mapping", () => {
   const app = createKnowledgeApp();
   const operation = app.manifest.operations.find((item) => item.id === "knowledge.page.list");
-  assert.equal(app.manifest.version, "0.5.5");
+  assert.equal(app.manifest.version, "0.5.8");
   assert.ok(workflowSchemaPaths(operation.outputSchema).includes("$.pages[*].title"));
 });
 
@@ -615,13 +615,31 @@ test("routes a shared Project's writes to its document, so the assistant and the
   // this port, never the socket behind it.
   const document = new Map();
   const session = {
-    listPages: () => [...document.values()].map(({ id, title }) => ({ id, title, state: "active", excerpt: "" })),
+    listPages: (includeTrash = false) => [...document.values()]
+      .filter((page) => includeTrash || page.state !== "trash")
+      .map(({ id, title, state = "active" }) => ({ id, title, state, excerpt: "" })),
     readPage: (pageId) => (document.has(pageId)
-      ? { page: { ...document.get(pageId), revision: 0, state: "active" }, tags: [], backlinks: [] }
+      ? { page: { ...document.get(pageId), revision: 0 }, tags: [], backlinks: [] }
       : null),
     mutate: (pageId, mutation) => {
-      if (mutation.type !== "rename") throw new Error(`unsupported: ${mutation.type}`);
-      document.set(pageId, { ...document.get(pageId), title: mutation.title });
+      if (mutation.type === "rename") {
+        document.set(pageId, { ...document.get(pageId), title: mutation.title });
+      } else if (mutation.type === "page-state") {
+        document.set(pageId, { ...document.get(pageId), state: mutation.state });
+      } else {
+        throw new Error(`unsupported: ${mutation.type}`);
+      }
+    },
+    createPage: (title, actorId) => {
+      const page = { id: "page-shared-new", projectId: "project-default", title, state: "active", revision: 0, blocks: [], tagIds: [], createdBy: actorId };
+      document.set(page.id, page);
+      return page;
+    },
+    purgePage: (pageId) => {
+      const page = document.get(pageId);
+      if (!page) throw new Error(`PAGE_NOT_FOUND: ${pageId}`);
+      document.delete(pageId);
+      return { pageId, releasedTitle: page.title };
     },
   };
   const sharedProjectIds = new Set();
@@ -635,7 +653,7 @@ test("routes a shared Project's writes to its document, so the assistant and the
   const { page } = await host.invoke("knowledge.page.create", { projectId, title: "共有前" }, { actor });
 
   // The Project becomes shared: its document is now what the editor renders.
-  document.set(page.id, { id: page.id, projectId, title: "共有前", blocks: [], tagIds: [] });
+  document.set(page.id, { id: page.id, projectId, title: "共有前", state: "active", blocks: [], tagIds: [] });
   sharedProjectIds.add(projectId);
 
   // An assistant write. Before the write paths were unified this landed in the
@@ -653,6 +671,32 @@ test("routes a shared Project's writes to its document, so the assistant and the
   const read = await host.invoke("knowledge.page.read", { projectId, pageId: page.id }, { actor });
   assert.equal(read.page.title, "日常のツールボックス");
   assert.deepEqual((await host.invoke("knowledge.page.list", { projectId }, { actor })).pages.map((p) => p.title), ["日常のツールボックス"]);
+
+  const sharedCreated = await host.invoke("knowledge.page.create", { projectId, title: "共有後" }, { actor });
+  assert.equal(sharedCreated.page.title, "共有後");
+  assert.equal(document.get(sharedCreated.page.id).title, "共有後", "new Pages must be created in the live document");
+
+  const trashed = await host.invoke("knowledge.page.move-to-trash", {
+    projectId,
+    pageId: sharedCreated.page.id,
+    expectedRevision: 0,
+  }, { actor });
+  assert.equal(trashed.page.state, "trash", "Trash must update the shared document");
+
+  const restored = await host.invoke("knowledge.page.restore", {
+    projectId,
+    pageId: sharedCreated.page.id,
+    expectedRevision: 0,
+  }, { actor });
+  assert.equal(restored.page.state, "active", "restore must update the shared document");
+
+  const purged = await host.invoke("knowledge.page.purge", {
+    projectId,
+    pageId: sharedCreated.page.id,
+    expectedRevision: 0,
+  }, { actor });
+  assert.deepEqual(purged, { pageId: sharedCreated.page.id, releasedTitle: "共有後" });
+  assert.equal(document.has(sharedCreated.page.id), false, "purge must delete from the shared document");
 
   // A local Project still goes to the JSON store, untouched by any of this.
   const { project: localProject } = await host.invoke("knowledge.project.create", { name: "ローカル" }, { actor });

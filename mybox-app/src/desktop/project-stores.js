@@ -16,8 +16,8 @@ export async function projectStorePath(projectId) {
   return invoke("project_store_path", { projectId });
 }
 
-/** Selects a parent directory and moves this Project below `MyBox Projects`. */
-export async function moveProjectStore({ projectId, projectName }) {
+/** Selects a parent directory and moves this Project into a directory named after it. */
+export async function moveProjectStore({ projectId, projectName, snapshot }) {
   if (!isDesktopRuntime()) unsupported();
   const parentPath = await open({
     directory: true,
@@ -25,7 +25,7 @@ export async function moveProjectStore({ projectId, projectName }) {
     title: "Projectの保存場所を選択",
   });
   if (!parentPath) return null;
-  return invoke("move_project_store", { projectId, projectName, parentPath });
+  return invoke("move_project_store", { projectId, projectName, parentPath, snapshot });
 }
 
 /** Selects an existing MyBox Note Project directory on this device. */
@@ -40,14 +40,14 @@ export async function attachProjectStore() {
   return invoke("attach_project_store", { path });
 }
 
-export async function ensureAppProjectStore({ projectId, projectName }) {
+export async function ensureAppProjectStore({ projectId, projectName, snapshot }) {
   if (!isDesktopRuntime()) unsupported();
-  return invoke("ensure_app_project_store", { projectId, projectName });
+  return invoke("ensure_app_project_store", { projectId, projectName, snapshot });
 }
 
-export async function moveProjectStoreToApp({ projectId, projectName }) {
+export async function moveProjectStoreToApp({ projectId, projectName, snapshot }) {
   if (!isDesktopRuntime()) unsupported();
-  return invoke("move_project_store_to_app", { projectId, projectName });
+  return invoke("move_project_store_to_app", { projectId, projectName, snapshot });
 }
 
 export async function forgetProjectStore(projectId) {
@@ -55,9 +55,9 @@ export async function forgetProjectStore(projectId) {
   await invoke("forget_project_store", { projectId });
 }
 
-export async function renameProjectStore(projectId, projectName) {
+export async function renameProjectStore(projectId, projectName, snapshot) {
   if (!isDesktopRuntime()) return;
-  await invoke("rename_project_store", { projectId, projectName });
+  return invoke("rename_project_store", { projectId, projectName, snapshot });
 }
 
 export async function readProjectStoreUpdates(projectId, knownIds = []) {

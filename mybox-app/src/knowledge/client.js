@@ -6,7 +6,7 @@ import {
   attachProjectStore,
   ensureAppProjectStore,
   forgetProjectStore,
-  listProjectStores,
+  listProjectStores as listNativeProjectStores,
   moveProjectStore,
   moveProjectStoreToApp,
   projectStorePath,
@@ -39,7 +39,7 @@ import {
 import { TauriStorageDriver } from "../desktop/tauri-storage.js";
 import { createKnowledgeApp } from "./app.js";
 import { createProjectStoreClient } from "./project-store-client.js";
-import { createSharedProject } from "./shared-project.js";
+import { createSharedProject, encodeProjectPages } from "./shared-project.js";
 import { createSyncClient } from "./sync-client.js";
 
 const webDriver = new MemoryStorageDriver();
@@ -65,6 +65,45 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     actor: { type: "user", id: getProfileId() || LOCAL_PROFILE_ID },
   });
   const resolvedProfileId = () => getProfileId() || LOCAL_PROFILE_ID;
+  const snapshotLocalProject = async (projectId) => {
+    const { pages } = await invoke("knowledge.page.list", { projectId, includeTrash: true });
+    const fullPages = await Promise.all(pages.map(async ({ id }) => (
+      await invoke("knowledge.page.read", { projectId, pageId: id })
+    ).page));
+    return encodeProjectPages(fullPages);
+  };
+  const snapshotProject = (projectId) => sharedSessions.get(projectId)?.encodeState() ?? snapshotLocalProject(projectId);
+  const listProjectStores = async () => {
+    let stores = await listNativeProjectStores();
+    if (!desktop) return stores;
+    const { projects } = await invoke("knowledge.project.list");
+    const registeredProjectIds = new Set(stores.map((store) => store.projectId));
+    let createdStore = false;
+    for (const project of projects) {
+      if (registeredProjectIds.has(project.id)) continue;
+      await ensureAppProjectStore({
+        projectId: project.id,
+        projectName: project.name,
+        snapshot: await snapshotLocalProject(project.id),
+      });
+      createdStore = true;
+    }
+    if (createdStore) stores = await listNativeProjectStores();
+    const legacyStores = stores.filter((store) => store.needsMigration);
+    if (!legacyStores.length) return stores;
+    const projectNames = new Map(projects.map((project) => [project.id, project.name]));
+    for (const store of legacyStores) {
+      const projectName = projectNames.get(store.projectId) ?? store.name;
+      const snapshot = await snapshotProject(store.projectId);
+      if (store.locationType === "app") {
+        await moveProjectStoreToApp({ projectId: store.projectId, projectName, snapshot });
+      } else {
+        await renameProjectStore(store.projectId, projectName, snapshot);
+      }
+    }
+    stores = await listNativeProjectStores();
+    return stores;
+  };
 
   return Object.freeze({
     listProjects: () => invoke("knowledge.project.list"),
@@ -106,19 +145,25 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     listProjectStores: () => listProjectStores(),
     projectStorePath: (projectId) => projectStorePath(projectId),
     moveProjectStore: async (projectId, projectName, snapshot = null) => {
-      const result = await moveProjectStore({ projectId, projectName });
-      if (result && snapshot) await writeProjectStoreUpdate(projectId, snapshot);
-      return result;
+      const currentSnapshot = snapshot ?? await snapshotProject(projectId);
+      return moveProjectStore({ projectId, projectName, snapshot: currentSnapshot });
     },
     moveProjectStoreToApp: async (projectId, projectName, snapshot = null) => {
-      const result = await moveProjectStoreToApp({ projectId, projectName });
-      if (result && snapshot) await writeProjectStoreUpdate(projectId, snapshot);
-      return result;
+      const currentSnapshot = snapshot ?? await snapshotProject(projectId);
+      return moveProjectStoreToApp({ projectId, projectName, snapshot: currentSnapshot });
     },
-    ensureAppProjectStore: (projectId, projectName) => ensureAppProjectStore({ projectId, projectName }),
+    ensureAppProjectStore: async (projectId, projectName) => ensureAppProjectStore({
+      projectId,
+      projectName,
+      snapshot: await snapshotProject(projectId),
+    }),
     attachProjectStore: () => attachProjectStore(),
     forgetProjectStore: (projectId) => forgetProjectStore(projectId),
-    renameProjectStore: (projectId, projectName) => renameProjectStore(projectId, projectName),
+    renameProjectStore: async (projectId, projectName) => renameProjectStore(
+      projectId,
+      projectName,
+      await snapshotProject(projectId),
+    ),
     /** One Yjs document can persist to a Project store and use Cloudflare at the same time. */
     createProjectSession: ({ store, server, ...options }) => createSharedProject({
       ...options,
