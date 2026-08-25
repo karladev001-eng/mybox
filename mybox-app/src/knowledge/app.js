@@ -217,7 +217,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.5.8",
+      version: "0.5.9",
       hostCapabilities: ["app-storage", "workflows"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema, outputSchema: { type: "object", required: ["projects"], properties: { projects: { type: "array", title: "Projects", items: projectSummarySchema } } } }),

@@ -92,6 +92,49 @@ test("a mutation changes the document and notifies the view", () => {
   assert.ok(changes.length > before, "an edit re-renders the editor");
 });
 
+test("creates a Page and resolves its PageLink atomically in a shared Project", () => {
+  const { shared, changes } = session();
+  shared.adopt([PAGE]);
+  const before = changes.length;
+
+  shared.mutate("page-1", {
+    type: "link-add",
+    blockId: "block-1",
+    createTitle: "幾何学スター",
+    text: "hello [[幾何学スター",
+    markerStart: 6,
+    markerEnd: 15,
+  }, "profile-a");
+
+  const target = shared.listPages().find((page) => page.title === "幾何学スター");
+  const source = shared.readPage("page-1").page;
+  assert.equal(source.blocks[0].text, "hello [[幾何学スター]]");
+  assert.deepEqual(source.blocks[0].links, [{ targetPageId: target.id, token: "[[幾何学スター]]" }]);
+  assert.equal(shared.readPage(target.id).backlinks[0].pageId, "page-1");
+  assert.equal(changes.length, before + 1, "Page creation and link resolution publish one document update");
+});
+
+test("shared PageLink auto-creation keeps titles reserved in Trash", () => {
+  const { shared } = session();
+  shared.adopt([
+    PAGE,
+    { ...PAGE, id: "page-trash", title: "Reserved", state: "trash" },
+  ]);
+
+  assert.throws(
+    () => shared.mutate("page-1", {
+      type: "link-add",
+      blockId: "block-1",
+      createTitle: " reserved ",
+      text: "hello [[reserved",
+      markerStart: 6,
+      markerEnd: 16,
+    }, "profile-a"),
+    (error) => error.code === "PAGE_TITLE_CONFLICT" && error.details.conflictingState === "trash",
+  );
+  assert.equal(shared.readPage("page-1").page.blocks[0].text, "hello");
+});
+
 test("a multiline paste is supported through the shared mutation vocabulary", () => {
   const { shared } = session();
   shared.adopt([PAGE]);

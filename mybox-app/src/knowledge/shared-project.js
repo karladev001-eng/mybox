@@ -21,12 +21,8 @@ export function encodeProjectPages(pages) {
   return encodeDocState(doc);
 }
 
-/**
- * Mutations the document can apply today. Tags and PageLink creation still run
- * through the local model, so they are refused with an explanation rather than
- * silently dropped.
- */
-const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-paste", "block-remove", "block-move"]);
+/** Mutations the shared document can apply today. */
+const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-paste", "block-remove", "block-move", "link-add"]);
 
 export class SharedProjectError extends Error {
   constructor(code, message, details = {}) {
@@ -43,6 +39,88 @@ function newBlockId() {
 
 function newPageId() {
   return `page-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
+function createPageRecord(doc, projectId, title, actorId) {
+  const displayTitle = typeof title === "string" ? title.trim() : "";
+  const normalizedTitle = normalizePageTitle(displayTitle);
+  const conflict = listPageIds(doc)
+    .map((id) => readPage(doc, id))
+    .find((page) => normalizePageTitle(page.title) === normalizedTitle);
+  if (conflict) {
+    throw new SharedProjectError(
+      "PAGE_TITLE_CONFLICT",
+      "A Page with this title already exists in the Project or Trash",
+      { title: displayTitle, conflictingState: conflict.state },
+    );
+  }
+  const timestamp = new Date().toISOString();
+  return {
+    id: newPageId(),
+    projectId,
+    title: displayTitle,
+    state: "active",
+    revision: 0,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    createdBy: actorId,
+    updatedBy: actorId,
+    tagIds: [],
+    blocks: [{
+      id: newBlockId(),
+      type: "paragraph",
+      text: "",
+      checked: false,
+      updatedBy: actorId,
+      links: [],
+    }],
+  };
+}
+
+/**
+ * Resolves the editor's unfinished `[[` marker against a Page. When the Page
+ * does not exist yet, its creation and the source Block update are committed as
+ * one Yjs transaction so peers can never observe only half of the PageLink.
+ */
+function addPageLink(doc, projectId, pageId, mutation, actorId) {
+  const source = readPage(doc, pageId);
+  if (!source) throw new SharedProjectError("PAGE_NOT_FOUND", "Page was not found", { projectId, pageId });
+  const block = source.blocks.find((item) => item.id === mutation.blockId);
+  if (!block) throw new SharedProjectError("BLOCK_NOT_FOUND", "Block was not found", { pageId, blockId: mutation.blockId });
+
+  let target = mutation.targetPageId ? readPage(doc, mutation.targetPageId) : null;
+  let created = null;
+  if (mutation.targetPageId && !target) {
+    throw new SharedProjectError("PAGE_NOT_FOUND", "Page was not found", { projectId, pageId: mutation.targetPageId });
+  }
+  if (!target) {
+    created = createPageRecord(doc, projectId, mutation.createTitle, actorId);
+    target = created;
+  }
+
+  const sourceText = typeof mutation.text === "string" ? mutation.text : block.text;
+  const markerStart = Number.isInteger(mutation.markerStart) ? mutation.markerStart : sourceText.lastIndexOf("[[");
+  const markerEnd = Number.isInteger(mutation.markerEnd) ? mutation.markerEnd : sourceText.length;
+  if (markerStart < 0 || sourceText.slice(markerStart, markerStart + 2) !== "[[") {
+    throw new SharedProjectError("PAGE_LINK_MARKER_REQUIRED", "PageLink creation requires an active [[ marker");
+  }
+  const token = `[[${target.title}]]`;
+  const text = `${sourceText.slice(0, markerStart)}${token}${sourceText.slice(markerEnd)}`;
+
+  doc.transact(() => {
+    if (created) seedPage(doc, created);
+    if (!created && target.state === "trash") {
+      applyPageMutation(doc, target.id, { type: "page-state", state: "active" }, { actorId });
+    }
+    applyPageMutation(doc, pageId, {
+      type: "link-add",
+      blockId: mutation.blockId,
+      targetPageId: target.id,
+      token,
+      text,
+    }, { actorId });
+  });
+  return readPage(doc, pageId);
 }
 
 /** The document wants a whole Block where the domain names a type and text. */
@@ -158,6 +236,9 @@ export function createSharedProject({
           { type: mutation.type },
         );
       }
+      if (mutation.type === "link-add") {
+        return addPageLink(doc, projectId, pageId, mutation, actorId);
+      }
       return applyPageMutation(doc, pageId, toDocumentMutation(mutation), { actorId });
     },
 
@@ -186,39 +267,7 @@ export function createSharedProject({
     },
 
     createPage(title, actorId) {
-      const displayTitle = typeof title === "string" ? title.trim() : "";
-      const normalizedTitle = normalizePageTitle(displayTitle);
-      const conflict = listPageIds(doc)
-        .map((id) => readPage(doc, id))
-        .some((page) => normalizePageTitle(page.title) === normalizedTitle);
-      if (conflict) {
-        throw new SharedProjectError(
-          "PAGE_TITLE_CONFLICT",
-          "A Page with this title already exists in the Project or Trash",
-          { title: displayTitle },
-        );
-      }
-      const timestamp = new Date().toISOString();
-      const page = {
-        id: newPageId(),
-        projectId,
-        title: displayTitle,
-        state: "active",
-        revision: 0,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        createdBy: actorId,
-        updatedBy: actorId,
-        tagIds: [],
-        blocks: [{
-          id: newBlockId(),
-          type: "paragraph",
-          text: "",
-          checked: false,
-          updatedBy: actorId,
-          links: [],
-        }],
-      };
+      const page = createPageRecord(doc, projectId, title, actorId);
       seedPage(doc, page);
       return { ...page, ...readPage(doc, page.id) };
     },

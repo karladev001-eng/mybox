@@ -68,6 +68,8 @@ Implements the first vertical slice of the `knowledge` App described in
   Page creation, Trash-aware listing, Project Page counts, Trash transitions,
   restore, and owner purge use this same live document, so a stored Page never
   remains hidden in or conflicts with the local JSON model.
+  PageLink completion also creates its missing target Page in the same Yjs
+  transaction, preserving the local model's Project-wide title uniqueness.
   It also encodes every local Page, including Trash, into the full Yjs snapshot
   written before an unshared Project changes storage location. Existing Projects
   that have no store are seeded into `apps/knowledge/<Project name>` when stores

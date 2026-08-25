@@ -97,3 +97,8 @@ Project-named directory after the workspace is ready. Location changes retain a
 full Page snapshot, including Trash. Project-store and Cloudflare Pages now use
 the same Yjs document for creation, Trash moves, restoration, and permanent
 deletion, avoiding stale local revisions and missing-Page errors.
+
+Release `0.8.5` updates Note Registry `1.19.3` so completing a PageLink in a
+shared Project can create its missing target Page. The Page and resolved link
+enter the shared Yjs document in one transaction, while Active and Trash retain
+the same Project-wide title uniqueness rule as local Projects.

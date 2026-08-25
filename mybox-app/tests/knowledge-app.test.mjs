@@ -42,7 +42,7 @@ function deterministicIds() {
 test("publishes Page title paths for Workflow command output mapping", () => {
   const app = createKnowledgeApp();
   const operation = app.manifest.operations.find((item) => item.id === "knowledge.page.list");
-  assert.equal(app.manifest.version, "0.5.8");
+  assert.equal(app.manifest.version, "0.5.9");
   assert.ok(workflowSchemaPaths(operation.outputSchema).includes("$.pages[*].title"));
 });
 

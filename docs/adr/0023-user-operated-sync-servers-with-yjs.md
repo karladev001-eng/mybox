@@ -123,9 +123,13 @@ claims or joins a Project and keeps the member token in OS credential storage.
 Unlike an account token that token reaches the WebView, because the sync socket
 carries it in its URL.
 
-A shared Project accepts the editing mutations today. Tag changes and PageLink
-creation still run through the local model and are refused with an explanation
-rather than silently dropped. As of 2026-08-20, the server retains awareness
+A shared Project accepts the editing mutations today. Tag changes still run
+through the local model and are refused with an explanation rather than silently
+dropped. As of 2026-08-25, PageLink completion can resolve an existing target or
+create a missing Page in the shared Yjs document. Missing-Page creation and the
+source Block update share one transaction, so peers cannot observe half a link,
+and titles remain unique across Active and Trash as they do locally. As of
+2026-08-20, the server retains awareness
 only on live socket attachments, replays current peers to a newly connected
 socket, and broadcasts removal on disconnect. Note draws those peers as labelled
 profile icons beside Page history. Two-device editing has been verified through
