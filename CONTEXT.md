@@ -258,6 +258,12 @@ restored at startup. It excludes App-private navigation, transient overlays,
 input drafts, and pending actions.
 _Avoid_: full session snapshot, selected Page, reopened modal
 
+**App resume position** — The last stable content identity an App stores for one
+User profile and restores when its Surface opens again, such as a Note Page or
+Image generation. It excludes drafts, searches, filters, scroll positions,
+overlays, and pending actions, and remains private to the owning App.
+_Avoid_: Last working surface, full session snapshot, recent activity
+
 **Storage adapter** — A host implementation for local persistence or optional
 cloud synchronization. Apps use the storage port rather than provider SDKs or raw
 paths for private state.

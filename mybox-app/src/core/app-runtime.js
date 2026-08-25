@@ -8,6 +8,7 @@ import { deleteImageStudioResource, readImageStudioResource, storeImageStudioRef
 import { readKnowledgeImage, storeKnowledgeImageBytes } from "../desktop/knowledge-images.js";
 import { notifyWorkflow } from "../desktop/workflow-background.js";
 import { createKnowledgeApp } from "../knowledge/app.js";
+import { createKnowledgeClient } from "../knowledge/client.js";
 import { createImageStudioApp } from "../image-studio/app.js";
 
 const HOST_APP_ID = "mybox-host";
@@ -36,6 +37,7 @@ export function createSharedAppRuntime({ desktop = false, getConfirmationLevel =
     },
   });
   const sharedSessions = new Map();
+  const sharedSessionPreparations = new Map();
   const definitions = new Map([
     ["knowledge", () => createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } })],
     ["image-studio", () => createImageStudioApp({ generator: { generate: generateImageStudio, purge: deleteImageStudioResource } })],
@@ -65,13 +67,22 @@ export function createSharedAppRuntime({ desktop = false, getConfirmationLevel =
 
   syncInstalled(["knowledge", "image-studio"]);
 
-  return Object.freeze({
+  let prepareKnowledgeProject = async () => null;
+  const runtime = {
     host,
     workflows,
     connections: workflows,
     sharedSessions,
+    sharedSessionPreparations,
+    prepareKnowledgeProject: (projectId) => prepareKnowledgeProject(projectId),
     syncInstalled,
     start: () => workflows.load(),
     stop: () => workflows.stop(),
-  });
+  };
+  if (desktop) {
+    const knowledgeClient = createKnowledgeClient({ desktop, appRuntime: runtime, getProfileId: getUserId });
+    prepareKnowledgeProject = (projectId) => knowledgeClient.prepareProjectSession(projectId);
+  }
+
+  return Object.freeze(runtime);
 }

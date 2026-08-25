@@ -8,8 +8,10 @@ import {
   encodeState,
   listMemberColors,
   listMemberProfiles,
+  listTags,
   readPage,
   seedPage,
+  seedTags,
   setMemberColor,
   setMemberProfile,
   textDelta,
@@ -49,6 +51,17 @@ test("shared author colors and the last Block editor converge", () => {
   assert.deepEqual(listMemberColors(b), [{ profileId: "profile-a", color: "#67d7c4" }]);
   assert.equal(readPage(b, PAGE.id).updatedBy, "profile-a");
   assert.equal(readPage(b, PAGE.id).blocks[0].updatedBy, "profile-a");
+});
+
+test("shared Tag definitions and Page assignments converge", () => {
+  const { a, b, sync } = twoPeers();
+  seedTags(a, [{ id: "tag-prompt", label: "プロンプト", normalizedLabel: "プロンプト" }]);
+  applyPageMutation(a, PAGE.id, { type: "tags-set", tagIds: ["tag-prompt"] }, { actorId: "profile-a" });
+  sync();
+
+  assert.deepEqual(listTags(b), [{ id: "tag-prompt", label: "プロンプト", normalizedLabel: "プロンプト" }]);
+  assert.deepEqual(readPage(b, PAGE.id).tagIds, ["tag-prompt"]);
+  assert.equal(readPage(b, PAGE.id).updatedBy, "profile-a");
 });
 
 /** Two devices that have seen the same Page and can exchange updates. */

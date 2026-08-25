@@ -102,3 +102,12 @@ Release `0.8.5` updates Note Registry `1.19.3` so completing a PageLink in a
 shared Project can create its missing target Page. The Page and resolved link
 enter the shared Yjs document in one transaction, while Active and Trash retain
 the same Project-wide title uniqueness rule as local Projects.
+
+Release `0.8.6` updates Note Registry `1.19.6` and Image Registry `0.5.5`.
+Existing Note Projects migrate into Project-named directories, and the same
+runtime-owned shared document now supports Page creation, Tags, Image's Note
+Page import, and Project-store persistence. Note restores the last accessible
+Project and Page; Image restores the last generated image and fits portrait
+results to the available viewport without cropping. Resume-position Operations
+degrade safely during an in-place Surface/Host version transition, so optional
+state restoration cannot hide authoritative Projects or generation history.

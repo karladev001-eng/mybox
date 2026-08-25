@@ -29,7 +29,12 @@ Implements the first vertical slice of the `knowledge` App described in
   `docs/app-authoring.md`. Also registers its `AppHost` into
   `core/agent-host-registry.js` so the assistant panel can invoke this App's
   Operations ([ADR 0025](../../../docs/adr/0025-agent-operations-from-the-assistant-panel.md)).
+  If an in-place Surface update reaches an older live Host that does not yet
+  expose the optional resume-position Operations, it treats that state as empty
+  and continues loading Projects instead of presenting a false empty workspace.
 - `KnowledgeView.jsx`: accessible desktop knowledge workspace.
+  On open it restores the current profile's last accessible Project and Page;
+  a shared Project session is prepared before the saved Page is validated.
   It receives Host-dispatched App shortcut commands, focuses Page search for
   `Ctrl+P`, shows a Page-search combobox whose candidates cycle with Tab and
   open with Enter, and renders online collaborators beside history without exposing
@@ -60,9 +65,10 @@ Implements the first vertical slice of the `knowledge` App described in
 - `shared-project.js`: a shared Project's live state. Owns the document and its
   sync client, and answers Page reads in the same shapes the local store does.
   It takes `domain.js`'s mutation vocabulary and converts to the document's own,
-  so callers never speak a second dialect. `KnowledgeView` hands the live
-  session to `client.js`, which passes it to `app.js` as a port; Operations then
-  resolve a shared Project through it. Nothing outside that path writes to the
+  so callers never speak a second dialect. `client.js` registers the live
+  session with the Host runtime and keeps it available across App surface
+  changes; Operations from Note, Image, and Agents resolve a shared Project
+  through that one port. Nothing outside that path writes to the
   document — two write paths are what once made assistant edits invisible
   ([ADR 0023](../../../docs/adr/0023-user-operated-sync-servers-with-yjs.md)).
   Page creation, Trash-aware listing, Project Page counts, Trash transitions,
@@ -70,6 +76,8 @@ Implements the first vertical slice of the `knowledge` App described in
   remains hidden in or conflicts with the local JSON model.
   PageLink completion also creates its missing target Page in the same Yjs
   transaction, preserving the local model's Project-wide title uniqueness.
+  Tag definitions and Page assignments also live in that document; shared Tag
+  creation, removal, candidates, counts, and Tag-name search converge for peers.
   It also encodes every local Page, including Trash, into the full Yjs snapshot
   written before an unshared Project changes storage location. Existing Projects
   that have no store are seeded into `apps/knowledge/<Project name>` when stores

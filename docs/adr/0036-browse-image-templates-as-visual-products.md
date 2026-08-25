@@ -92,3 +92,7 @@ so installed devices can surface each update. Image `0.3.1` removes target pixel
 dimensions from ratio cards and compiled Prompts, displays completed images at
 their returned aspect ratio, and keeps ratio cards to the ratio name alone
 without explanatory copy.
+Image `0.5.3` derives the completed preview width from both the returned aspect
+ratio and the available viewport height, then displays the resource through a
+shrinkable full-window `contain` grid. Portrait results therefore remain wholly
+visible at desktop scaling levels instead of extending below the Surface.

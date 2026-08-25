@@ -2,8 +2,9 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { ArrowLeft, ArrowsClockwise, CaretDown, CaretLeft, CaretRight, Check, ClipboardText, ClockCounterClockwise, DownloadSimple, FileText, Image as ImageIcon, MagicWand, MagnifyingGlass, MagnifyingGlassPlus, Notebook, PencilSimple, Plus, Robot, Trash, UploadSimple, X } from "@phosphor-icons/react";
 import { ThemedSelect } from "../ThemedSelect.jsx";
 import { createImageStudioClient } from "./client.js";
-import { compilePrompt, MAX_PROMPT_LENGTH, normalizeFinalPrompt, RATIOS, serializeTemplateMarkdown, TEMPLATE_CATEGORIES } from "./domain.js";
+import { compilePrompt, MAX_PROMPT_LENGTH, normalizeFinalPrompt, RATIOS, resolveGenerationSelection, serializeTemplateMarkdown, TEMPLATE_CATEGORIES } from "./domain.js";
 import { filterNotePageChoices } from "./note-page-search.js";
+import { previewFrameLayout } from "./preview-layout.js";
 import templateSamples from "./template-samples.webp";
 import "./image-studio.css";
 
@@ -229,16 +230,50 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
   const [pagePickerOpen, setPagePickerOpen] = useState(false);
   const [editor, setEditor] = useState(null);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [viewStateReady, setViewStateReady] = useState(false);
+  const restoredProfileRef = useRef(null);
   const extraInputRef = useRef(null);
   const closePreview = useCallback(() => setPreviewOpen(false), []);
 
-  const refresh = async () => {
-    const [templateResult, generationResult] = await Promise.all([client.listTemplates(), client.listGenerations(includeTrash)]);
-    setTemplates(templateResult.templates); setGenerations(generationResult.generations);
-    if (!selectedId && generationResult.generations[0]) setSelectedId(generationResult.generations[0].id);
+  const refresh = async ({ restoreSelection = false } = {}) => {
+    const [templateResult, generationResult, savedViewState] = await Promise.all([
+      client.listTemplates(),
+      client.listGenerations(restoreSelection ? true : includeTrash),
+      restoreSelection ? client.readViewState() : Promise.resolve(null),
+    ]);
+    const restoredGeneration = restoreSelection
+      ? generationResult.generations.find((generation) => generation.id === savedViewState?.generationId)
+      : null;
+    const shouldShowTrash = includeTrash || restoredGeneration?.state === "trash";
+    const visibleGenerations = shouldShowTrash
+      ? generationResult.generations
+      : generationResult.generations.filter((generation) => generation.state !== "trash");
+    if (restoredGeneration?.state === "trash") setIncludeTrash(true);
+    setTemplates(templateResult.templates); setGenerations(visibleGenerations);
+    setSelectedId(resolveGenerationSelection(visibleGenerations, {
+      preferredId: savedViewState?.generationId,
+      currentId: selectedId,
+    }));
   };
 
-  useEffect(() => { if (!persistenceReady) return; refresh().catch((next) => setError(next.message)); }, [persistenceReady, includeTrash]);
+  useEffect(() => {
+    if (!persistenceReady) { setViewStateReady(false); return; }
+    let active = true;
+    const restoreSelection = restoredProfileRef.current !== profileId;
+    if (restoreSelection) setViewStateReady(false);
+    refresh({ restoreSelection })
+      .then(() => {
+        if (!active) return;
+        restoredProfileRef.current = profileId;
+        setViewStateReady(true);
+      })
+      .catch((next) => active && setError(next.message));
+    return () => { active = false; };
+  }, [persistenceReady, includeTrash, profileId]);
+  useEffect(() => {
+    if (!persistenceReady || !viewStateReady || restoredProfileRef.current !== profileId) return;
+    client.saveViewState(selectedId).catch((next) => setError(next.message));
+  }, [client, persistenceReady, profileId, selectedId, viewStateReady]);
   useEffect(() => { onContextChange?.({ label: "Image", appId: "image-studio", operationContext: { generationId: selectedId } }); }, [onContextChange, selectedId]);
   useEffect(() => { setPreviewOpen(false); }, [selectedId]);
   useEffect(() => {
@@ -250,9 +285,12 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
 
   const selected = generations.find((item) => item.id === selectedId) ?? null;
   useEffect(() => { let active = true; if (!selected?.resource?.resourceId) { setPreview(null); return; } client.readResource(selected.resource.resourceId).then((value) => active && setPreview(value)).catch((next) => active && setError(next.message)); return () => { active = false; }; }, [selected?.resource?.resourceId]);
-  const requestedAspectRatio = ratio === "auto" ? "1 / 1" : ratio.replace(":", " / ");
-  const actualAspectRatio = selected?.actual?.width > 0 && selected?.actual?.height > 0 ? `${selected.actual.width} / ${selected.actual.height}` : null;
-  const previewAspectRatio = !busy && preview && actualAspectRatio ? actualAspectRatio : requestedAspectRatio;
+  const previewLayout = previewFrameLayout({
+    actualWidth: selected?.actual?.width,
+    actualHeight: selected?.actual?.height,
+    requestedRatio: ratio,
+    complete: !busy && Boolean(preview),
+  });
 
   const localTemplates = templates.filter((item) => item.source === "local");
   const templatesFor = (category) => templates.filter((item) => item.category === category && item.state !== "trash");
@@ -324,7 +362,7 @@ export function ImageStudioView({ desktop = false, profileId = "local-user", per
     {promptOpen && <PromptPanel prompt={promptPreview} selections={selectedTemplateSummary} ratio={ratio} customized={promptOverride !== null} noteAvailable={noteAvailable} onChange={(value) => setPromptOverride(value)} onReset={rebuildPrompt} onImportFile={async (file) => importPrompt(await file.text())} onOpenPage={() => setPagePickerOpen(true)} />}
 
     <main className="image-preview-pane">
-      <div className="image-preview-frame" style={{ aspectRatio: previewAspectRatio }}>
+      <div className="image-preview-frame" style={previewLayout}>
         {busy ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>画像を生成しています</strong><p>ChatGPTが構図と画風を組み立てています。画面を閉じずにお待ちください。</p></div>
           : preview ? <button type="button" className="image-preview-zoom" aria-label="生成画像を拡大表示" aria-haspopup="dialog" onClick={() => setPreviewOpen(true)}><img src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} /><span aria-hidden="true"><MagnifyingGlassPlus size={20} /></span></button>
           : selected?.state === "error" ? <div className="image-preview-empty error"><ImageIcon size={46} /><strong>生成できませんでした</strong><p>{selected.error?.message}</p><button onClick={generate}><ArrowsClockwise size={18} />再試行</button></div>

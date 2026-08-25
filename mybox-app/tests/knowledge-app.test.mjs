@@ -6,6 +6,7 @@ import { createProfilePreferencesStore } from "../src/core/profile-preferences.j
 import { createAppStorage, MemoryStorageDriver } from "../src/core/storage.js";
 import { workflowSchemaPaths } from "../src/core/workflow-json.js";
 import { createKnowledgeApp } from "../src/knowledge/app.js";
+import { createKnowledgeClient } from "../src/knowledge/client.js";
 import {
   applyColorWrap,
   buildInlineNodes,
@@ -28,6 +29,7 @@ import {
   normalizePageTitle,
   purgePage,
   readPage,
+  resolveKnowledgeResumeLocation,
   searchPages,
   listProjectMembers,
   setProjectMemberColor,
@@ -42,8 +44,59 @@ function deterministicIds() {
 test("publishes Page title paths for Workflow command output mapping", () => {
   const app = createKnowledgeApp();
   const operation = app.manifest.operations.find((item) => item.id === "knowledge.page.list");
-  assert.equal(app.manifest.version, "0.5.9");
+  assert.equal(app.manifest.version, "0.5.12");
   assert.ok(workflowSchemaPaths(operation.outputSchema).includes("$.pages[*].title"));
+});
+
+test("restores the last Note Project and keeps its Page only while the Project remains available", () => {
+  const projects = [{ id: "project-first" }, { id: "project-last" }];
+  assert.deepEqual(resolveKnowledgeResumeLocation(projects, { projectId: "project-last", pageId: "page-last" }), {
+    projectId: "project-last",
+    pageId: "page-last",
+  });
+  assert.deepEqual(resolveKnowledgeResumeLocation(projects, { projectId: "project-removed", pageId: "page-last" }), {
+    projectId: "project-first",
+    pageId: null,
+  });
+});
+
+test("persists the Note view state per User profile", async () => {
+  const driver = new MemoryStorageDriver();
+  const firstHost = new AppHost({ storageDriver: driver });
+  firstHost.register(createKnowledgeApp());
+  const actor = { type: "user", id: "github:42" };
+  await firstHost.invoke("knowledge.view-state.update", { projectId: "project-last", pageId: "page-last" }, { actor });
+  assert.deepEqual(await firstHost.invoke("knowledge.view-state.read", {}, { actor: { type: "user", id: "github:99" } }), { projectId: null, pageId: null });
+
+  const restartedHost = new AppHost({ storageDriver: driver });
+  restartedHost.register(createKnowledgeApp());
+  assert.deepEqual(await restartedHost.invoke("knowledge.view-state.read", {}, { actor }), { projectId: "project-last", pageId: "page-last" });
+  await assert.rejects(
+    restartedHost.invoke("knowledge.view-state.read", {}, { actor: { type: "agent", id: "assistant" }, grant: { operationIds: ["knowledge.view-state.read"] } }),
+    (error) => error.code === "CALLER_NOT_ALLOWED",
+  );
+});
+
+test("keeps loading Note when an older Host has no view-state Operations", async () => {
+  const projects = [{ id: "project-existing", name: "Existing" }];
+  const host = {
+    getManifest: () => ({ id: "knowledge" }),
+    async invoke(operationId) {
+      if (operationId.startsWith("knowledge.view-state.")) {
+        throw Object.assign(new Error("Operation is unavailable"), { code: "OPERATION_NOT_FOUND" });
+      }
+      if (operationId === "knowledge.project.list") return { projects };
+      throw new Error(`Unexpected Operation: ${operationId}`);
+    },
+  };
+  const client = createKnowledgeClient({ appRuntime: { host } });
+
+  assert.deepEqual(await client.readViewState(), { projectId: null, pageId: null });
+  assert.deepEqual(await client.saveViewState("project-existing", "page-existing"), {
+    projectId: "project-existing",
+    pageId: "page-existing",
+  });
+  assert.deepEqual((await client.listProjects()).projects, projects);
 });
 
 test("shows one linked account row and uses local-account while signed out", () => {
@@ -609,27 +662,42 @@ test("announces an agent's Page write to subscribers, so an open editor can catc
   assert.equal(seen.length, 1);
 });
 
-test("routes a shared Project's writes to its document, so the assistant and the editor see one Page", async () => {
+test("routes a shared Project's writes to its document, so every App and the editor see one Page", async () => {
   const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
-  // Stands in for the live Yjs session the View owns; the App only ever sees
-  // this port, never the socket behind it.
+  // Stands in for the live Yjs session the runtime owns; Apps only ever see
+  // this port through Operations, never the socket behind it.
   const document = new Map();
+  const sharedTags = [];
   const session = {
     listPages: (includeTrash = false) => [...document.values()]
       .filter((page) => includeTrash || page.state !== "trash")
       .map(({ id, title, state = "active" }) => ({ id, title, state, excerpt: "" })),
     readPage: (pageId) => (document.has(pageId)
-      ? { page: { ...document.get(pageId), revision: 0 }, tags: [], backlinks: [] }
+      ? { page: { ...document.get(pageId), revision: 0 }, tags: sharedTags.filter((tag) => document.get(pageId).tagIds.includes(tag.id)), backlinks: [] }
       : null),
     mutate: (pageId, mutation) => {
       if (mutation.type === "rename") {
         document.set(pageId, { ...document.get(pageId), title: mutation.title });
       } else if (mutation.type === "page-state") {
         document.set(pageId, { ...document.get(pageId), state: mutation.state });
+      } else if (mutation.type === "tags-set") {
+        const tagIds = mutation.labels.map((label) => {
+          let tag = sharedTags.find((item) => item.label === label);
+          if (!tag) {
+            tag = { id: `tag-${sharedTags.length + 1}`, projectId: "project-default", label, pageCount: 0 };
+            sharedTags.push(tag);
+          }
+          return tag.id;
+        });
+        document.set(pageId, { ...document.get(pageId), tagIds });
       } else {
         throw new Error(`unsupported: ${mutation.type}`);
       }
     },
+    listTags: () => sharedTags.map((tag) => ({
+      ...tag,
+      pageCount: [...document.values()].filter((page) => page.tagIds.includes(tag.id)).length,
+    })),
     createPage: (title, actorId) => {
       const page = { id: "page-shared-new", projectId: "project-default", title, state: "active", revision: 0, blocks: [], tagIds: [], createdBy: actorId };
       document.set(page.id, page);
@@ -671,6 +739,16 @@ test("routes a shared Project's writes to its document, so the assistant and the
   const read = await host.invoke("knowledge.page.read", { projectId, pageId: page.id }, { actor });
   assert.equal(read.page.title, "日常のツールボックス");
   assert.deepEqual((await host.invoke("knowledge.page.list", { projectId }, { actor })).pages.map((p) => p.title), ["日常のツールボックス"]);
+
+  const tagged = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: 0,
+    mutation: { type: "tags-set", labels: ["共有Tag"] },
+  }, { actor });
+  assert.deepEqual(tagged.page.tagIds, ["tag-1"]);
+  assert.deepEqual((await host.invoke("knowledge.page.read", { projectId, pageId: page.id }, { actor })).tags.map((tag) => tag.label), ["共有Tag"]);
+  assert.deepEqual((await host.invoke("knowledge.tag.list", { projectId }, { actor })).tags.map((tag) => tag.label), ["共有Tag"]);
 
   const sharedCreated = await host.invoke("knowledge.page.create", { projectId, title: "共有後" }, { actor });
   assert.equal(sharedCreated.page.title, "共有後");

@@ -124,6 +124,11 @@ export function seedTags(doc, tags) {
   });
 }
 
+/** Projects shared Tag definitions without Page-specific counts. */
+export function listTags(doc) {
+  return [...tagsOf(doc).entries()].map(([id, tag]) => ({ id, ...tag }));
+}
+
 export function listPageIds(doc) {
   return [...pagesOf(doc).keys()];
 }

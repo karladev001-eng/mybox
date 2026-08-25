@@ -40,6 +40,7 @@ import { ThemedSelect } from "../ThemedSelect.jsx";
 import { LOCAL_ACCOUNT_DISPLAY_NAME, LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { AUTHOR_COLOR_OPTIONS, NO_AUTHOR_COLOR, authorColorFor, isVisibleAuthorColor } from "./author-color.js";
 import { createKnowledgeClient } from "./client.js";
+import { resolveKnowledgeResumeLocation } from "./domain.js";
 import { decodeInviteLink, encodeInviteLink } from "./invite-link.js";
 import { projectMemberAccountName, visibleProjectMembers } from "./member-profile.js";
 import {
@@ -1386,6 +1387,7 @@ export function KnowledgeView({
   const [onlineProfiles, setOnlineProfiles] = useState({});
   const [serverByProject, setServerByProject] = useState({});
   const [storeByProject, setStoreByProject] = useState({});
+  const [connectionsReady, setConnectionsReady] = useState(!desktop);
   const [shareMode, setShareMode] = useState(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareInvite, setShareInvite] = useState("");
@@ -1399,6 +1401,8 @@ export function KnowledgeView({
   const [dragOverBlockId, setDragOverBlockId] = useState(null);
   const [selectedPageId, setSelectedPageId] = useState(null);
   const [pageData, setPageData] = useState(null);
+  const [viewStateReady, setViewStateReady] = useState(false);
+  const restoredProfileRef = useRef(null);
   const [query, setQuery] = useState("");
   const [searchSuggestionsOpen, setSearchSuggestionsOpen] = useState(false);
   const [activeSearchSuggestion, setActiveSearchSuggestion] = useState(0);
@@ -1482,11 +1486,9 @@ export function KnowledgeView({
   const loadProjects = async (preferredId) => {
     const result = await client.listProjects();
     setProjects(result.projects);
-    const nextId = preferredId && result.projects.some((project) => project.id === preferredId)
-      ? preferredId
-      : projectId && result.projects.some((project) => project.id === projectId)
-        ? projectId
-        : result.projects[0]?.id ?? "";
+    const nextId = resolveKnowledgeResumeLocation(result.projects, {
+      projectId: preferredId || projectId,
+    }).projectId;
     setProjectId(nextId);
     return { projects: result.projects, projectId: nextId };
   };
@@ -1506,19 +1508,25 @@ export function KnowledgeView({
   const loadPageLists = async (nextProjectId = projectId, nextProjects = projects) => {
     if (!nextProjectId) return;
     // knowledge.page.list resolves a shared Project from its document itself.
-    const candidatesResult = await client.listPages(nextProjectId, true);
+    const [candidatesResult, tagsResult] = await Promise.all([
+      client.listPages(nextProjectId, true),
+      client.listTags(nextProjectId),
+    ]);
     setLinkCandidates(candidatesResult.pages);
+    setTagCandidates(tagsResult.tags);
     if (sharedRef.current && nextProjectId === projectId) {
-      // Tags and cross-Project search still read the local model, which a
-      // shared document does not populate, so filter the list here instead.
+      // Cross-Project search still reads the local model, so search the live
+      // shared Page summaries (including their resolved Tag labels) here.
       const needle = normalized(query);
       setPages(query.trim()
-        ? candidatesResult.pages.filter((page) => normalized(page.title).includes(needle) || normalized(page.excerpt).includes(needle))
+        ? candidatesResult.pages.filter((page) => (
+          normalized(page.title).includes(needle)
+          || normalized(page.excerpt).includes(needle)
+          || page.tagLabels?.some((label) => normalized(label).includes(needle))
+        ))
         : candidatesResult.pages);
       return candidatesResult.pages;
     }
-    const tagsResult = await client.listTags(nextProjectId);
-    setTagCandidates(tagsResult.tags);
     if (query.trim()) {
       const projectIds = searchScope === "all" ? nextProjects.map((project) => project.id) : [nextProjectId];
       const result = await client.search({ query, projectIds, includeTrash });
@@ -1552,39 +1560,61 @@ export function KnowledgeView({
   useEffect(() => {
     if (!persistenceReady) {
       setLoading(false);
+      setViewStateReady(false);
       return;
     }
     let active = true;
     setLoading(true);
+    setViewStateReady(false);
     // A signed-in account must inherit what the local profile already owns, or
     // the User signs in and finds their own Pages unreachable. It is idempotent.
     const ready = profileId === LOCAL_PROFILE_ID
       ? Promise.resolve()
       : client.linkAccount(profileId);
     ready
-      .then(() => loadProjects())
-      .then(async (projectResult) => {
+      .then(() => client.readViewState())
+      .then(async (savedLocation) => {
+        const projectResult = await loadProjects(savedLocation.projectId);
+        const location = resolveKnowledgeResumeLocation(projectResult.projects, savedLocation);
+        setSelectedPageId(location.pageId);
+        setPageData(null);
+        await client.prepareProjectSession(location.projectId);
         if (!active) return;
-        await Promise.all([
-          loadPageLists(projectResult.projectId, projectResult.projects),
-          loadMemberColors(projectResult.projectId),
+        const [pageCandidates] = await Promise.all([
+          loadPageLists(location.projectId, projectResult.projects),
+          loadMemberColors(location.projectId),
         ]);
+        if (!active) return;
+        if (location.pageId && pageCandidates.some((page) => page.id === location.pageId)) {
+          const restored = await loadPage(location.projectId, location.pageId);
+          if (restored?.page.state === "trash") setIncludeTrash(true);
+        } else {
+          setSelectedPageId(null);
+          setPageData(null);
+        }
       })
       .catch((nextError) => active && setError(displayError(nextError)))
       .finally(() => {
         if (!active) return;
+        restoredProfileRef.current = profileId;
+        setViewStateReady(true);
         setLoading(false);
       });
     return () => { active = false; };
   }, [persistenceReady, profileId]);
 
   useEffect(() => {
-    if (!persistenceReady || !projectId) return;
+    if (!persistenceReady || !viewStateReady || restoredProfileRef.current !== profileId) return;
+    client.saveViewState(projectId || null, selectedPageId).catch((nextError) => setError(displayError(nextError)));
+  }, [client, persistenceReady, profileId, projectId, selectedPageId, viewStateReady]);
+
+  useEffect(() => {
+    if (!persistenceReady || !viewStateReady || !projectId) return;
     const timer = window.setTimeout(() => {
       loadPageLists().catch((nextError) => setError(displayError(nextError)));
     }, query ? 160 : 0);
     return () => window.clearTimeout(timer);
-  }, [projectId, query, includeTrash, searchScope]);
+  }, [projectId, query, includeTrash, searchScope, viewStateReady]);
 
   useEffect(() => {
     if (!persistenceReady || !projectId) return;
@@ -1767,7 +1797,8 @@ export function KnowledgeView({
 
   useEffect(() => {
     if (!desktop || !persistenceReady) return;
-    refreshConnections().catch(() => {});
+    setConnectionsReady(false);
+    refreshConnections().catch(() => {}).finally(() => setConnectionsReady(true));
   }, [desktop, persistenceReady]);
 
   useEffect(() => {
@@ -1784,13 +1815,16 @@ export function KnowledgeView({
 
   /**
    * A shared Project is edited through its Yjs document instead of the JSON
-   * store, so the session lives as long as that Project is selected.
+   * store. The Host runtime retains that session across App surface changes so
+   * Image and Agents read the same Pages after Note closes.
    */
   useEffect(() => {
+    if (desktop && !connectionsReady) return undefined;
     const server = serverByProject[projectId] ?? null;
     const store = storeByProject[projectId] ?? null;
     if (!server && !store) {
-      sharedRef.current?.dispose();
+      const registered = client.getSharedSession(projectId);
+      registered?.dispose();
       sharedRef.current = null;
       client.setSharedSession(projectId, null);
       setSyncStatus("idle");
@@ -1801,12 +1835,8 @@ export function KnowledgeView({
     }
 
     presenceAcknowledgedRef.current.clear();
-    const localPages = !store || store.empty
-      ? client.listPages(projectId, false).then(async ({ pages: localPageList }) => {
-        const full = await Promise.all(localPageList.map((page) => client.readPage(projectId, page.id)));
-        return full.map((item) => item.page);
-      })
-      : Promise.resolve([]);
+    let shared = null;
+    let cancelled = false;
     const sharedOptions = {
       projectId,
       onChange: () => setSharedRevision((value) => value + 1),
@@ -1852,27 +1882,31 @@ export function KnowledgeView({
         }
       },
     };
-    const shared = client.createProjectSession({ ...sharedOptions, store, server });
-    sharedRef.current = shared;
-    // Every caller of knowledge.page.* now reaches this document, the assistant
-    // included, instead of writing to the JSON store the editor stopped reading.
-    client.setSharedSession(projectId, shared);
-    shared.setMemberProfile(activeProfile, profileId);
-    // Pages written before this Project was shared must reach the others.
-    localPages
-      .then((pagesToAdopt) => shared.adopt(pagesToAdopt))
-      .catch(() => {})
-      .finally(() => shared.connect());
+    client.prepareProjectSession(projectId, { store, server })
+      .then((prepared) => {
+        if (cancelled || !prepared) return;
+        shared = prepared;
+        shared.setHandlers(sharedOptions);
+        sharedRef.current = shared;
+        shared.setMemberProfile(activeProfile, profileId);
+        setSyncStatus(shared.status);
+        setSharedRevision((value) => value + 1);
+      })
+      .catch((nextError) => {
+        if (!cancelled) setError(`同期エラー：${nextError.message}`);
+      });
 
     return () => {
-      shared.dispose();
-      sharedRef.current = null;
-      client.setSharedSession(projectId, null);
+      cancelled = true;
+      // Keep the document and its transports alive for other App surfaces.
+      // Only detach callbacks that close over this Note surface's React state.
+      shared?.setHandlers();
+      if (sharedRef.current === shared) sharedRef.current = null;
       setSyncStatus("idle");
       setOnlineProfiles({});
       presenceAcknowledgedRef.current.clear();
     };
-  }, [projectId, serverByProject[projectId]?.token, serverByProject[projectId]?.endpoint, storeByProject[projectId]?.connectedAt, activeProfile.displayName, activeProfile.avatarUrl, profileId]);
+  }, [connectionsReady, projectId, serverByProject[projectId]?.token, serverByProject[projectId]?.endpoint, storeByProject[projectId]?.connectedAt, activeProfile.displayName, activeProfile.avatarUrl, profileId]);
 
   /**
    * Re-reads the shared document after it moves, whether the edit came from
@@ -1884,6 +1918,7 @@ export function KnowledgeView({
     if (!shared || !sharedRevision) return;
     const sharedPages = shared.listPages();
     setMemberProfiles(Object.fromEntries(shared.listMemberProfiles().map((item) => [item.profileId, item])));
+    setTagCandidates(shared.listTags());
     setLinkCandidates(sharedPages);
     setPages(sharedPages);
     if (selectedPageId) {

@@ -66,7 +66,7 @@ export function normalizePageTitle(title) {
   return displayTitle.normalize("NFKC").toLocaleLowerCase("ja-JP");
 }
 
-function normalizeTagLabel(label) {
+export function normalizeTagLabel(label) {
   return requireText(label, "INVALID_TAG_LABEL", "Tag label")
     .normalize("NFKC")
     .toLocaleLowerCase("ja-JP");
@@ -246,6 +246,16 @@ export function validateKnowledgeState(state) {
     }
   }
   return state;
+}
+
+export function resolveKnowledgeResumeLocation(projects, savedLocation = {}) {
+  const projectId = projects.some((project) => project.id === savedLocation.projectId)
+    ? savedLocation.projectId
+    : projects[0]?.id ?? "";
+  const pageId = projectId && projectId === savedLocation.projectId && typeof savedLocation.pageId === "string" && savedLocation.pageId
+    ? savedLocation.pageId
+    : null;
+  return { projectId, pageId };
 }
 
 export function listProjects(state, { profileId = LOCAL_PROFILE_ID } = {}) {

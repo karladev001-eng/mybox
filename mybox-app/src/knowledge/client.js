@@ -53,9 +53,9 @@ const webDriver = new MemoryStorageDriver();
 export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID, appRuntime = null } = {}) {
   const storageDriver = desktop ? new TauriStorageDriver() : webDriver;
   const host = appRuntime?.host ?? new AppHost({ storageDriver });
-  // The View owns the live shared session (it needs a socket), but every write
-  // has to reach it through Operations, or the assistant writes to the JSON
-  // store while the editor reads the document and neither sees the other.
+  // The runtime retains live shared sessions across App surface changes. Every
+  // read and write has to reach the same document through Operations, or Image
+  // and the assistant fall back to stale JSON while Note shows shared content.
   const sharedSessions = appRuntime?.sharedSessions ?? new Map();
   if (!host.getManifest("knowledge")) host.register(createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } }));
   // Lets the assistant panel invoke this App's Operations (ADR 0025) without
@@ -64,13 +64,31 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
   const invoke = (operationId, input = {}) => host.invoke(operationId, input, {
     actor: { type: "user", id: getProfileId() || LOCAL_PROFILE_ID },
   });
+  const invokeOptionalViewState = async (operationId, input, fallback) => {
+    try {
+      return await invoke(operationId, input);
+    } catch (error) {
+      // During an in-place App update the Surface can briefly run against the
+      // previous Host manifest. Resume state is optional and must not prevent
+      // authoritative Project data from loading in that compatibility window.
+      if (error?.code === "OPERATION_NOT_FOUND") return fallback;
+      throw error;
+    }
+  };
   const resolvedProfileId = () => getProfileId() || LOCAL_PROFILE_ID;
-  const snapshotLocalProject = async (projectId) => {
-    const { pages } = await invoke("knowledge.page.list", { projectId, includeTrash: true });
+  const readLocalProject = async (projectId) => {
+    const [{ pages }, { tags }] = await Promise.all([
+      invoke("knowledge.page.list", { projectId, includeTrash: true }),
+      invoke("knowledge.tag.list", { projectId }),
+    ]);
     const fullPages = await Promise.all(pages.map(async ({ id }) => (
       await invoke("knowledge.page.read", { projectId, pageId: id })
     ).page));
-    return encodeProjectPages(fullPages);
+    return { pages: fullPages, tags };
+  };
+  const snapshotLocalProject = async (projectId) => {
+    const { pages, tags } = await readLocalProject(projectId);
+    return encodeProjectPages(pages, tags);
   };
   const snapshotProject = (projectId) => sharedSessions.get(projectId)?.encodeState() ?? snapshotLocalProject(projectId);
   const listProjectStores = async () => {
@@ -105,8 +123,114 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     return stores;
   };
 
+  /** One Yjs document can persist to a Project store and use Cloudflare at the same time. */
+  const createProjectSession = ({ store, server, ...options }) => {
+    const session = createSharedProject({
+      ...options,
+      endpoint: server?.endpoint ?? "project-store",
+      token: server?.token ?? "local-project-store",
+      createClient: (clientOptions) => {
+        const transports = [];
+        if (store) {
+          transports.push({
+            type: "store",
+            client: createProjectStoreClient({
+              ...clientOptions,
+              readUpdates: readProjectStoreUpdates,
+              writeUpdate: writeProjectStoreUpdate,
+              onStatus: (state) => clientOptions.onStatus({ ...state, transport: "store" }),
+            }),
+          });
+        }
+        if (server) {
+          transports.push({
+            type: "server",
+            client: createSyncClient({
+              ...clientOptions,
+              endpoint: server.endpoint,
+              token: server.token,
+              onStatus: (state) => clientOptions.onStatus({ ...state, transport: "server" }),
+            }),
+          });
+        }
+        return {
+          connect: () => Promise.all(transports.map(({ client: transport }) => transport.connect())),
+          disconnect: () => transports.forEach(({ client: transport }) => transport.disconnect()),
+          sendAwareness: (state) => transports.find(({ type }) => type === "server")?.client.sendAwareness(state),
+          get role() { return transports.find(({ type }) => type === "server")?.client.role ?? "owner"; },
+        };
+      },
+    });
+    const connection = {
+      storeConnectedAt: store?.connectedAt ?? null,
+      serverEndpoint: server?.endpoint ?? null,
+      serverToken: server?.token ?? null,
+    };
+    session.matchesConnection = ({ store: nextStore, server: nextServer }) => (
+      connection.storeConnectedAt === (nextStore?.connectedAt ?? null)
+      && connection.serverEndpoint === (nextServer?.endpoint ?? null)
+      && connection.serverToken === (nextServer?.token ?? null)
+    );
+    return session;
+  };
+
+  const sessionPreparations = appRuntime?.sharedSessionPreparations ?? new Map();
+  /**
+   * Loads a Project's durable Yjs state before another App invokes Knowledge
+   * read Operations. This removes the Note surface from the read path entirely.
+   */
+  const prepareProjectSession = async (projectId, connection = {}) => {
+    if (!desktop || !projectId) return sharedSessions.get(projectId) ?? null;
+    if (sessionPreparations.has(projectId)) return sessionPreparations.get(projectId);
+    const preparation = (async () => {
+      const [stores, servers] = await Promise.all([
+        Object.hasOwn(connection, "store") ? Promise.resolve(null) : listNativeProjectStores(),
+        Object.hasOwn(connection, "server") ? Promise.resolve(null) : listSyncEndpoints(),
+      ]);
+      const store = Object.hasOwn(connection, "store")
+        ? connection.store
+        : stores.find((item) => item.projectId === projectId) ?? null;
+      const server = Object.hasOwn(connection, "server")
+        ? connection.server
+        : servers.find((item) => item.projectId === projectId) ?? null;
+      if (!store && !server) return null;
+
+      let shared = sharedSessions.get(projectId) ?? null;
+      if (shared?.matchesConnection?.({ store, server })) return shared;
+      if (shared) {
+        shared.dispose();
+        sharedSessions.delete(projectId);
+      }
+
+      const local = (!store || store.empty)
+        ? await readLocalProject(projectId).catch(() => ({ pages: [], tags: [] }))
+        : { pages: [], tags: (await invoke("knowledge.tag.list", { projectId }).catch(() => ({ tags: [] }))).tags };
+      shared = createProjectSession({ projectId, store, server });
+      shared.adopt(local.pages, local.tags);
+      sharedSessions.set(projectId, shared);
+      await shared.connect();
+      return shared;
+    })();
+    sessionPreparations.set(projectId, preparation);
+    try {
+      return await preparation;
+    } finally {
+      if (sessionPreparations.get(projectId) === preparation) sessionPreparations.delete(projectId);
+    }
+  };
+
   return Object.freeze({
     listProjects: () => invoke("knowledge.project.list"),
+    readViewState: () => invokeOptionalViewState(
+      "knowledge.view-state.read",
+      {},
+      { projectId: null, pageId: null },
+    ),
+    saveViewState: (projectId, pageId) => invokeOptionalViewState(
+      "knowledge.view-state.update",
+      { projectId, pageId },
+      { projectId, pageId },
+    ),
     listMemberColors: (projectId) => invoke("knowledge.project.members.list", { projectId }),
     setMemberColor: (projectId, profileId, color) => invoke("knowledge.project.member-color.set", { projectId, profileId, color }),
     createProject: (name) => invoke("knowledge.project.create", { name }),
@@ -164,43 +288,8 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
       projectName,
       await snapshotProject(projectId),
     ),
-    /** One Yjs document can persist to a Project store and use Cloudflare at the same time. */
-    createProjectSession: ({ store, server, ...options }) => createSharedProject({
-      ...options,
-      endpoint: server?.endpoint ?? "project-store",
-      token: server?.token ?? "local-project-store",
-      createClient: (clientOptions) => {
-        const transports = [];
-        if (store) {
-          transports.push({
-            type: "store",
-            client: createProjectStoreClient({
-              ...clientOptions,
-              readUpdates: readProjectStoreUpdates,
-              writeUpdate: writeProjectStoreUpdate,
-              onStatus: (state) => clientOptions.onStatus({ ...state, transport: "store" }),
-            }),
-          });
-        }
-        if (server) {
-          transports.push({
-            type: "server",
-            client: createSyncClient({
-              ...clientOptions,
-              endpoint: server.endpoint,
-              token: server.token,
-              onStatus: (state) => clientOptions.onStatus({ ...state, transport: "server" }),
-            }),
-          });
-        }
-        return {
-          connect: () => transports.forEach(({ client: transport }) => transport.connect()),
-          disconnect: () => transports.forEach(({ client: transport }) => transport.disconnect()),
-          sendAwareness: (state) => transports.find(({ type }) => type === "server")?.client.sendAwareness(state),
-          get role() { return transports.find(({ type }) => type === "server")?.client.role ?? "owner"; },
-        };
-      },
-    }),
+    createProjectSession,
+    prepareProjectSession,
     cloudflareStatus: () => cloudflareStatus(),
     setCloudflareCredentials: (accountId, apiToken) => setCloudflareCredentials({ accountId, apiToken }),
     clearCloudflareCredentials: () => clearCloudflareCredentials(),
@@ -213,7 +302,9 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     // The assistant invokes this same host (ADR 0025), so the View has to learn
     // about writes it did not make itself. Returns an unsubscribe function.
     subscribe: (eventId, handler) => host.subscribe(eventId, handler),
-    /** The View hands over its live shared session so Operations write to it. */
+    /** Returns the runtime-owned session used by every App Operation. */
+    getSharedSession: (projectId) => sharedSessions.get(projectId) ?? null,
+    /** Registers the live session so Operations from every App resolve it. */
     setSharedSession: (projectId, session) => {
       if (session) sharedSessions.set(projectId, session);
       else sharedSessions.delete(projectId);

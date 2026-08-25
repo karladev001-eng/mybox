@@ -92,6 +92,49 @@ test("a mutation changes the document and notifies the view", () => {
   assert.ok(changes.length > before, "an edit re-renders the editor");
 });
 
+test("creates, assigns, lists, and removes Tags in a shared Project", () => {
+  const { shared, changes } = session();
+  shared.adopt([PAGE]);
+  const before = changes.length;
+
+  shared.mutate("page-1", { type: "tags-set", labels: [" プロンプト ", "プロンプト", "壁紙"] }, "profile-a");
+
+  const detail = shared.readPage("page-1");
+  assert.deepEqual(detail.tags.map((tag) => tag.label), ["プロンプト", "壁紙"]);
+  assert.deepEqual(shared.listTags().map(({ label, pageCount }) => ({ label, pageCount })), [
+    { label: "プロンプト", pageCount: 1 },
+    { label: "壁紙", pageCount: 1 },
+  ]);
+  assert.deepEqual(shared.listPages()[0].tagLabels, ["プロンプト", "壁紙"]);
+  assert.equal(changes.length, before + 1, "Tag creation and Page assignment publish one document update");
+
+  shared.mutate("page-1", { type: "tags-set", labels: ["壁紙"] }, "profile-a");
+  assert.deepEqual(shared.readPage("page-1").tags.map((tag) => tag.label), ["壁紙"]);
+  assert.equal(shared.listTags().find((tag) => tag.label === "プロンプト").pageCount, 0);
+});
+
+test("adopts legacy local Tag definitions referenced by shared Pages", () => {
+  const { shared } = session();
+  shared.adopt(
+    [{ ...PAGE, tagIds: ["tag-local"] }],
+    [{ id: "tag-local", projectId: "project-1", label: "既存Tag", normalizedLabel: "既存tag" }],
+  );
+
+  assert.deepEqual(shared.readPage("page-1").tags.map((tag) => tag.label), ["既存Tag"]);
+});
+
+test("peers create the same stable Tag ID from equivalent labels", () => {
+  const left = session().shared;
+  const right = session().shared;
+  left.adopt([PAGE]);
+  right.adopt([PAGE]);
+
+  left.mutate("page-1", { type: "tags-set", labels: [" Prompt "] }, "profile-a");
+  right.mutate("page-1", { type: "tags-set", labels: ["prompt"] }, "profile-b");
+
+  assert.equal(left.listTags()[0].id, right.listTags()[0].id);
+});
+
 test("creates a Page and resolves its PageLink atomically in a shared Project", () => {
   const { shared, changes } = session();
   shared.adopt([PAGE]);
@@ -221,17 +264,18 @@ test("exports a full Yjs update before the Project store moves", () => {
   assert.equal(restored.getMap("pages").size, 1);
 });
 
-test("encodes every local Page for a Project-store move, including Trash", () => {
+test("encodes every local Page and Tag for a Project-store move, including Trash", () => {
   const encoded = encodeProjectPages([
     PAGE,
     { ...PAGE, id: "page-trash", title: "Trash Page", state: "trash" },
-  ]);
+  ], [{ id: "tag-prompt", label: "プロンプト", normalizedLabel: "プロンプト" }]);
   const binary = atob(encoded);
   const update = Uint8Array.from(binary, (character) => character.charCodeAt(0));
   const restored = new Y.Doc();
   Y.applyUpdate(restored, update);
 
   assert.deepEqual([...restored.getMap("pages").keys()].sort(), ["page-1", "page-trash"]);
+  assert.deepEqual(restored.getMap("tags").get("tag-prompt"), { label: "プロンプト", normalizedLabel: "プロンプト" });
 });
 
 test("status and role come from the sync client", () => {
@@ -243,4 +287,24 @@ test("status and role come from the sync client", () => {
   assert.equal(shared.status, "connected");
   assert.equal(shared.role, "editor");
   assert.deepEqual(statuses, ["connected"]);
+});
+
+test("surface handlers can detach and reattach without disposing the shared document", () => {
+  const firstChanges = [];
+  const secondChanges = [];
+  const { shared, stub } = session({ onChange: () => firstChanges.push(1) });
+  shared.adopt([PAGE]);
+  assert.ok(firstChanges.length > 0);
+
+  shared.setHandlers();
+  const detachedCount = firstChanges.length;
+  shared.mutate("page-1", { type: "block-update", blockId: "block-1", text: "while Image is open" });
+  assert.equal(firstChanges.length, detachedCount);
+  assert.equal(shared.readPage("page-1").page.blocks[0].text, "while Image is open");
+  assert.equal(stub.calls.disconnected, 0, "closing a surface does not disconnect the runtime session");
+
+  shared.setHandlers({ onChange: () => secondChanges.push(1) });
+  shared.mutate("page-1", { type: "block-update", blockId: "block-1", text: "after Note reopens" });
+  assert.equal(secondChanges.length, 1);
+  assert.equal(shared.disposed, false);
 });

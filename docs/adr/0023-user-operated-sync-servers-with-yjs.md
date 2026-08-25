@@ -123,9 +123,12 @@ claims or joins a Project and keeps the member token in OS credential storage.
 Unlike an account token that token reaches the WebView, because the sync socket
 carries it in its URL.
 
-A shared Project accepts the editing mutations today. Tag changes still run
-through the local model and are refused with an explanation rather than silently
-dropped. As of 2026-08-25, PageLink completion can resolve an existing target or
+A shared Project accepts the editing mutations today. As of 2026-08-25, Tag
+definitions and Page assignments live in the shared Yjs document, and Tag
+creation plus Page assignment share one transaction. Existing local Tag
+definitions seed older shared snapshots that contain only Page Tag IDs, while
+stable normalized-label IDs make concurrent creation of the same Tag converge.
+PageLink completion can resolve an existing target or
 create a missing Page in the shared Yjs document. Missing-Page creation and the
 source Block update share one transaction, so peers cannot observe half a link,
 and titles remain unique across Active and Trash as they do locally. As of
@@ -152,3 +155,15 @@ it, because it needs a socket — and `knowledge.page.read`, `page.list`, and
 the assistant alike, goes through one path. `expectedRevision` accepts 0 for
 this reason: a shared Page reports no revision, because a CRDT converges rather
 than rejecting.
+
+As of 2026-08-25 the Host runtime retains an opened shared Project session when
+the Note surface closes. Switching to Image therefore keeps `knowledge.page.*`
+and `knowledge.tag.*` bound to the same Yjs document instead of falling back to
+the older local JSON snapshot. Reopening Note reattaches view callbacks to that
+session; closing it detaches only those callbacks, while the document and its
+Project-store and sync transports remain available to other App Operations.
+When another App reads a Project before Note has opened, the Host prepares that
+same session from the registered Project store and optional sync endpoint before
+dispatching the read Operation. App callers still cross only the public
+Knowledge Operation boundary; the Host-owned adapter is the part that opens the
+durable document.

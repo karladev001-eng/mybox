@@ -3,8 +3,11 @@ import test from "node:test";
 import { AppHost } from "../src/core/app-host.js";
 import { MemoryStorageDriver } from "../src/core/storage.js";
 import { createImageStudioApp } from "../src/image-studio/app.js";
-import { BUILT_IN_TEMPLATES, compilePrompt, parseTemplateMarkdown, RATIOS, serializeTemplateMarkdown } from "../src/image-studio/domain.js";
+import { createImageStudioClient } from "../src/image-studio/client.js";
+import { BUILT_IN_TEMPLATES, compilePrompt, parseTemplateMarkdown, RATIOS, resolveGenerationSelection, serializeTemplateMarkdown } from "../src/image-studio/domain.js";
 import { filterNotePageChoices } from "../src/image-studio/note-page-search.js";
+import { previewFrameLayout } from "../src/image-studio/preview-layout.js";
+import { createKnowledgeApp } from "../src/knowledge/app.js";
 
 const user = { type: "user", id: "local-user" };
 const reference = { appId: "image-studio", resourceId: "reference.png", mediaType: "image/png", revision: 1 };
@@ -25,6 +28,100 @@ test("filters Note Page choices by normalized title and Tag text", () => {
   assert.deepEqual(filterNotePageChoices(pages, tags, "after rain").map((page) => page.id), ["page-2"]);
   assert.deepEqual(filterNotePageChoices(pages, tags, "見つからない"), []);
   assert.deepEqual(filterNotePageChoices(pages, tags).find((page) => page.id === "page-1").tags, ["幻想", "Blue"]);
+});
+
+test("fits portrait previews from their actual ratio without changing the image shape", () => {
+  assert.deepEqual(previewFrameLayout({
+    actualWidth: 1536,
+    actualHeight: 2048,
+    requestedRatio: "16:9",
+    complete: true,
+  }), {
+    aspectRatio: "1536 / 2048",
+    "--image-preview-height-bound": "calc(75dvh - 142.5px)",
+  });
+  assert.deepEqual(previewFrameLayout({ requestedRatio: "9:16" }), {
+    aspectRatio: "9 / 16",
+    "--image-preview-height-bound": "calc(56.25dvh - 106.875px)",
+  });
+});
+
+test("restores the last visible generation and falls back when it is unavailable", () => {
+  const generations = [{ id: "generation-new" }, { id: "generation-last" }];
+  assert.equal(resolveGenerationSelection(generations, { preferredId: "generation-last" }), "generation-last");
+  assert.equal(resolveGenerationSelection(generations, { preferredId: "generation-purged" }), "generation-new");
+  assert.equal(resolveGenerationSelection([], { preferredId: "generation-last" }), null);
+});
+
+test("persists the Image view state per User profile", async () => {
+  const driver = new MemoryStorageDriver();
+  const firstHost = new AppHost({ storageDriver: driver });
+  firstHost.register(createImageStudioApp());
+  await firstHost.invoke("image-studio.view-state.update", { generationId: "generation-last" }, { actor: user });
+  assert.deepEqual(await firstHost.invoke("image-studio.view-state.read", {}, { actor: { type: "user", id: "another-user" } }), { generationId: null });
+
+  const restartedHost = new AppHost({ storageDriver: driver });
+  restartedHost.register(createImageStudioApp());
+  assert.deepEqual(await restartedHost.invoke("image-studio.view-state.read", {}, { actor: user }), { generationId: "generation-last" });
+  await assert.rejects(
+    restartedHost.invoke("image-studio.view-state.read", {}, { actor: { type: "agent", id: "assistant" }, grant: { operationIds: ["image-studio.view-state.read"] } }),
+    (error) => error.code === "CALLER_NOT_ALLOWED",
+  );
+});
+
+test("keeps loading Image when an older Host has no view-state Operations", async () => {
+  const generations = [{ id: "generation-existing" }];
+  const host = {
+    getManifest: () => ({ id: "image-studio" }),
+    async invoke(operationId) {
+      if (operationId.startsWith("image-studio.view-state.")) {
+        throw Object.assign(new Error("Operation is unavailable"), { code: "OPERATION_NOT_FOUND" });
+      }
+      if (operationId === "image-studio.generation.list") return { generations };
+      throw new Error(`Unexpected Operation: ${operationId}`);
+    },
+  };
+  const client = createImageStudioClient({ host });
+
+  assert.deepEqual(await client.readViewState(), { generationId: null });
+  assert.deepEqual(await client.saveViewState("generation-existing"), { generationId: "generation-existing" });
+  assert.deepEqual((await client.listGenerations()).generations, generations);
+});
+
+test("prepares a shared Note Project before Image reads its Pages, Tags, and Markdown", async () => {
+  const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
+  const sharedSessions = new Map();
+  host.register(createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } }));
+  const sharedPage = {
+    id: "page-shared",
+    projectId: "project-default",
+    title: "共有Prompt",
+    state: "active",
+    revision: 0,
+    tagIds: ["tag-shared"],
+    blocks: [{ id: "block-shared", type: "paragraph", text: "共有本文", checked: false, links: [] }],
+  };
+  const sharedTag = { id: "tag-shared", projectId: "project-default", label: "プロンプト", pageCount: 1 };
+  const session = {
+    listPages: () => [{ ...sharedPage, excerpt: "共有本文", tagLabels: [sharedTag.label] }],
+    listTags: () => [sharedTag],
+    readPage: () => ({ page: sharedPage, tags: [sharedTag], backlinks: [] }),
+  };
+  const prepared = [];
+  const client = createImageStudioClient({
+    appRuntime: {
+      host,
+      prepareKnowledgeProject: async (projectId) => {
+        prepared.push(projectId);
+        sharedSessions.set(projectId, session);
+      },
+    },
+  });
+
+  assert.deepEqual((await client.listNotePages("project-default")).pages.map((page) => page.title), ["共有Prompt"]);
+  assert.deepEqual((await client.listNoteTags("project-default")).tags.map((tag) => tag.label), ["プロンプト"]);
+  assert.match((await client.readNotePageMarkdown("project-default", "page-shared")).markdown, /共有本文/);
+  assert.deepEqual(prepared, ["project-default", "project-default", "project-default"]);
 });
 
 test("parses and serializes versioned Markdown prompt templates", () => {

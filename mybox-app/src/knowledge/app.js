@@ -28,6 +28,7 @@ import {
 } from "./domain.js";
 
 const STATE_KEY = "state.json";
+const VIEW_STATE_KEY = "view-state.json";
 const CONNECTION_DELIVERIES_KEY = "connection-deliveries.json";
 const objectSchema = { type: "object" };
 const actorCallers = ["user", "agent", "flow", "app"];
@@ -61,6 +62,23 @@ function operation({ id, title, effect, confirmationClass, callers = actorCaller
   };
 }
 
+async function readViewState(storage, profileId) {
+  const stored = await storage.readJson(VIEW_STATE_KEY);
+  const value = stored?.schemaVersion === 1 ? stored.profiles?.[profileId] : null;
+  return {
+    projectId: typeof value?.projectId === "string" && value.projectId ? value.projectId : null,
+    pageId: typeof value?.pageId === "string" && value.pageId ? value.pageId : null,
+  };
+}
+
+async function writeViewState(storage, profileId, viewState) {
+  const stored = await storage.readJson(VIEW_STATE_KEY);
+  const profiles = stored?.schemaVersion === 1 && stored.profiles && typeof stored.profiles === "object" ? stored.profiles : {};
+  const next = { schemaVersion: 1, profiles: { ...profiles, [profileId]: viewState } };
+  await storage.writeJson(VIEW_STATE_KEY, next);
+  return viewState;
+}
+
 function blockToMarkdown(block) {
   const text = block.text ?? "";
   if (block.type === "heading-1") return `# ${text}`;
@@ -89,6 +107,15 @@ const pageInput = {
   properties: {
     projectId: { type: "string", minLength: 1 },
     pageId: { type: "string", minLength: 1 },
+  },
+};
+
+const viewStateSchema = {
+  type: "object",
+  required: ["projectId", "pageId"],
+  properties: {
+    projectId: { type: ["string", "null"] },
+    pageId: { type: ["string", "null"] },
   },
 };
 
@@ -217,10 +244,12 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.5.9",
+      version: "0.5.12",
       hostCapabilities: ["app-storage", "workflows"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema, outputSchema: { type: "object", required: ["projects"], properties: { projects: { type: "array", title: "Projects", items: projectSummarySchema } } } }),
+        operation({ id: "knowledge.view-state.read", title: "最後に開いたPageを読む", effect: "read", confirmationClass: "review", callers: ["user"], inputSchema: objectSchema, outputSchema: viewStateSchema }),
+        operation({ id: "knowledge.view-state.update", title: "最後に開いたPageを記録", effect: "write", confirmationClass: "autonomous", callers: ["user"], inputSchema: viewStateSchema, outputSchema: viewStateSchema }),
         operation({
           id: "knowledge.project.attach",
           title: "既存のProjectフォルダーを開く",
@@ -439,6 +468,12 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
           };
         });
         return { projects };
+      },
+      async "knowledge.view-state.read"(_input, { actor, storage }) {
+        return readViewState(storage, profileIdFor(actor));
+      },
+      async "knowledge.view-state.update"(input, { actor, storage }) {
+        return writeViewState(storage, profileIdFor(actor), input);
       },
       async "knowledge.project.attach"({ projectId, name }, { actor, storage }) {
         const mutation = await saveMutation(storage, attachProject(await loadState(storage), {
@@ -662,6 +697,8 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { page: mutation.page };
       },
       async "knowledge.tag.list"({ projectId }, { actor, storage }) {
+        const session = sharedSessions.get(projectId);
+        if (session) return { tags: session.listTags() };
         const state = await loadState(storage);
         return { tags: getProjectTags(state, { projectId, profileId: profileIdFor(actor) }) };
       },

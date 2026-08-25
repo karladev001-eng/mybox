@@ -46,3 +46,4 @@ notes of the ADR it realizes.
 - [0038 — Run App automation as durable Workflows](0038-run-app-automation-as-durable-workflows.md)
 - [0039 — Use one JSON document as the Workflow data plane](0039-use-one-json-document-as-workflow-data-plane.md)
 - [0040 — Store Note Projects in User-selected directories](0040-store-note-projects-in-user-selected-directories.md)
+- [0041 — Restore each App's last stable content position](0041-restore-each-apps-last-stable-content-position.md)

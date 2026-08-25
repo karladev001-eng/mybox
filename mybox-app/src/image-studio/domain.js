@@ -68,6 +68,13 @@ function nowIso(now) { return now().toISOString(); }
 
 export function createImageStudioState() { return { schemaVersion: IMAGE_STUDIO_SCHEMA_VERSION, revision: 1, templates: [], generations: [] }; }
 
+export function resolveGenerationSelection(generations, { preferredId = null, currentId = null } = {}) {
+  const ids = new Set((generations ?? []).map((generation) => generation.id));
+  if (preferredId && ids.has(preferredId)) return preferredId;
+  if (currentId && ids.has(currentId)) return currentId;
+  return generations?.[0]?.id ?? null;
+}
+
 export function validateImageStudioState(state) {
   if (!state || state.schemaVersion !== IMAGE_STUDIO_SCHEMA_VERSION || !Array.isArray(state.templates) || !Array.isArray(state.generations)) {
     throw new ImageStudioError("INVALID_STATE", "Image App state is invalid");

@@ -33,10 +33,16 @@ image's spatial structure instead of making a collage. The catalog includes a
 `21:9` cinematic panorama target in addition to the original ratios. Ratio
 selection adds only the aspect ratio to the compiled Prompt; it never requests
 a pixel size. Once generation finishes, the preview uses the image's actual
-dimensions and preserves the returned image without cropping or stretching it
-to the requested ratio. Selecting that preview opens a keyboard-contained,
-full-window viewer; Escape, the close control, and backdrop input return focus to
-the preview. The additional-input field grows with its text up to a readable
+dimensions and calculates its frame against both the available width and
+viewport height, preserving the returned image without cropping or stretching
+it to the requested ratio. Selecting that preview opens a keyboard-contained,
+full-window `contain` viewer whose grid tracks may shrink below the image's
+intrinsic dimensions; Escape, the close control, and backdrop input return focus
+to the preview. Reopening Image restores the current profile's last generated
+image, including a remembered Trash result, and falls back to the newest visible
+generation only when that result no longer exists. An older live Host without
+the optional resume-position Operations falls back to an empty position and
+continues loading generation history. The additional-input field grows with its text up to a readable
 desktop height, then uses the same themed scrollbar as the App's other vertical
 and horizontal overflow regions. A compact Prompt rebuild control sits directly
 beside the primary generation action.
@@ -49,4 +55,7 @@ the Note App manifest is registered; Image reads it through
 current subject, templates, ratio, references, and additional input.
 The picker combines Page and Tag summaries from Note's public Operations. Its
 single search field matches normalized title and Tag text, and result rows show
-their Tags without opening each Page.
+their Tags without opening each Page. Before those reads, the Host prepares the
+Project's runtime-owned Yjs session from its durable Project store and optional
+sync endpoint. Image therefore sees the same shared Pages after Note closes and
+when Image is opened first after MyBox starts, without importing Note storage.

@@ -6,10 +6,16 @@ import {
 } from "./domain.js";
 
 const STATE_KEY = "state.json";
+const VIEW_STATE_KEY = "view-state.json";
 const objectSchema = { type: "object" };
 const callers = ["user", "agent", "flow", "app"];
 const op = (id, title, effect, confirmationClass, inputSchema = objectSchema, allowed = callers) => ({ id, title, effect, confirmationClass, callers: allowed, inputSchema, outputSchema: objectSchema });
 const idInput = { type: "object", required: ["id"], properties: { id: { type: "string", minLength: 1 } } };
+const viewStateSchema = {
+  type: "object",
+  required: ["generationId"],
+  properties: { generationId: { type: ["string", "null"] } },
+};
 const generateInput = {
   type: "object", required: ["ratio"],
   properties: {
@@ -37,6 +43,18 @@ const workflowGenerateInput = (configSchema) => ({
 
 async function load(storage) { const stored = await storage.readJson(STATE_KEY); if (stored) return validateImageStudioState(stored); const state = createImageStudioState(); await storage.writeJson(STATE_KEY, state); return state; }
 async function save(storage, mutation) { await storage.writeJson(STATE_KEY, mutation.state); return mutation; }
+async function readViewState(storage, profileId) {
+  const stored = await storage.readJson(VIEW_STATE_KEY);
+  const generationId = stored?.schemaVersion === 1 ? stored.profiles?.[profileId]?.generationId : null;
+  return { generationId: typeof generationId === "string" && generationId ? generationId : null };
+}
+async function writeViewState(storage, profileId, viewState) {
+  const stored = await storage.readJson(VIEW_STATE_KEY);
+  const profiles = stored?.schemaVersion === 1 && stored.profiles && typeof stored.profiles === "object" ? stored.profiles : {};
+  const next = { schemaVersion: 1, profiles: { ...profiles, [profileId]: viewState } };
+  await storage.writeJson(VIEW_STATE_KEY, next);
+  return viewState;
+}
 
 export function createImageStudioApp({ generator = null } = {}) {
   const performGeneration = async (input, context, { throwOnFailure = false } = {}) => {
@@ -69,13 +87,15 @@ export function createImageStudioApp({ generator = null } = {}) {
 
   return defineApp({
     manifest: {
-      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.5.1", hostCapabilities: ["app-storage", "workflows", "connections", "resources", "codex-image-generation"],
+      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.5.5", hostCapabilities: ["app-storage", "workflows", "connections", "resources", "codex-image-generation"],
       operations: [
         op("image-studio.template.list", "Prompt templateを一覧", "read", "review"), op("image-studio.template.read", "Prompt templateを読む", "read", "review", idInput),
         op("image-studio.template.create", "Prompt templateを作成", "write", "recoverable", { type: "object", required: ["markdown"], properties: { markdown: { type: "string", minLength: 1, maxLength: 262144 } } }),
         op("image-studio.template.update", "Prompt templateを更新", "write", "recoverable", { type: "object", required: ["id", "markdown"], properties: { id: { type: "string" }, markdown: { type: "string", minLength: 1, maxLength: 262144 } } }),
         op("image-studio.template.trash", "Prompt templateをTrashへ移動", "write", "recoverable", idInput), op("image-studio.template.restore", "Prompt templateを復元", "write", "recoverable", idInput),
         op("image-studio.generation.list", "画像生成履歴を一覧", "read", "review", { type: "object", properties: { includeTrash: { type: "boolean" } } }), op("image-studio.generation.read", "画像生成を読む", "read", "review", idInput),
+        op("image-studio.view-state.read", "最後に表示した画像を読む", "read", "review", objectSchema, ["user"]),
+        op("image-studio.view-state.update", "最後に表示した画像を記録", "write", "autonomous", viewStateSchema, ["user"]),
         op("image-studio.generation.create", "画像を生成", "external", "autonomous", generateInput), op("image-studio.generation.create-from-reference", "参照画像からアレンジ", "external", "always-confirm", { ...generateInput, required: ["subject", "ratio", "references"] }),
         op("image-studio.workflow.generate", "Workflowで画像を生成", "external", "autonomous", workflowGenerateInput(workflowGenerateConfig), ["flow"]),
         op("image-studio.workflow.generate-from-reference", "Workflowで参照画像をアレンジ", "external", "always-confirm", workflowGenerateInput(workflowReferenceConfig), ["flow"]),
@@ -114,6 +134,8 @@ export function createImageStudioApp({ generator = null } = {}) {
       async "image-studio.template.restore"({ id }, { storage }) { const mutation = await save(storage, setTemplateState(await load(storage), id, "active")); return { template: mutation.template }; },
       async "image-studio.generation.list"({ includeTrash = false }, { storage }) { const state = await load(storage); return { generations: state.generations.filter((item) => includeTrash || item.state !== "trash") }; },
       async "image-studio.generation.read"({ id }, { storage }) { const generation = (await load(storage)).generations.find((item) => item.id === id); if (!generation) throw new Error("Generation was not found"); return { generation }; },
+      async "image-studio.view-state.read"(_, { actor, storage }) { return readViewState(storage, actor.id); },
+      async "image-studio.view-state.update"(input, { actor, storage }) { return writeViewState(storage, actor.id, input); },
       "image-studio.generation.create": performGeneration,
       "image-studio.generation.create-from-reference": performGeneration,
       async "image-studio.workflow.generate"({ config }, context) {

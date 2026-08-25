@@ -1,6 +1,6 @@
 import { createSyncClient, encodeDocState } from "./sync-client.js";
 import { isAuthorColor } from "./author-color.js";
-import { normalizePageTitle } from "./domain.js";
+import { normalizePageTitle, normalizeTagLabel } from "./domain.js";
 import {
   applyPageMutation,
   createProjectDoc,
@@ -8,21 +8,24 @@ import {
   listMemberColors as listDocumentMemberColors,
   listMemberProfiles as listDocumentMemberProfiles,
   listPageIds,
+  listTags as listDocumentTags,
   readPage,
   setMemberColor as setDocumentMemberColor,
   setMemberProfile as setDocumentMemberProfile,
   seedPage,
+  seedTags,
 } from "./yjs-document.js";
 
-/** Encodes local JSON Pages into the same Yjs state used by a Project store. */
-export function encodeProjectPages(pages) {
+/** Encodes local JSON Pages and Tags into the Yjs state used by a Project store. */
+export function encodeProjectPages(pages, tags = []) {
   const doc = createProjectDoc();
+  seedTags(doc, tags);
   for (const page of pages) seedPage(doc, page);
   return encodeDocState(doc);
 }
 
 /** Mutations the shared document can apply today. */
-const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-paste", "block-remove", "block-move", "link-add"]);
+const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-paste", "block-remove", "block-move", "link-add", "tags-set"]);
 
 export class SharedProjectError extends Error {
   constructor(code, message, details = {}) {
@@ -39,6 +42,23 @@ function newBlockId() {
 
 function newPageId() {
   return `page-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+}
+
+function newTagId(normalizedLabel) {
+  // A stable key makes two offline peers creating the same normalized label
+  // converge on one Tag when their Yjs updates merge.
+  return `tag-${encodeURIComponent(normalizedLabel)}`;
+}
+
+function projectTags(doc, projectId) {
+  const pages = listPageIds(doc).map((id) => readPage(doc, id)).filter(Boolean);
+  return listDocumentTags(doc)
+    .map((tag) => ({
+      ...tag,
+      projectId,
+      pageCount: pages.filter((page) => page.tagIds.includes(tag.id)).length,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label, "ja"));
 }
 
 function createPageRecord(doc, projectId, title, actorId) {
@@ -123,6 +143,34 @@ function addPageLink(doc, projectId, pageId, mutation, actorId) {
   return readPage(doc, pageId);
 }
 
+/** Resolves Tag labels to shared definitions and replaces a Page's Tag set. */
+function setPageTags(doc, projectId, pageId, mutation, actorId) {
+  if (!readPage(doc, pageId)) {
+    throw new SharedProjectError("PAGE_NOT_FOUND", "Page was not found", { projectId, pageId });
+  }
+  const labels = Array.isArray(mutation.labels) ? mutation.labels : [];
+  const uniqueLabels = [...new Map(labels.map((label) => {
+    const displayLabel = typeof label === "string" ? label.trim() : label;
+    return [normalizeTagLabel(displayLabel), displayLabel];
+  })).entries()];
+  const existing = new Map(listDocumentTags(doc).map((tag) => [tag.normalizedLabel, tag]));
+  const created = [];
+  const tagIds = uniqueLabels.map(([normalizedLabel, label]) => {
+    const tag = existing.get(normalizedLabel);
+    if (tag) return tag.id;
+    const next = { id: newTagId(normalizedLabel), label, normalizedLabel };
+    existing.set(normalizedLabel, next);
+    created.push(next);
+    return next.id;
+  });
+
+  doc.transact(() => {
+    if (created.length) seedTags(doc, created);
+    applyPageMutation(doc, pageId, { type: "tags-set", tagIds }, { actorId });
+  });
+  return readPage(doc, pageId);
+}
+
 /** The document wants a whole Block where the domain names a type and text. */
 function toDocumentMutation(mutation) {
   if (mutation.type !== "block-add") return mutation;
@@ -160,10 +208,12 @@ export function createSharedProject({
 }) {
   const doc = createProjectDoc();
   let status = "idle";
+  let disposed = false;
+  let handlers = { onChange, onStatus, onError, onPresence };
 
   // Fires for local and remote updates alike, so the editor re-reads whenever
   // the document moves for any reason.
-  const notify = () => onChange();
+  const notify = () => handlers.onChange();
   doc.on("update", notify);
 
   const client = createClient({
@@ -173,22 +223,38 @@ export function createSharedProject({
     token,
     onStatus: (state) => {
       status = state.status;
-      onStatus(state);
+      handlers.onStatus(state);
     },
-    onError,
-    onAwareness: onPresence,
+    onError: (error) => handlers.onError(error),
+    onAwareness: (presence) => handlers.onPresence(presence),
   });
 
   return {
     doc,
     get status() { return status; },
     get role() { return client.role; },
+    get disposed() { return disposed; },
+
+    /**
+     * The runtime keeps this session alive while App surfaces change. The Note
+     * surface attaches its React handlers when visible and detaches them when
+     * hidden, without taking the shared document away from Image or Agents.
+     */
+    setHandlers(next = {}) {
+      handlers = {
+        onChange: next.onChange ?? (() => {}),
+        onStatus: next.onStatus ?? (() => {}),
+        onError: next.onError ?? (() => {}),
+        onPresence: next.onPresence ?? (() => {}),
+      };
+    },
 
     connect() {
-      client.connect();
+      return client.connect();
     },
 
     listPages(includeTrash = false) {
+      const labelsById = new Map(listDocumentTags(doc).map((tag) => [tag.id, tag.label]));
       return listPageIds(doc)
         .map((id) => readPage(doc, id))
         .filter((page) => page && (includeTrash || page.state === "active"))
@@ -198,6 +264,7 @@ export function createSharedProject({
           title: page.title,
           state: page.state,
           tagIds: page.tagIds,
+          tagLabels: page.tagIds.map((tagId) => labelsById.get(tagId)).filter(Boolean),
           excerpt: page.blocks.find((block) => block.text.trim())?.text.slice(0, 120) ?? "",
         }));
     },
@@ -220,7 +287,8 @@ export function createSharedProject({
             excerpt: block.text.slice(0, 180),
           }));
       });
-      return { page: { ...page, projectId, revision: 0 }, tags: [], backlinks };
+      const tags = projectTags(doc, projectId).filter((tag) => page.tagIds.includes(tag.id));
+      return { page: { ...page, projectId, revision: 0 }, tags, backlinks };
     },
 
     /**
@@ -239,7 +307,14 @@ export function createSharedProject({
       if (mutation.type === "link-add") {
         return addPageLink(doc, projectId, pageId, mutation, actorId);
       }
+      if (mutation.type === "tags-set") {
+        return setPageTags(doc, projectId, pageId, mutation, actorId);
+      }
       return applyPageMutation(doc, pageId, toDocumentMutation(mutation), { actorId });
+    },
+
+    listTags() {
+      return projectTags(doc, projectId);
     },
 
     listMemberColors() {
@@ -280,12 +355,17 @@ export function createSharedProject({
       return { pageId, releasedTitle: page.title };
     },
 
-    /** Copies Pages already held locally into the shared document. */
-    adopt(pages) {
+    /** Copies Pages and Tag definitions already held locally into the shared document. */
+    adopt(pages, tags = []) {
       const existing = new Set(listPageIds(doc));
-      for (const page of pages) {
-        if (!existing.has(page.id)) seedPage(doc, page);
-      }
+      const existingTagIds = new Set(listDocumentTags(doc).map((tag) => tag.id));
+      doc.transact(() => {
+        const missingTags = tags.filter((tag) => !existingTagIds.has(tag.id));
+        if (missingTags.length) seedTags(doc, missingTags);
+        for (const page of pages) {
+          if (!existing.has(page.id)) seedPage(doc, page);
+        }
+      });
     },
 
     /** Captures the converged document before its durable store is moved. */
@@ -298,8 +378,11 @@ export function createSharedProject({
     },
 
     dispose() {
+      if (disposed) return;
+      disposed = true;
       doc.off("update", notify);
       client.disconnect();
+      this.setHandlers();
     },
   };
 }
