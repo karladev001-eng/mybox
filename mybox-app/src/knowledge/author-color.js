@@ -1,3 +1,5 @@
+export const NO_AUTHOR_COLOR = "transparent";
+
 export const AUTHOR_COLOR_PALETTE = Object.freeze([
   "#67d7c4",
   "#5f91ff",
@@ -9,16 +11,20 @@ export const AUTHOR_COLOR_PALETTE = Object.freeze([
   "#69db7c",
 ]);
 
+export const AUTHOR_COLOR_OPTIONS = Object.freeze([NO_AUTHOR_COLOR, ...AUTHOR_COLOR_PALETTE]);
+
 export function isAuthorColor(value) {
-  return AUTHOR_COLOR_PALETTE.includes(String(value ?? "").toLocaleLowerCase());
+  return AUTHOR_COLOR_OPTIONS.includes(String(value ?? "").toLocaleLowerCase());
 }
 
-/** A stable fallback makes an unconfigured collaborator identifiable immediately. */
-export function authorColorFor(profileId, configuredColor) {
+export function isVisibleAuthorColor(value) {
+  const normalizedColor = String(value ?? "").toLocaleLowerCase();
+  return isAuthorColor(normalizedColor) && normalizedColor !== NO_AUTHOR_COLOR;
+}
+
+/** Unconfigured members stay neutral until they choose a Project color. */
+export function authorColorFor(_profileId, configuredColor) {
   const normalizedColor = String(configuredColor ?? "").toLocaleLowerCase();
   if (isAuthorColor(normalizedColor)) return normalizedColor;
-  const value = String(profileId ?? "");
-  let hash = 0;
-  for (let index = 0; index < value.length; index += 1) hash = ((hash * 31) + value.charCodeAt(index)) >>> 0;
-  return AUTHOR_COLOR_PALETTE[hash % AUTHOR_COLOR_PALETTE.length];
+  return NO_AUTHOR_COLOR;
 }

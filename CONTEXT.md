@@ -221,9 +221,10 @@ may make recoverable knowledge changes, and Viewer may only read and search it;
 irreversible Page deletion is reserved for Owner.
 _Avoid_: Confirmation level, App permission, global role
 
-**Project store** — A User-selected local directory that is authoritative for one
-Project's private data. Cloud sharing uses a synchronization adapter rather than
-sharing the store's database file.
+**Project store** — The authoritative directory for one Project's private data.
+It defaults to MyBox application storage and may be moved to a User-selected
+directory such as one managed by Google Drive. Cloudflare collaboration is an
+independent synchronization transport over the same Project data.
 _Avoid_: Workspace, Vault, shared database
 
 **Project store manifest** — A Host-managed identity and compatibility record

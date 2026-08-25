@@ -82,3 +82,11 @@ viewer, content-responsive additional Prompt input, a Prompt rebuild action next
 to generation, and consistent themed scrollbars across Image's horizontal and
 vertical overflow regions. The viewer preserves the generated resource and its
 actual dimensions; this patch changes only Surface interaction and delivery.
+
+Release `0.8.2` updates Note Registry `1.18.5` with User-selected Project
+directories for cloud-drive folder synchronization while keeping Cloudflare
+sharing independent. Project settings show the current store path and a member
+table, use a neutral default author color, and render configured author colors
+consistently in local and shared Projects. GitHub-linked sessions use the login
+name for account presentation without exposing credentials or replacing the
+stable internal profile ID.

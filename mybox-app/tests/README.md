@@ -22,6 +22,8 @@ Contains Node tests for framework behavior and Sites packaging.
 - `knowledge-app.test.mjs`: Project/Page/Block invariants, PageLink and Trash
   transitions, title uniqueness, roles, member colors, Tab indentation,
   revisions, search, and App Operations.
+- `project-store-client.test.mjs`: append-only Project-store convergence,
+  pulled update de-duplication, and retry after a store becomes unavailable.
 - `app-registry.test.mjs`: validated versioned App definitions, SemVer update
   checks, installation migration and persistence, duplicate protection, built-in
   defaults, and extensible lazy Surface contracts.

@@ -77,3 +77,10 @@ HTTPS avatar URL to an App Surface. Shared Note Projects publish that presentati
 through ephemeral awareness for online icons and store the same non-secret fields
 in their Yjs profile directory for author labels. Profile IDs remain the stable
 membership and attribution keys but are not presented as account names.
+
+As of 2026-08-25, GitHub presentation uses the GitHub login name rather than the
+optional profile name. Existing account records fetch and persist that login once
+while the stored token is valid. Note collapses the retained `local-user` membership into the linked
+account row while signed in; when signed out, its presentation is `local-account`.
+The immutable IDs and both memberships remain unchanged so account renames and
+signed-out access keep working.

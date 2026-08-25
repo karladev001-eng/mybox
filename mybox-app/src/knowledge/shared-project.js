@@ -1,4 +1,4 @@
-import { createSyncClient } from "./sync-client.js";
+import { createSyncClient, encodeDocState } from "./sync-client.js";
 import { isAuthorColor } from "./author-color.js";
 import {
   applyPageMutation,
@@ -183,6 +183,11 @@ export function createSharedProject({
       for (const page of pages) {
         if (!existing.has(page.id)) seedPage(doc, page);
       }
+    },
+
+    /** Captures the converged document before its durable store is moved. */
+    encodeState() {
+      return encodeDocState(doc);
     },
 
     sendPresence(state) {

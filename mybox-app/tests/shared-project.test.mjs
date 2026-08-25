@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as Y from "yjs";
 import { createSharedProject } from "../src/knowledge/shared-project.js";
 
 const PAGE = Object.freeze({
@@ -145,6 +146,17 @@ test("connecting and disposing drive the underlying client", () => {
   const before = changes.length;
   shared.adopt([PAGE]);
   assert.equal(changes.length, before, "a disposed session stops re-rendering the editor");
+});
+
+test("exports a full Yjs update before the Project store moves", () => {
+  const { shared } = session();
+  shared.adopt([PAGE]);
+  const encoded = shared.encodeState();
+  const binary = atob(encoded);
+  const update = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  const restored = new Y.Doc();
+  Y.applyUpdate(restored, update);
+  assert.equal(restored.getMap("pages").size, 1);
 });
 
 test("status and role come from the sync client", () => {

@@ -45,3 +45,4 @@ notes of the ADR it realizes.
 - [0037 — Edit and import the final Image Prompt](0037-edit-and-import-the-final-image-prompt.md)
 - [0038 — Run App automation as durable Workflows](0038-run-app-automation-as-durable-workflows.md)
 - [0039 — Use one JSON document as the Workflow data plane](0039-use-one-json-document-as-workflow-data-plane.md)
+- [0040 — Store Note Projects in User-selected directories](0040-store-note-projects-in-user-selected-directories.md)

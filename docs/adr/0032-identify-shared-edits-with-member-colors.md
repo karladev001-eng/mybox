@@ -13,18 +13,24 @@ identity, especially with several collaborators.
 ## Decision
 
 Each Project member has a Project-scoped Author color chosen from an eight-color
-palette. An unconfigured account receives a deterministic fallback derived from
-its profile ID, so it is identifiable immediately. The Project Owner can stage
-member color changes in the enlarged Project settings dialog and save them with
-the Project name from the persistent footer next to Close.
+palette or a neutral `no color` option. No color is the default for an
+unconfigured account; existing configured colors remain unchanged. The Project
+Owner can stage member color changes in the enlarged Project settings dialog and
+save them with the Project name from the persistent footer next to Close.
 
-Local Projects store the color on their member records. Shared Projects store
+Local Projects store the color on their member records and expose the same color
+picker even when Cloudflare sharing is stopped. Shared Projects store
 the color map in the same Yjs document as the content so every peer converges on
 the assignment. Page and Block records carry the immutable profile ID of their
 last editor internally. Block badges and Page history render the account display
 name with the configured color; they do not expose that storage identifier. The
 Page header contains Project and revision metadata only. Author color is
 descriptive and never grants access.
+
+Block author badges use the same rule for local and Cloudflare-shared Projects:
+a configured palette color shows the color together with the account name, and
+the neutral no-color option hides the badge. Sharing state does not control
+author presentation.
 
 All changes go through `knowledge.project.members.list` and
 `knowledge.project.member-color.set` Operations. A member may set their own
@@ -44,6 +50,6 @@ neutral collaborator label until that account publishes its name.
 stores local metadata, while `yjs-document.js` syncs shared colors and last
 editors. `KnowledgeView.jsx` stages settings changes and renders semantic color
 buttons with pressed and focus states. The built-in Note App catalog version is
-`1.10.0`. Shared account names and HTTPS avatar URLs are non-secret profile
+`1.18.5`. Shared account names and HTTPS avatar URLs are non-secret profile
 presentation from ADR 0022 and converge in the Yjs document; authorization still
 uses the immutable profile ID.

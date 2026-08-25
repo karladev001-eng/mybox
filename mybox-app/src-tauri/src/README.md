@@ -22,6 +22,10 @@
   Embeds `sync-server/dist/worker.js`, a bundle `build.rs` produces before
   this crate compiles. The token and the generated `SERVER_SECRET` live in OS
   credential storage next to the other provider secrets this file governs.
+- `project_stores.rs`: validates User-selected Project directories, moves the
+  authoritative append-only Yjs store between MyBox and external folders, and
+  exposes only a display label plus opaque update IDs/bytes
+  ([ADR 0040](../../../docs/adr/0040-store-note-projects-in-user-selected-directories.md)).
 - `knowledge_resources.rs`: copies a User-picked image (path supplied by their
   own OS file dialog, the same trusted precedent `open_workspace` already
   sets) into the Knowledge App's private resource namespace and returns an

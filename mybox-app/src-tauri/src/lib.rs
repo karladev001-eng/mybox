@@ -1,6 +1,7 @@
 mod accounts;
 mod agent_providers;
 mod cloudflare;
+mod project_stores;
 mod codex;
 mod image_studio_resources;
 mod knowledge_resources;
@@ -167,6 +168,16 @@ pub fn run() {
             cloudflare::clear_cloudflare_credentials,
             cloudflare::deploy_sync_server,
             cloudflare::delete_sync_server,
+            project_stores::project_stores,
+            project_stores::project_store_path,
+            project_stores::move_project_store,
+            project_stores::attach_project_store,
+            project_stores::ensure_app_project_store,
+            project_stores::move_project_store_to_app,
+            project_stores::forget_project_store,
+            project_stores::rename_project_store,
+            project_stores::read_project_store_updates,
+            project_stores::write_project_store_update,
             agent_providers::agent_provider_settings,
             agent_providers::configure_openai_api_provider,
             agent_providers::disconnect_openai_api_provider,

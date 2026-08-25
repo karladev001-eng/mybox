@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { LOCAL_PROFILE_ID } from "../src/core/account-identity.js";
 import { AppHost } from "../src/core/app-host.js";
 import { createProfilePreferencesStore } from "../src/core/profile-preferences.js";
 import { createAppStorage, MemoryStorageDriver } from "../src/core/storage.js";
@@ -17,8 +18,10 @@ import {
   splitListItems,
   toggleInlineWrap,
 } from "../src/knowledge/editor-behavior.js";
-import { AUTHOR_COLOR_PALETTE } from "../src/knowledge/author-color.js";
+import { AUTHOR_COLOR_PALETTE, NO_AUTHOR_COLOR, isVisibleAuthorColor } from "../src/knowledge/author-color.js";
+import { projectMemberAccountName, visibleProjectMembers } from "../src/knowledge/member-profile.js";
 import {
+  attachProject,
   createKnowledgeState,
   createPage,
   movePageToTrash,
@@ -39,8 +42,23 @@ function deterministicIds() {
 test("publishes Page title paths for Workflow command output mapping", () => {
   const app = createKnowledgeApp();
   const operation = app.manifest.operations.find((item) => item.id === "knowledge.page.list");
-  assert.equal(app.manifest.version, "0.4.0");
+  assert.equal(app.manifest.version, "0.5.5");
   assert.ok(workflowSchemaPaths(operation.outputSchema).includes("$.pages[*].title"));
+});
+
+test("shows one linked account row and uses local-account while signed out", () => {
+  const members = [
+    { profileId: LOCAL_PROFILE_ID, role: "owner" },
+    { profileId: "github:42", role: "owner" },
+  ];
+  assert.deepEqual(visibleProjectMembers(members, "github:42").map((member) => member.profileId), ["github:42"]);
+  assert.deepEqual(visibleProjectMembers(members, LOCAL_PROFILE_ID).map((member) => member.profileId), [LOCAL_PROFILE_ID, "github:42"]);
+  assert.equal(projectMemberAccountName(LOCAL_PROFILE_ID, {
+    activeProfile: { profileId: "github:42", displayName: "linked-account" },
+  }), "linked-account");
+  assert.equal(projectMemberAccountName(LOCAL_PROFILE_ID, {
+    activeProfile: { profileId: LOCAL_PROFILE_ID, displayName: "local-account" },
+  }), "local-account");
 });
 
 function fixture() {
@@ -49,6 +67,21 @@ function fixture() {
   const state = createKnowledgeState({ idFactory, now });
   return { state, idFactory, now, projectId: state.projects[0].id };
 }
+
+test("attaches an existing Project store with its stable manifest identity", () => {
+  const setup = fixture();
+  const attached = attachProject(setup.state, {
+    projectId: "project-from-drive",
+    name: "Drive Project",
+    now: setup.now,
+  });
+  assert.equal(attached.attached, true);
+  assert.equal(attached.project.id, "project-from-drive");
+  assert.equal(attached.project.members[0].role, "owner");
+  const repeated = attachProject(attached.state, { projectId: "project-from-drive", name: "Drive Project", now: setup.now });
+  assert.equal(repeated.attached, false);
+  assert.equal(repeated.state.projects.filter((project) => project.id === "project-from-drive").length, 1);
+});
 
 test("keeps consecutive list items inside one structured Block", () => {
   const firstItem = "最初の項目";
@@ -77,15 +110,31 @@ test("Tab indents selected Note lines and Shift+Tab reverses it", () => {
   });
 });
 
-test("stores an Owner-selected basic color for each Project member", () => {
+test("stores an Owner-selected color or no color for each local Project member", () => {
   const setup = fixture();
   setup.state.projects[0].members.push({ profileId: "editor-user", role: "editor" });
+  assert.equal(
+    listProjectMembers(setup.state, { projectId: setup.projectId }).find((member) => member.profileId === "editor-user").color,
+    NO_AUTHOR_COLOR,
+  );
   const colored = setProjectMemberColor(setup.state, {
     projectId: setup.projectId,
     memberProfileId: "editor-user",
     color: AUTHOR_COLOR_PALETTE[3],
   });
   assert.equal(listProjectMembers(colored.state, { projectId: setup.projectId }).find((member) => member.profileId === "editor-user").color, AUTHOR_COLOR_PALETTE[3]);
+  const neutral = setProjectMemberColor(colored.state, {
+    projectId: setup.projectId,
+    memberProfileId: "editor-user",
+    color: NO_AUTHOR_COLOR,
+  });
+  assert.equal(listProjectMembers(neutral.state, { projectId: setup.projectId }).find((member) => member.profileId === "editor-user").color, NO_AUTHOR_COLOR);
+});
+
+test("uses the same configured author color visibility for local and shared Projects", () => {
+  assert.equal(isVisibleAuthorColor(NO_AUTHOR_COLOR), false);
+  assert.equal(isVisibleAuthorColor(AUTHOR_COLOR_PALETTE[0]), true);
+  assert.equal(isVisibleAuthorColor("invalid"), false);
 });
 
 test("normalizes Page titles and reserves them while the Page is in Trash", () => {
@@ -328,6 +377,21 @@ test("routes Knowledge Operations through AppHost and persists them", async () =
   assert.equal(markdown.page.title, "Operation Page");
   assert.equal(markdown.markdown, "# 構図\n\n- 静かな海\n- 小さな人物");
   assert.equal(host.listOperations({ callerType: "agent" }).some((item) => item.id === "knowledge.page.search"), true);
+});
+
+test("saves no color through the local Project Operation schema", async () => {
+  const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
+  host.register(createKnowledgeApp());
+  const actor = { type: "user", id: LOCAL_PROFILE_ID };
+  const { projects } = await host.invoke("knowledge.project.list", {}, { actor });
+  const result = await host.invoke("knowledge.project.member-color.set", {
+    projectId: projects[0].id,
+    profileId: LOCAL_PROFILE_ID,
+    color: NO_AUTHOR_COLOR,
+  }, { actor });
+  assert.equal(result.member.color, NO_AUTHOR_COLOR);
+  const listed = await host.invoke("knowledge.project.members.list", { projectId: projects[0].id }, { actor });
+  assert.equal(listed.members[0].color, NO_AUTHOR_COLOR);
 });
 
 test("describes the Page mutation vocabulary to agents while still accepting the editor's own shapes", async () => {

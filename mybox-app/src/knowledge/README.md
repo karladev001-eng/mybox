@@ -5,8 +5,10 @@ Implements the first vertical slice of the `knowledge` App described in
 
 - `domain.js`: runtime-neutral Project, member author color, Page, Block,
   PageLink, Tag, Trash, revision, history, and search rules.
-- `author-color.js`: the accessible member color palette and deterministic
-  fallback used by local and shared Projects.
+- `author-color.js`: the accessible member color palette, neutral default, and
+  common visibility rule used by local and Cloudflare-shared Projects.
+- `member-profile.js`: presentation-only member deduplication and account-name
+  resolution; the stored local membership remains intact for signed-out access.
 - `app.js`: public App manifest, Connector and Workflow Action declarations, and Operation handlers
   backed by App storage. Tagged Markdown Pages can supply Image Prompt templates;
   non-destructive Agent Operations shared with the Flow caller appear as visual
@@ -20,7 +22,8 @@ Implements the first vertical slice of the `knowledge` App described in
   before creating an image Block.
 - `client.js`: User-facing Host client used by the React surface. It is the
   only file in this directory allowed to import a `../desktop/*` bridge
-  module (sync endpoints, Cloudflare, images, the URL opener, Tauri storage);
+  module (sync endpoints, Project stores, Cloudflare, images, the URL opener,
+  Tauri storage);
   `KnowledgeView`
   and every other file here call its wrapper methods instead, per
   `docs/app-authoring.md`. Also registers its `AppHost` into
@@ -65,6 +68,11 @@ Implements the first vertical slice of the `knowledge` App described in
 - `sync-client.js`: keeps that document in step with a Project's sync endpoint.
   Relayed updates carry a remote origin so they are never echoed back, and a
   Viewer sends nothing because the server would refuse it anyway.
+- `project-store-client.js`: persists the same Yjs document through bounded,
+  append-only update files in MyBox or a User-selected Google Drive, OneDrive,
+  Dropbox, Syncthing, or similar desktop folder. It receives opaque update
+  records from `client.js` and never receives a native path. The Cloudflare
+  client may run beside it on the same document.
 - `knowledge.css`: Knowledge App layout and component states using root tokens.
 
 Keep domain rules out of React. Other Apps and Agents must use the Operations in

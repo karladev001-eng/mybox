@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  LOCAL_ACCOUNT_DISPLAY_NAME,
   LOCAL_PROFILE_ID,
   accountProfileId,
   resolveAccountSession,
@@ -47,7 +48,7 @@ test("exposes a non-secret profile presentation to App surfaces", () => {
   });
   assert.deepEqual(resolveProfilePresentation(signedOutSession()), {
     profileId: LOCAL_PROFILE_ID,
-    displayName: "ローカルユーザー",
+    displayName: LOCAL_ACCOUNT_DISPLAY_NAME,
     avatarUrl: null,
   });
 });

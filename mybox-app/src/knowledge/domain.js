@@ -313,6 +313,40 @@ export function createProject(state, {
   return { state: next, project: copy(project) };
 }
 
+/**
+ * Adds the local catalog entry for a Project whose stable identity came from a
+ * User-selected Project-store manifest. Folder access is the proof of ownership;
+ * an existing, inaccessible ID is treated as a collision rather than granting
+ * access to unrelated local data.
+ */
+export function attachProject(state, {
+  projectId,
+  name,
+  profileId = LOCAL_PROFILE_ID,
+  now = new Date(),
+} = {}) {
+  const next = copy(validateKnowledgeState(state));
+  const stableId = requireText(projectId, "INVALID_PROJECT_ID", "Project ID");
+  const displayName = requireText(name, "INVALID_PROJECT_NAME", "Project name");
+  const existing = next.projects.find((project) => project.id === stableId);
+  if (existing) {
+    if (!existing.members.some((member) => member.profileId === profileId)) {
+      throw new KnowledgeDomainError("PROJECT_ID_CONFLICT", "Project ID is already used by an inaccessible local Project", { projectId: stableId });
+    }
+    return { state: next, project: copy(existing), attached: false };
+  }
+  const timestamp = isoNow(now);
+  const project = {
+    id: stableId,
+    name: displayName,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    members: [{ profileId, role: "owner", color: authorColorFor(profileId) }],
+  };
+  next.projects.push(project);
+  return { state: next, project: copy(project), attached: true };
+}
+
 export function renameProject(state, {
   projectId,
   name,

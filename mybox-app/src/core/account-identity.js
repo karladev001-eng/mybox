@@ -1,4 +1,5 @@
 export const LOCAL_PROFILE_ID = "local-user";
+export const LOCAL_ACCOUNT_DISPLAY_NAME = "local-account";
 export const ACCOUNT_PROVIDERS = Object.freeze(["github"]);
 
 const SUBJECT_PATTERN = /^[A-Za-z0-9._-]{1,128}$/;
@@ -68,7 +69,7 @@ export function resolveProfilePresentation(session) {
     profileId,
     displayName: session?.signedIn === true && typeof session.displayName === "string" && session.displayName.trim()
       ? session.displayName.trim()
-      : "ローカルユーザー",
+      : LOCAL_ACCOUNT_DISPLAY_NAME,
     avatarUrl: session?.signedIn === true && typeof session.avatarUrl === "string" && /^https:\/\//.test(session.avatarUrl)
       ? session.avatarUrl
       : null,

@@ -2,6 +2,7 @@ import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { APP_SCHEMA_VERSION, defineApp } from "../core/app-contract.js";
 import {
   adoptLocalMemberships,
+  attachProject,
   BLOCK_TYPES,
   createKnowledgeState,
   createPage,
@@ -216,14 +217,29 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.4.0",
+      version: "0.5.5",
       hostCapabilities: ["app-storage", "workflows"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema, outputSchema: { type: "object", required: ["projects"], properties: { projects: { type: "array", title: "Projects", items: projectSummarySchema } } } }),
+        operation({
+          id: "knowledge.project.attach",
+          title: "既存のProjectフォルダーを開く",
+          effect: "write",
+          confirmationClass: "recoverable",
+          callers: ["user"],
+          inputSchema: {
+            type: "object",
+            required: ["projectId", "name"],
+            properties: {
+              projectId: { type: "string", minLength: 1, maxLength: 160, pattern: "^[A-Za-z0-9._-]+$" },
+              name: { type: "string", minLength: 1, maxLength: 120 },
+            },
+          },
+        }),
         operation({ id: "knowledge.project.members.list", title: "Projectメンバー色を一覧", effect: "read", confirmationClass: "review", inputSchema: projectInput }),
         operation({
           id: "knowledge.project.member-color.set",
-          title: "Projectメンバーの基本色を設定",
+          title: "Projectメンバーの色を設定",
           effect: "write",
           confirmationClass: "recoverable",
           callers: ["user"],
@@ -233,7 +249,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
             properties: {
               projectId: { type: "string", minLength: 1 },
               profileId: { type: "string", minLength: 1 },
-              color: { type: "string", pattern: "^#[0-9a-fA-F]{6}$" },
+              color: { type: "string", pattern: "^(transparent|#[0-9a-fA-F]{6})$" },
             },
           },
         }),
@@ -413,6 +429,14 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       async "knowledge.project.list"(_input, { actor, storage }) {
         const state = await loadState(storage);
         return { projects: listProjects(state, { profileId: profileIdFor(actor) }) };
+      },
+      async "knowledge.project.attach"({ projectId, name }, { actor, storage }) {
+        const mutation = await saveMutation(storage, attachProject(await loadState(storage), {
+          projectId,
+          name,
+          profileId: profileIdFor(actor),
+        }));
+        return { project: mutation.project, attached: mutation.attached };
       },
       async "knowledge.project.members.list"({ projectId }, { actor, storage }) {
         const session = sharedSessions.get(projectId);

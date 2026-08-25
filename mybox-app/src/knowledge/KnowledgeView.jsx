@@ -5,9 +5,11 @@ import {
   ArrowUDownLeft,
   CaretRight,
   Check,
+  CloudArrowUp,
   ClockCounterClockwise,
   DotsSixVertical,
   FileText,
+  FolderOpen,
   FolderSimplePlus,
   Gear,
   Image as ImageIcon,
@@ -18,10 +20,12 @@ import {
   Palette,
   PencilSimple,
   Plus,
+  Prohibit,
   Robot,
   ShieldCheck,
   SidebarSimple,
   Tag,
+  UserPlus,
   UsersThree,
   TextB,
   TextItalic,
@@ -33,11 +37,11 @@ import {
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { ThemedSelect } from "../ThemedSelect.jsx";
-import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
-import { AUTHOR_COLOR_PALETTE, authorColorFor } from "./author-color.js";
+import { LOCAL_ACCOUNT_DISPLAY_NAME, LOCAL_PROFILE_ID } from "../core/account-identity.js";
+import { AUTHOR_COLOR_OPTIONS, NO_AUTHOR_COLOR, authorColorFor, isVisibleAuthorColor } from "./author-color.js";
 import { createKnowledgeClient } from "./client.js";
 import { decodeInviteLink, encodeInviteLink } from "./invite-link.js";
-import { createSharedProject } from "./shared-project.js";
+import { projectMemberAccountName, visibleProjectMembers } from "./member-profile.js";
 import {
   applyColorWrap,
   buildInlineNodes,
@@ -446,7 +450,7 @@ function ShareDialog({
  * only exposes the member list and removal to its Owner, so those stay
  * gated the same way here. Changing a member's role has no server route yet.
  */
-function ProjectSettingsDialog({ project, activeProfileId, syncInfo, busy, onSave, onDeleteRequest, onListMembers, onListMemberColors, onRemoveMember, onClose }) {
+function ProjectSettingsDialog({ project, activeProfile, memberDisplayNames, serverInfo, storeInfo, storePath, storageAvailable, busy, storeBusy, onSave, onInvite, onMoveStore, onMoveStoreToApp, onDeleteRequest, onListMembers, onListMemberColors, onRemoveMember, onClose }) {
   const [name, setName] = useState(project.name);
   const [saved, setSaved] = useState(false);
   const [members, setMembers] = useState(null);
@@ -454,8 +458,9 @@ function ProjectSettingsDialog({ project, activeProfileId, syncInfo, busy, onSav
   const [membersError, setMembersError] = useState("");
   const [removingId, setRemovingId] = useState(null);
   const isOwner = project.role === "owner";
-  const isShared = Boolean(syncInfo);
+  const isShared = Boolean(serverInfo);
   const canListMembers = isOwner && isShared;
+  const activeProfileId = activeProfile.profileId;
 
   useEffect(() => {
     setName(project.name);
@@ -528,54 +533,93 @@ function ProjectSettingsDialog({ project, activeProfileId, syncInfo, busy, onSav
             </div>
 
             <div className="knowledge-settings-section">
-              <h3>メンバーと基本色</h3>
-              <p>自分のRole：{project.role}</p>
-              {isShared
-                ? <small className="form-note">接続先：{syncInfo.endpoint}</small>
-                : <small className="form-note">このProjectはこの端末だけにあります。</small>}
+              <div className="knowledge-settings-heading">
+                <h3>メンバー</h3>
+                <button
+                  type="button"
+                  className="knowledge-settings-invite"
+                  disabled={!isOwner || !isShared || busy}
+                  title={!isShared ? "Cloudflare共有を開始すると招待できます" : !isOwner ? "Ownerのみ招待できます" : undefined}
+                  onClick={() => { onClose(); onInvite(); }}
+                >
+                  <UserPlus size={16} aria-hidden="true" />招待
+                </button>
+              </div>
               {membersError && <small className="form-note form-note-error">{membersError}</small>}
               {members === null && !membersError && <small className="form-note">読み込み中…</small>}
               {members && (members.length ? (
-                <ul className="knowledge-member-list">
-                  {members.map((member) => (
-                    <li key={member.profileId}>
-                      <div className="knowledge-member-summary">
-                        <span className="knowledge-author-dot" style={{ backgroundColor: member.color }} aria-hidden="true" />
-                        <span className="knowledge-member-id">{member.profileId}</span>
-                        <span className="knowledge-member-role">{member.role ?? "member"}</span>
-                        {canListMembers && member.role !== "owner" && (
-                          <button type="button" className="knowledge-danger-link" disabled={removingId === member.profileId} onClick={() => removeMember(member.profileId)}>
-                            {removingId === member.profileId ? "削除中…" : "削除"}
-                          </button>
-                        )}
-                      </div>
-                      <div className="knowledge-author-color-options" role="group" aria-label={`${member.profileId}の基本色`}>
-                        {AUTHOR_COLOR_PALETTE.map((color) => (
-                          <button
-                            key={color}
-                            type="button"
-                            className={member.color === color ? "selected" : ""}
-                            aria-label={`${member.profileId}の基本色 ${color}`}
-                            aria-pressed={member.color === color}
-                            disabled={(!isOwner && member.profileId !== activeProfileId) || busy}
-                            style={{ "--member-color": color }}
-                            onClick={() => {
-                              setMembers((current) => current.map((item) => item.profileId === member.profileId ? { ...item, color } : item));
-                              setSaved(false);
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <div className="knowledge-member-table-wrap">
+                  <table className="knowledge-member-table">
+                    <colgroup><col /><col /><col /><col /></colgroup>
+                    <thead><tr><th scope="col">アカウント名</th><th scope="col">Role</th><th scope="col">色</th><th scope="col"><span className="sr-only">操作</span></th></tr></thead>
+                    <tbody>
+                      {visibleProjectMembers(members, activeProfileId).map((member) => {
+                        const accountName = projectMemberAccountName(member.profileId, {
+                          activeProfile,
+                          knownDisplayNames: memberDisplayNames,
+                        });
+                        return (
+                          <tr key={member.profileId}>
+                            <td><span className="knowledge-member-id" title={accountName}>{accountName}</span></td>
+                            <td><span className="knowledge-member-role">{member.role ?? "member"}</span></td>
+                            <td>
+                              <div className="knowledge-author-color-options" role="group" aria-label={`${accountName}の色`}>
+                                {AUTHOR_COLOR_OPTIONS.map((color) => {
+                                  const isNoColor = color === NO_AUTHOR_COLOR;
+                                  return (
+                                    <button
+                                      key={color}
+                                      type="button"
+                                      className={`${isNoColor ? "no-color" : ""}${member.color === color ? " selected" : ""}`.trim()}
+                                      aria-label={`${accountName}の色 ${isNoColor ? "無色" : color}`}
+                                      aria-pressed={member.color === color}
+                                      disabled={(!isOwner && member.profileId !== activeProfileId) || busy}
+                                      style={{ "--member-color": color }}
+                                      title={isNoColor ? "無色" : color}
+                                      onClick={() => {
+                                        setMembers((current) => current.map((item) => item.profileId === member.profileId ? { ...item, color } : item));
+                                        setSaved(false);
+                                      }}
+                                    >
+                                      {isNoColor ? <Prohibit size={18} weight="bold" aria-hidden="true" /> : null}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </td>
+                            <td>
+                              {canListMembers && member.role !== "owner" && (
+                                <button type="button" className="knowledge-danger-link" disabled={removingId === member.profileId} onClick={() => removeMember(member.profileId)}>
+                                  {removingId === member.profileId ? "削除中…" : "削除"}
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               ) : <small className="form-note">メンバーがいません。</small>)}
-              <small className="form-note">基本色はNoteの最終編集者表示に使われます。Roleの変更、招待の発行、共有停止は別の操作です。</small>
             </div>
 
             <div className="knowledge-settings-section">
               <h3>保存場所</h3>
-              <small className="form-note">現在のバージョンでは全ProjectがMyBoxアプリ内の共通ストレージに保存されます。Project専用フォルダの選択は今後のリリースで対応予定です。</small>
+              <div className="knowledge-store-location">
+                <span title={storePath}>{storePath || "MyBoxアプリ内"}</span>
+                <button
+                  type="button"
+                  aria-label={storeBusy ? "保存場所を変更中" : "保存場所を変更"}
+                  data-tooltip="保存場所を変更"
+                  disabled={!storageAvailable || !isOwner || busy || storeBusy}
+                  onClick={onMoveStore}
+                >
+                  <FolderOpen size={20} aria-hidden="true" />
+                </button>
+              </div>
+              {storeInfo?.locationType === "external" && (
+                <button type="button" className="knowledge-store-reset" disabled={!storageAvailable || !isOwner || busy || storeBusy} onClick={onMoveStoreToApp}>MyBoxアプリ内へ移動</button>
+              )}
             </div>
 
             {isOwner && (
@@ -1325,7 +1369,9 @@ export function KnowledgeView({
   const client = clientRef.current;
   const activeProfile = useMemo(() => ({
     profileId,
-    displayName: typeof profile?.displayName === "string" && profile.displayName.trim() ? profile.displayName.trim() : "ローカルユーザー",
+    displayName: typeof profile?.displayName === "string" && profile.displayName.trim()
+      ? profile.displayName.trim()
+      : profileId === LOCAL_PROFILE_ID ? LOCAL_ACCOUNT_DISPLAY_NAME : profileId,
     avatarUrl: typeof profile?.avatarUrl === "string" && /^https:\/\//.test(profile.avatarUrl) ? profile.avatarUrl : null,
   }), [profileId, profile?.displayName, profile?.avatarUrl]);
   const pageRef = useRef(null);
@@ -1338,11 +1384,14 @@ export function KnowledgeView({
   const [memberColors, setMemberColors] = useState({});
   const [memberProfiles, setMemberProfiles] = useState({});
   const [onlineProfiles, setOnlineProfiles] = useState({});
-  const [syncByProject, setSyncByProject] = useState({});
+  const [serverByProject, setServerByProject] = useState({});
+  const [storeByProject, setStoreByProject] = useState({});
   const [shareMode, setShareMode] = useState(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareInvite, setShareInvite] = useState("");
   const [syncStatus, setSyncStatus] = useState("idle");
+  const [storePath, setStorePath] = useState("");
+  const [storeBusy, setStoreBusy] = useState(false);
   const sharedRef = useRef(null);
   // Bumped whenever the shared document moves, so the editor re-reads it.
   const [sharedRevision, setSharedRevision] = useState(0);
@@ -1375,10 +1424,12 @@ export function KnowledgeView({
   pageRef.current = pageData?.page ?? null;
   const currentProject = projects.find((project) => project.id === projectId) ?? null;
   const readOnly = currentProject?.role === "viewer" || pageData?.page.state === "trash";
-  const isCurrentProjectShared = Boolean(syncByProject[projectId]);
+  const isCurrentProjectShared = Boolean(serverByProject[projectId]);
+  const currentSync = serverByProject[projectId] ?? null;
   const profileNameFor = (actorId) => (
     onlineProfiles[actorId]?.displayName
     ?? memberProfiles[actorId]?.displayName
+    ?? (actorId === LOCAL_PROFILE_ID ? projectMemberAccountName(actorId, { activeProfile }) : null)
     ?? (actorId === activeProfile.profileId ? activeProfile.displayName : "共同編集者")
   );
   const visibleOnlineProfiles = Object.values(onlineProfiles)
@@ -1708,23 +1759,37 @@ export function KnowledgeView({
     return () => document.removeEventListener("paste", pasteImage);
   }, [desktop, readOnly, pageData?.page, pasteImage]);
 
-  const refreshSyncEndpoints = async () => {
-    const endpoints = await client.listSync();
-    setSyncByProject(Object.fromEntries(endpoints.map((item) => [item.projectId, item])));
+  const refreshConnections = async () => {
+    const [endpoints, stores] = await Promise.all([client.listSync(), client.listProjectStores()]);
+    setServerByProject(Object.fromEntries(endpoints.map((item) => [item.projectId, item])));
+    setStoreByProject(Object.fromEntries(stores.map((item) => [item.projectId, item])));
   };
 
   useEffect(() => {
     if (!desktop) return;
-    refreshSyncEndpoints().catch(() => {});
+    refreshConnections().catch(() => {});
   }, [desktop]);
+
+  useEffect(() => {
+    let active = true;
+    if (!desktop || !projectId) {
+      setStorePath("MyBoxアプリ内");
+      return () => { active = false; };
+    }
+    client.projectStorePath(projectId)
+      .then((path) => { if (active) setStorePath(path); })
+      .catch(() => { if (active) setStorePath("MyBoxアプリ内"); });
+    return () => { active = false; };
+  }, [desktop, projectId, storeByProject[projectId]?.connectedAt]);
 
   /**
    * A shared Project is edited through its Yjs document instead of the JSON
    * store, so the session lives as long as that Project is selected.
    */
   useEffect(() => {
-    const endpoint = syncByProject[projectId];
-    if (!endpoint?.token) {
+    const server = serverByProject[projectId] ?? null;
+    const store = storeByProject[projectId] ?? null;
+    if (!server && !store) {
       sharedRef.current?.dispose();
       sharedRef.current = null;
       client.setSharedSession(projectId, null);
@@ -1736,21 +1801,27 @@ export function KnowledgeView({
     }
 
     presenceAcknowledgedRef.current.clear();
-    const shared = createSharedProject({
-      endpoint: endpoint.endpoint,
+    const localPages = !store || store.empty
+      ? client.listPages(projectId, false).then(async ({ pages: localPageList }) => {
+        const full = await Promise.all(localPageList.map((page) => client.readPage(projectId, page.id)));
+        return full.map((item) => item.page);
+      })
+      : Promise.resolve([]);
+    const sharedOptions = {
       projectId,
-      token: endpoint.token,
       onChange: () => setSharedRevision((value) => value + 1),
-      onStatus: ({ status }) => {
-        setSyncStatus(status);
+      onStatus: ({ status, transport }) => {
+        if (transport !== "store") setSyncStatus(status);
         // A transient failure right after a fresh deploy (the workers.dev route
         // still propagating) recovers on the next automatic retry; do not leave
         // its banner up once the socket is actually connected again.
         if (status === "connected") {
           setError((current) => (current.startsWith("同期エラー") ? "" : current));
-          setOnlineProfiles((current) => ({ ...current, [activeProfile.profileId]: activeProfile }));
-          shared.sendPresence({ displayName: activeProfile.displayName, avatarUrl: activeProfile.avatarUrl });
-        } else if (status === "offline" || status === "idle") {
+          if (transport === "server") {
+            setOnlineProfiles((current) => ({ ...current, [activeProfile.profileId]: activeProfile }));
+            shared.sendPresence({ displayName: activeProfile.displayName, avatarUrl: activeProfile.avatarUrl });
+          }
+        } else if (transport === "server" && (status === "offline" || status === "idle")) {
           setOnlineProfiles({});
         }
       },
@@ -1780,18 +1851,16 @@ export function KnowledgeView({
           shared.sendPresence({ displayName: activeProfile.displayName, avatarUrl: activeProfile.avatarUrl });
         }
       },
-    });
+    };
+    const shared = client.createProjectSession({ ...sharedOptions, store, server });
     sharedRef.current = shared;
     // Every caller of knowledge.page.* now reaches this document, the assistant
     // included, instead of writing to the JSON store the editor stopped reading.
     client.setSharedSession(projectId, shared);
     shared.setMemberProfile(activeProfile, profileId);
     // Pages written before this Project was shared must reach the others.
-    client.listPages(projectId, false)
-      .then(async ({ pages }) => {
-        const full = await Promise.all(pages.map((page) => client.readPage(projectId, page.id)));
-        shared.adopt(full.map((item) => item.page));
-      })
+    localPages
+      .then((pagesToAdopt) => shared.adopt(pagesToAdopt))
       .catch(() => {})
       .finally(() => shared.connect());
 
@@ -1803,7 +1872,7 @@ export function KnowledgeView({
       setOnlineProfiles({});
       presenceAcknowledgedRef.current.clear();
     };
-  }, [projectId, syncByProject[projectId]?.token, syncByProject[projectId]?.endpoint, activeProfile.displayName, activeProfile.avatarUrl, profileId]);
+  }, [projectId, serverByProject[projectId]?.token, serverByProject[projectId]?.endpoint, storeByProject[projectId]?.connectedAt, activeProfile.displayName, activeProfile.avatarUrl, profileId]);
 
   /**
    * Re-reads the shared document after it moves, whether the edit came from
@@ -1828,8 +1897,9 @@ export function KnowledgeView({
     setShareBusy(true);
     setError("");
     try {
+      await client.ensureAppProjectStore(projectId, currentProject.name);
       await client.connectSync({ projectId, endpoint, secret });
-      await refreshSyncEndpoints();
+      await refreshConnections();
       setShareMode(null);
       onToast("このProjectを共有サーバーに接続しました");
     } catch (nextError) {
@@ -1850,8 +1920,9 @@ export function KnowledgeView({
     setShareBusy(true);
     try {
       const { endpoint, secret } = await client.deploySyncServer();
+      await client.ensureAppProjectStore(projectId, currentProject.name);
       await client.connectSync({ projectId, endpoint, secret });
-      await refreshSyncEndpoints();
+      await refreshConnections();
       setShareMode(null);
       onToast("Cloudflareにデプロイして共有を開始しました");
     } finally {
@@ -1870,7 +1941,14 @@ export function KnowledgeView({
     setError("");
     try {
       await client.joinSync({ projectId: sharedProjectId, endpoint, invite });
-      await refreshSyncEndpoints();
+      const knownProject = projects.find((project) => project.id === sharedProjectId);
+      await client.attachProject(sharedProjectId, knownProject?.name ?? "共有Project");
+      await client.ensureAppProjectStore(sharedProjectId, knownProject?.name ?? "共有Project");
+      const loaded = await loadProjects(sharedProjectId);
+      await refreshConnections();
+      setSelectedPageId(null);
+      setPageData(null);
+      await loadPageLists(loaded.projectId, loaded.projects);
       setShareMode(null);
       onToast("共有Projectに参加しました");
     } catch (nextError) {
@@ -1892,13 +1970,71 @@ export function KnowledgeView({
     }
   };
 
+  const moveCurrentProjectStore = async () => {
+    if (!currentProject) return;
+    setStoreBusy(true);
+    setError("");
+    try {
+      const snapshot = sharedRef.current?.encodeState() ?? null;
+      const result = await client.moveProjectStore(currentProject.id, currentProject.name, snapshot);
+      if (!result) return;
+      await refreshConnections();
+      setStorePath(await client.projectStorePath(currentProject.id));
+      onToast("Projectの保存場所を変更しました");
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    } finally {
+      setStoreBusy(false);
+    }
+  };
+
+  const moveCurrentProjectStoreToApp = async () => {
+    if (!currentProject) return;
+    setStoreBusy(true);
+    setError("");
+    try {
+      const snapshot = sharedRef.current?.encodeState() ?? null;
+      await client.moveProjectStoreToApp(currentProject.id, currentProject.name, snapshot);
+      await refreshConnections();
+      setStorePath(await client.projectStorePath(currentProject.id));
+      onToast("ProjectをMyBoxアプリ内へ移動しました");
+    } catch (nextError) {
+      setError(String(nextError?.message ?? nextError));
+    } finally {
+      setStoreBusy(false);
+    }
+  };
+
+  const attachExistingProject = async () => {
+    setStoreBusy(true);
+    setError("");
+    let selected = null;
+    try {
+      selected = await client.attachProjectStore();
+      if (!selected) return;
+      await client.attachProject(selected.projectId, selected.name);
+      const loaded = await loadProjects(selected.projectId);
+      await refreshConnections();
+      setSelectedPageId(null);
+      setPageData(null);
+      await loadPageLists(loaded.projectId, loaded.projects);
+      setNewProjectOpen(false);
+      onToast("既存のProjectフォルダーを開きました");
+    } catch (nextError) {
+      if (selected?.projectId) await client.forgetProjectStore(selected.projectId).catch(() => {});
+      setError(displayError(nextError));
+    } finally {
+      setStoreBusy(false);
+    }
+  };
+
   const stopSharing = async () => {
     setShareBusy(true);
     try {
       await client.disconnectSync(projectId);
-      await refreshSyncEndpoints();
+      await refreshConnections();
       setShareMode(null);
-      onToast("この端末での同期を停止しました");
+      onToast("Cloudflare共有を停止しました。保存場所は変更していません");
     } catch (nextError) {
       setError(String(nextError?.message ?? nextError));
     } finally {
@@ -1935,7 +2071,10 @@ export function KnowledgeView({
     setProjectSettingsBusy(true);
     setError("");
     try {
-      if (name !== currentProject?.name) await client.renameProject(projectId, name);
+      if (name !== currentProject?.name) {
+        await client.renameProject(projectId, name);
+        if (storeByProject[projectId]) await client.renameProjectStore(projectId, name);
+      }
       const changedColors = Object.entries(colors).filter(([memberProfileId, color]) => memberColors[memberProfileId] !== color);
       for (const [memberProfileId, color] of changedColors) {
         await client.setMemberColor(projectId, memberProfileId, color);
@@ -1950,7 +2089,9 @@ export function KnowledgeView({
     }
   };
 
-  const listProjectMembers = useCallback((targetProjectId) => client.listMembers(targetProjectId), [client]);
+  const listProjectMembers = useCallback((targetProjectId) => (
+    serverByProject[targetProjectId] ? client.listMembers(targetProjectId) : Promise.resolve([])
+  ), [client, serverByProject]);
   const listProjectMemberColors = useCallback((targetProjectId) => client.listMemberColors(targetProjectId), [client]);
 
   const removeProjectMember = async (targetProjectId, memberProfileId) => {
@@ -1962,6 +2103,7 @@ export function KnowledgeView({
     if (!projectId) return;
     try {
       await client.deleteProject(projectId);
+      await client.forgetProjectStore(projectId);
       setConfirmDeleteProject(false);
       setProjectSettingsOpen(false);
       setSelectedPageId(null);
@@ -2194,34 +2336,34 @@ export function KnowledgeView({
           <button
             type="button"
             className={`knowledge-icon-button${sharePopoverOpen ? " active" : ""}`}
-            aria-label={isCurrentProjectShared ? `共有設定（共有中・${syncByProject[projectId].role}）` : "共有"}
+            aria-label={isCurrentProjectShared ? `共有設定（共有中・${currentSync.role}）` : "Cloudflare共有"}
             aria-haspopup="menu"
             aria-expanded={sharePopoverOpen}
-            data-tooltip="共有"
+            data-tooltip="Cloudflare共有"
             onClick={() => setSharePopoverOpen((open) => !open)}
           >
             <UsersThree size={21} weight={isCurrentProjectShared ? "fill" : "regular"} />
             {isCurrentProjectShared && <span className="knowledge-share-dot" aria-hidden="true" />}
           </button>
           {sharePopoverOpen && (
-            <div className="knowledge-share-popover" role="menu" aria-label="共有">
+            <div className="knowledge-share-popover" role="menu" aria-label="Cloudflare共有">
               {isCurrentProjectShared ? (
                 <>
-                  <p><UsersThree size={16} aria-hidden="true" />共有中・{syncByProject[projectId].role}</p>
+                  <p><UsersThree size={16} aria-hidden="true" />Cloudflareで共有中・{currentSync.role}</p>
                   <small className={syncStatus === "connected" ? "knowledge-sync-live" : undefined}>
-                    {syncStatus === "connected" ? "同期中" : syncStatus === "connecting" ? "接続中…" : "オフライン（編集はこの端末に保存されます）"}
+                    {syncStatus === "connected" ? "同期中" : syncStatus === "connecting" ? "接続中…" : "オフライン（編集は端末に保持されます）"}
                   </small>
-                  <small>{syncByProject[projectId].endpoint}</small>
+                  <small>{currentSync.endpoint}</small>
                   <div>
-                    <button type="button" role="menuitem" disabled={shareBusy || syncByProject[projectId].role !== "owner"} onClick={() => { setShareInvite(""); setShareMode("invite"); setSharePopoverOpen(false); }}>招待</button>
+                    <button type="button" role="menuitem" disabled={shareBusy || currentSync.role !== "owner"} onClick={() => { setShareInvite(""); setShareMode("invite"); setSharePopoverOpen(false); }}>招待</button>
                     <button type="button" role="menuitem" disabled={shareBusy} onClick={() => { stopSharing(); setSharePopoverOpen(false); }}>停止</button>
                   </div>
                 </>
               ) : (
                 <>
-                  <small>{desktop ? "このProjectはこの端末だけにあります。" : "共有はデスクトップ版で利用できます。"}</small>
-                  <div>
-                    <button type="button" role="menuitem" disabled={!desktop || shareBusy} onClick={() => { setShareMode("connect"); setSharePopoverOpen(false); }}>共有を開始</button>
+                  <small>{desktop ? "Cloudflare共有は停止中です。保存場所はProject設定から変更できます。" : "Cloudflare共有はデスクトップ版で利用できます。"}</small>
+                  <div className="knowledge-share-actions-vertical">
+                    <button type="button" role="menuitem" disabled={!desktop || shareBusy} onClick={() => { setShareMode("connect"); setSharePopoverOpen(false); }}>共同編集を開始</button>
                     <button type="button" role="menuitem" disabled={!desktop || shareBusy} onClick={() => { setShareMode("join"); setSharePopoverOpen(false); }}>招待から参加</button>
                   </div>
                 </>
@@ -2255,10 +2397,13 @@ export function KnowledgeView({
               setPageData(null);
             }}>
               <span className="knowledge-project-dot" aria-hidden="true" />
-              <span><strong>{project.name}</strong><small>{syncByProject[project.id] ? `${project.role}・共有中` : project.role}</small></span>
-              {syncByProject[project.id]
-                ? <UsersThree size={15} aria-label="共有Project" />
-                : <span>{project.activePageCount}</span>}
+              <span><strong>{project.name}</strong><small>{serverByProject[project.id] ? `${project.role}・共有中` : storeByProject[project.id]?.locationType === "external" ? "クラウド保存" : project.role}</small></span>
+              {(serverByProject[project.id] || storeByProject[project.id]?.locationType === "external") ? (
+                <span className="knowledge-project-indicators">
+                  {storeByProject[project.id]?.locationType === "external" && <CloudArrowUp size={15} aria-label="外部フォルダー保存Project" />}
+                  {serverByProject[project.id] && <UsersThree size={15} aria-label="Cloudflare共有Project" />}
+                </span>
+              ) : <span>{project.activePageCount}</span>}
             </button>
           ))}
           {newProjectOpen && (
@@ -2266,6 +2411,7 @@ export function KnowledgeView({
               <label htmlFor="knowledge-project-name">新しいProject名</label>
               <input id="knowledge-project-name" autoFocus value={newProjectName} onChange={(event) => setNewProjectName(event.target.value)} />
               <div><button type="button" onClick={() => setNewProjectOpen(false)}>取消</button><button type="submit" disabled={!newProjectName.trim()}>作成</button></div>
+              <button type="button" className="knowledge-open-project-store" disabled={!desktop || storeBusy} title={!desktop ? "デスクトップ版で利用できます" : undefined} onClick={attachExistingProject}>{storeBusy ? "開いています…" : "既存のProjectフォルダーを開く"}</button>
             </form>
           )}
         </div>
@@ -2380,13 +2526,14 @@ export function KnowledgeView({
                   }
                 }}
               >
-                {pageData.page.blocks.map((block, index) => (
-                  <BlockRow
+                {pageData.page.blocks.map((block, index) => {
+                  const authorColor = authorColorFor(block.updatedBy, memberColors[block.updatedBy]);
+                  return <BlockRow
                     key={block.id}
                     block={block}
-                    authorColor={authorColorFor(block.updatedBy, memberColors[block.updatedBy])}
+                    authorColor={authorColor}
                     authorName={profileNameFor(block.updatedBy)}
-                    showAuthor={isCurrentProjectShared}
+                    showAuthor={isVisibleAuthorColor(authorColor)}
                     blockIndex={index}
                     blockCount={pageData.page.blocks.length}
                     autoEdit={autoEditBlockId === block.id}
@@ -2409,8 +2556,8 @@ export function KnowledgeView({
                       setDragBlockId(null);
                       setDragOverBlockId(null);
                     }}
-                  />
-                ))}
+                  />;
+                })}
                 {!readOnly && dragBlockId && (
                   <div
                     className={`knowledge-block-dropzone${dragOverBlockId === "__end__" ? " drag-over" : ""}`}
@@ -2461,10 +2608,20 @@ export function KnowledgeView({
       {projectSettingsOpen && currentProject && (
         <ProjectSettingsDialog
           project={currentProject}
-          activeProfileId={profileId}
-          syncInfo={syncByProject[projectId]}
+          activeProfile={activeProfile}
+          memberDisplayNames={{
+            ...Object.fromEntries(Object.entries(memberProfiles).map(([id, member]) => [id, member.displayName])),
+          }}
+          serverInfo={serverByProject[projectId]}
+          storeInfo={storeByProject[projectId]}
+          storePath={storePath}
+          storageAvailable={desktop}
           busy={projectSettingsBusy}
+          storeBusy={storeBusy}
           onSave={saveProjectSettings}
+          onInvite={() => { setShareInvite(""); setShareMode("invite"); }}
+          onMoveStore={moveCurrentProjectStore}
+          onMoveStoreToApp={moveCurrentProjectStoreToApp}
           onDeleteRequest={() => setConfirmDeleteProject(true)}
           onListMembers={listProjectMembers}
           onListMemberColors={listProjectMemberColors}
@@ -2478,7 +2635,7 @@ export function KnowledgeView({
           mode={shareMode}
           busy={shareBusy}
           invite={shareInvite}
-          inviteEndpoint={syncByProject[projectId]?.endpoint}
+          inviteEndpoint={serverByProject[projectId]?.endpoint}
           inviteProjectId={projectId}
           projectName={currentProject?.name ?? ""}
           onConnect={connectShare}

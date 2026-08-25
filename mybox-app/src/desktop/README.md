@@ -28,6 +28,10 @@ must only be called when `isDesktopRuntime()` returns true.
   redeploying, or deleting the group's sync server Worker. The token never
   crosses back over this bridge once stored, staying unsupported in the Web
   preview like the other native-only credential flows here.
+- `project-stores.js`: opens the native directory picker and bridges Note's
+  Project-store moves and existing-folder attachment. Selected paths stay in
+  this bridge and the native host; Note receives a location label and opaque
+  Yjs update records only.
 - `open-url.js`: opens a link in the User's own browser through Tauri's opener
   plugin, since the WebView ignores `target="_blank"`. Falls back to
   `window.open` in the Web preview rather than staying unsupported, because it

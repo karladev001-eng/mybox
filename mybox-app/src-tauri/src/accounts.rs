@@ -40,6 +40,8 @@ struct StoredAccount {
     provider: String,
     subject: String,
     display_name: String,
+    #[serde(default)]
+    login_name: Option<String>,
     avatar_url: Option<String>,
     linked_at: String,
 }
@@ -87,7 +89,12 @@ impl AccountView {
             signed_in: true,
             provider: Some(account.provider.clone()),
             subject: Some(account.subject.clone()),
-            display_name: Some(account.display_name.clone()),
+            display_name: Some(
+                account
+                    .login_name
+                    .clone()
+                    .unwrap_or_else(|| account.display_name.clone()),
+            ),
             avatar_url: account.avatar_url.clone(),
         }
     }
@@ -129,9 +136,19 @@ struct GitHubUser {
     id: u64,
     login: String,
     #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
     avatar_url: Option<String>,
+}
+
+fn stored_github_account(user: GitHubUser, linked_at: String) -> StoredAccount {
+    let login = user.login;
+    StoredAccount {
+        provider: GITHUB_PROVIDER.to_string(),
+        subject: user.id.to_string(),
+        display_name: login.clone(),
+        login_name: Some(login),
+        avatar_url: https_avatar(user.avatar_url),
+        linked_at,
+    }
 }
 
 fn validated_client_id(raw: &'static str) -> Result<&'static str, String> {
@@ -263,12 +280,22 @@ async fn fetch_github_user(token: &str) -> Result<GitHubUser, String> {
 }
 
 #[tauri::command]
-pub fn account_session(app: AppHandle) -> Result<AccountView, String> {
-    let settings = load_settings(&app)?;
+pub async fn account_session(app: AppHandle) -> Result<AccountView, String> {
+    let mut settings = load_settings(&app)?;
     // A stored profile without a token is a signed-out device: the credential
     // store is the authority on whether the session still exists.
     match (settings.account, read_token()?) {
-        (Some(account), Some(_)) => Ok(AccountView::from_stored(&account)),
+        (Some(account), Some(token)) => {
+            if account.provider == GITHUB_PROVIDER && account.login_name.is_none() {
+                if let Ok(user) = fetch_github_user(&token).await {
+                    let refreshed = stored_github_account(user, account.linked_at);
+                    settings.account = Some(refreshed.clone());
+                    let _ = save_settings(&app, &settings);
+                    return Ok(AccountView::from_stored(&refreshed));
+                }
+            }
+            Ok(AccountView::from_stored(&account))
+        }
         _ => Ok(AccountView::signed_out()),
     }
 }
@@ -296,7 +323,10 @@ pub async fn begin_github_device_login() -> Result<DeviceLoginStart, String> {
         device_code: body.device_code,
         user_code: body.user_code,
         verification_uri: body.verification_uri,
-        interval: body.interval.unwrap_or(MIN_POLL_INTERVAL).clamp(MIN_POLL_INTERVAL, MAX_POLL_INTERVAL),
+        interval: body
+            .interval
+            .unwrap_or(MIN_POLL_INTERVAL)
+            .clamp(MIN_POLL_INTERVAL, MAX_POLL_INTERVAL),
         expires_in: body.expires_in.unwrap_or(900),
     })
 }
@@ -333,13 +363,7 @@ pub async fn complete_github_device_login(
             let token = Zeroizing::new(token);
             let user = fetch_github_user(&token).await?;
             store_token(&token)?;
-            let account = StoredAccount {
-                provider: GITHUB_PROVIDER.to_string(),
-                subject: user.id.to_string(),
-                display_name: user.name.filter(|n| !n.trim().is_empty()).unwrap_or(user.login),
-                avatar_url: https_avatar(user.avatar_url),
-                linked_at: linked_at_now(),
-            };
+            let account = stored_github_account(user, linked_at_now());
             let mut settings = load_settings(&app)?;
             settings.account = Some(account.clone());
             save_settings(&app, &settings)?;
@@ -354,7 +378,9 @@ pub async fn complete_github_device_login(
                     .unwrap_or(wait + MIN_POLL_INTERVAL)
                     .clamp(MIN_POLL_INTERVAL, MAX_POLL_INTERVAL);
             }
-            Some("expired_token") => return Err("コードの有効期限が切れました。もう一度お試しください。".to_string()),
+            Some("expired_token") => {
+                return Err("コードの有効期限が切れました。もう一度お試しください。".to_string())
+            }
             Some("access_denied") => return Err("サインインがキャンセルされました。".to_string()),
             Some(other) => return Err(format!("GitHubのサインインに失敗しました：{other}")),
             None => return Err("GitHubのサインインに失敗しました。".to_string()),
@@ -393,6 +419,7 @@ mod tests {
             provider: GITHUB_PROVIDER.to_string(),
             subject: "42".to_string(),
             display_name: "Kan".to_string(),
+            login_name: Some("kan-login".to_string()),
             avatar_url: Some("https://avatars.example/u/42.png".to_string()),
             linked_at: "0".to_string(),
         };
@@ -400,7 +427,22 @@ mod tests {
         assert!(serialized.get("accessToken").is_none());
         assert!(serialized.get("token").is_none());
         assert_eq!(serialized.get("subject").unwrap(), "42");
+        assert_eq!(serialized.get("displayName").unwrap(), "kan-login");
         assert_eq!(serialized.get("signedIn").unwrap(), true);
+    }
+
+    #[test]
+    fn github_login_is_the_account_display_name() {
+        let account = stored_github_account(
+            GitHubUser {
+                id: 42,
+                login: "linked-account".to_string(),
+                avatar_url: None,
+            },
+            "0".to_string(),
+        );
+        assert_eq!(account.display_name, "linked-account");
+        assert_eq!(account.subject, "42");
     }
 
     #[test]
@@ -411,6 +453,7 @@ mod tests {
                 provider: GITHUB_PROVIDER.to_string(),
                 subject: "42".to_string(),
                 display_name: "Kan".to_string(),
+                login_name: Some("kan-login".to_string()),
                 avatar_url: None,
                 linked_at: "0".to_string(),
             }),

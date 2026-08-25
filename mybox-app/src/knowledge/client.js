@@ -3,6 +3,18 @@ import { registerAgentHost } from "../core/agent-host-registry.js";
 import { AppHost } from "../core/app-host.js";
 import { MemoryStorageDriver } from "../core/storage.js";
 import {
+  attachProjectStore,
+  ensureAppProjectStore,
+  forgetProjectStore,
+  listProjectStores,
+  moveProjectStore,
+  moveProjectStoreToApp,
+  projectStorePath,
+  readProjectStoreUpdates,
+  renameProjectStore,
+  writeProjectStoreUpdate,
+} from "../desktop/project-stores.js";
+import {
   clearCloudflareCredentials,
   cloudflareStatus,
   deleteSyncServer,
@@ -26,6 +38,9 @@ import {
 } from "../desktop/sync-endpoints.js";
 import { TauriStorageDriver } from "../desktop/tauri-storage.js";
 import { createKnowledgeApp } from "./app.js";
+import { createProjectStoreClient } from "./project-store-client.js";
+import { createSharedProject } from "./shared-project.js";
+import { createSyncClient } from "./sync-client.js";
 
 const webDriver = new MemoryStorageDriver();
 
@@ -56,6 +71,7 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     listMemberColors: (projectId) => invoke("knowledge.project.members.list", { projectId }),
     setMemberColor: (projectId, profileId, color) => invoke("knowledge.project.member-color.set", { projectId, profileId, color }),
     createProject: (name) => invoke("knowledge.project.create", { name }),
+    attachProject: (projectId, name) => invoke("knowledge.project.attach", { projectId, name }),
     renameProject: (projectId, name) => invoke("knowledge.project.rename", { projectId, name }),
     deleteProject: (projectId) => invoke("knowledge.project.delete", { projectId }),
     listPages: (projectId, includeTrash = false) => invoke("knowledge.page.list", { projectId, includeTrash }),
@@ -87,6 +103,59 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
     disconnectSync: (projectId) => disconnectSyncEndpoint(projectId),
     listMembers: (projectId) => listSyncMembers(projectId),
     removeMember: (projectId, profileId) => removeSyncMember(projectId, profileId),
+    listProjectStores: () => listProjectStores(),
+    projectStorePath: (projectId) => projectStorePath(projectId),
+    moveProjectStore: async (projectId, projectName, snapshot = null) => {
+      const result = await moveProjectStore({ projectId, projectName });
+      if (result && snapshot) await writeProjectStoreUpdate(projectId, snapshot);
+      return result;
+    },
+    moveProjectStoreToApp: async (projectId, projectName, snapshot = null) => {
+      const result = await moveProjectStoreToApp({ projectId, projectName });
+      if (result && snapshot) await writeProjectStoreUpdate(projectId, snapshot);
+      return result;
+    },
+    ensureAppProjectStore: (projectId, projectName) => ensureAppProjectStore({ projectId, projectName }),
+    attachProjectStore: () => attachProjectStore(),
+    forgetProjectStore: (projectId) => forgetProjectStore(projectId),
+    renameProjectStore: (projectId, projectName) => renameProjectStore(projectId, projectName),
+    /** One Yjs document can persist to a Project store and use Cloudflare at the same time. */
+    createProjectSession: ({ store, server, ...options }) => createSharedProject({
+      ...options,
+      endpoint: server?.endpoint ?? "project-store",
+      token: server?.token ?? "local-project-store",
+      createClient: (clientOptions) => {
+        const transports = [];
+        if (store) {
+          transports.push({
+            type: "store",
+            client: createProjectStoreClient({
+              ...clientOptions,
+              readUpdates: readProjectStoreUpdates,
+              writeUpdate: writeProjectStoreUpdate,
+              onStatus: (state) => clientOptions.onStatus({ ...state, transport: "store" }),
+            }),
+          });
+        }
+        if (server) {
+          transports.push({
+            type: "server",
+            client: createSyncClient({
+              ...clientOptions,
+              endpoint: server.endpoint,
+              token: server.token,
+              onStatus: (state) => clientOptions.onStatus({ ...state, transport: "server" }),
+            }),
+          });
+        }
+        return {
+          connect: () => transports.forEach(({ client: transport }) => transport.connect()),
+          disconnect: () => transports.forEach(({ client: transport }) => transport.disconnect()),
+          sendAwareness: (state) => transports.find(({ type }) => type === "server")?.client.sendAwareness(state),
+          get role() { return transports.find(({ type }) => type === "server")?.client.role ?? "owner"; },
+        };
+      },
+    }),
     cloudflareStatus: () => cloudflareStatus(),
     setCloudflareCredentials: (accountId, apiToken) => setCloudflareCredentials({ accountId, apiToken }),
     clearCloudflareCredentials: () => clearCloudflareCredentials(),
