@@ -25,7 +25,7 @@ export function encodeProjectPages(pages, tags = []) {
 }
 
 /** Mutations the shared document can apply today. */
-const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-paste", "block-remove", "block-move", "link-add", "tags-set"]);
+const SHARED_MUTATIONS = new Set(["rename", "page-state", "block-update", "block-add", "block-paste", "block-remove", "blocks-remove", "blocks-restore", "block-move", "link-add", "tags-set"]);
 
 export class SharedProjectError extends Error {
   constructor(code, message, details = {}) {

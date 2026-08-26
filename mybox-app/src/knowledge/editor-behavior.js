@@ -344,3 +344,44 @@ export function indentTextSelection(text, selectionStart, selectionEnd = selecti
     end: Math.max(lineStart, end - removedTotal),
   };
 }
+
+/**
+ * Applies desktop-style Block selection without coupling the behavior to React.
+ * A normal click replaces the selection, Ctrl/Cmd toggles one Block, and Shift
+ * selects the inclusive range from the most recent anchor.
+ */
+export function updateBlockSelection(blockIds, selectedIds, anchorId, blockId, { toggle = false, range = false } = {}) {
+  const orderedIds = Array.isArray(blockIds) ? blockIds : [];
+  if (!orderedIds.includes(blockId)) return { selectedIds: [...selectedIds], anchorId };
+  const selected = new Set(selectedIds.filter((id) => orderedIds.includes(id)));
+
+  if (range && orderedIds.includes(anchorId)) {
+    const anchorIndex = orderedIds.indexOf(anchorId);
+    const targetIndex = orderedIds.indexOf(blockId);
+    const rangeIds = orderedIds.slice(Math.min(anchorIndex, targetIndex), Math.max(anchorIndex, targetIndex) + 1);
+    const next = toggle ? new Set([...selected, ...rangeIds]) : new Set(rangeIds);
+    return { selectedIds: orderedIds.filter((id) => next.has(id)), anchorId };
+  }
+
+  if (toggle) {
+    if (selected.has(blockId)) selected.delete(blockId);
+    else selected.add(blockId);
+    return { selectedIds: orderedIds.filter((id) => selected.has(id)), anchorId: blockId };
+  }
+
+  return { selectedIds: [blockId], anchorId: blockId };
+}
+
+/**
+ * Captures enough structural context to put removed Blocks back in their exact
+ * order. Consecutive removed Blocks intentionally share the same next survivor;
+ * inserting them in source order preserves their order.
+ */
+export function buildBlockRestoreEntries(blocks, blockIds) {
+  const selected = new Set(blockIds);
+  return blocks.flatMap((block, index) => {
+    if (!selected.has(block.id)) return [];
+    const nextSurvivor = blocks.slice(index + 1).find((candidate) => !selected.has(candidate.id));
+    return [{ block: structuredClone(block), beforeBlockId: nextSurvivor?.id ?? null }];
+  });
+}

@@ -111,3 +111,10 @@ Project and Page; Image restores the last generated image and fits portrait
 results to the available viewport without cropping. Resume-position Operations
 degrade safely during an in-place Surface/Host version transition, so optional
 state restoration cannot hide authoritative Projects or generation history.
+
+Release `0.8.7` updates Note Registry `1.19.7` with explicit Block selection,
+Ctrl/Cmd and Shift range selection, and atomic multi-Block deletion. Successful
+single and bulk deletions have a visible undo action and `Ctrl+Z` structural
+undo outside native text editing. The local JSON model and shared Yjs model use
+the same removal and restoration mutations, retaining Block IDs, Page links,
+and ordering while synchronizing an undo as a new edit.

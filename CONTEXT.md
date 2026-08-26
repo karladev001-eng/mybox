@@ -294,6 +294,11 @@ _Avoid_: Note file, document
 Page. A Page's visible body is the composition of its Blocks.
 _Avoid_: Line, paragraph
 
+**Block selection** — The ephemeral ordered set of Blocks selected on the open
+Page for a structural action such as bulk deletion. It is scoped to that Page
+and is not stored or synchronized as Page content.
+_Avoid_: text selection, Page selection, shared presence
+
 **Page history** — The time-ordered record of User and Agent changes to a Page
 that can be restored during its recovery period. Restoring history creates a new
 revision rather than erasing later records.

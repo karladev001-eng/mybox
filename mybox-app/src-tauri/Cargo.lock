@@ -2406,7 +2406,7 @@ dependencies = [
 
 [[package]]
 name = "mybox"
-version = "0.8.6"
+version = "0.8.7"
 dependencies = [
  "base64 0.22.1",
  "keyring",

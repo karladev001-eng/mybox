@@ -5,6 +5,7 @@ import {
   ArrowUDownLeft,
   CaretRight,
   Check,
+  CheckSquare,
   CloudArrowUp,
   ClockCounterClockwise,
   DotsSixVertical,
@@ -24,6 +25,7 @@ import {
   Robot,
   ShieldCheck,
   SidebarSimple,
+  Square,
   Tag,
   UserPlus,
   UsersThree,
@@ -45,6 +47,7 @@ import { decodeInviteLink, encodeInviteLink } from "./invite-link.js";
 import { projectMemberAccountName, visibleProjectMembers } from "./member-profile.js";
 import {
   applyColorWrap,
+  buildBlockRestoreEntries,
   buildInlineNodes,
   groupedListEnter,
   indentTextSelection,
@@ -53,6 +56,7 @@ import {
   parsePastedBlocks,
   splitListItems,
   toggleInlineWrap,
+  updateBlockSelection,
 } from "./editor-behavior.js";
 import { filterUsedTagCandidates, hasTagDelimiterAtEnd, isTagCommitKey, splitTagDraft } from "./tag-behavior.js";
 import { filterPageSearchCandidates, pageSearchKeyAction } from "./search-behavior.js";
@@ -644,6 +648,11 @@ function ProjectSettingsDialog({ project, activeProfile, memberDisplayNames, ser
   );
 }
 
+function isNativeTextEditingTarget(target) {
+  return target instanceof HTMLElement
+    && (target.isContentEditable || target.matches("input, textarea, select"));
+}
+
 function profileInitials(displayName) {
   return [...String(displayName || "共同編集者").trim()].slice(0, 2).join("").toLocaleUpperCase("ja-JP");
 }
@@ -680,6 +689,8 @@ function BlockRow({
   onOpenUrl,
   onReadImage,
   onAutoEditHandled,
+  isSelected,
+  onSelect,
   isDragging,
   isDragOver,
   onDragStart,
@@ -1015,7 +1026,7 @@ function BlockRow({
 
   return (
     <article
-      className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${showAuthor && block.updatedBy ? " authored" : ""}`}
+      className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${showAuthor && block.updatedBy ? " authored" : ""}`}
       style={showAuthor && block.updatedBy ? { "--author-color": authorColor } : undefined}
       onDragOver={(event) => {
         // A real OS file drag also fires this on every Block underneath it; leave
@@ -1039,6 +1050,18 @@ function BlockRow({
       <div className="knowledge-block-rail" aria-label={`${blockLabels[blockType]}の操作`}>
         <span className="knowledge-block-kind">{blockLabels[blockType]}</span>
         {!readOnly && <>
+          <button
+            type="button"
+            className="knowledge-block-select"
+            aria-label={isSelected ? "Blockの選択を解除" : "Blockを選択"}
+            aria-pressed={isSelected}
+            onClick={(event) => onSelect(block.id, {
+              range: event.shiftKey,
+              toggle: !event.shiftKey || event.ctrlKey || event.metaKey,
+            })}
+          >
+            {isSelected ? <CheckSquare size={16} weight="fill" /> : <Square size={16} />}
+          </button>
           <button
             type="button"
             className="knowledge-drag-handle"
@@ -1158,6 +1181,10 @@ function BlockRow({
         <div
           className="knowledge-block-preview"
           onClick={(event) => {
+            if (!readOnly && (event.shiftKey || event.ctrlKey || event.metaKey) && !event.target.closest("button")) {
+              onSelect(block.id, { range: event.shiftKey, toggle: event.ctrlKey || event.metaKey });
+              return;
+            }
             if (!readOnly && blockType !== "image" && !event.target.closest("button")) setEditing(true);
           }}
         >
@@ -1420,10 +1447,15 @@ export function KnowledgeView({
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [projectSettingsBusy, setProjectSettingsBusy] = useState(false);
   const [autoEditBlockId, setAutoEditBlockId] = useState(null);
+  const [selectedBlockIds, setSelectedBlockIds] = useState([]);
+  const [selectionAnchorId, setSelectionAnchorId] = useState(null);
+  const [blockUndoStack, setBlockUndoStack] = useState([]);
   const [sharePopoverOpen, setSharePopoverOpen] = useState(false);
   const shareMenuRef = useRef(null);
   const searchInputRef = useRef(null);
   const presenceAcknowledgedRef = useRef(new Set());
+  const blockRemoveBusyRef = useRef(false);
+  const blockUndoBusyRef = useRef(false);
 
   pageRef.current = pageData?.page ?? null;
   const currentProject = projects.find((project) => project.id === projectId) ?? null;
@@ -1440,6 +1472,21 @@ export function KnowledgeView({
     .sort((left, right) => Number(right.profileId === activeProfile.profileId) - Number(left.profileId === activeProfile.profileId));
   const searchCandidates = useMemo(() => filterPageSearchCandidates(pages, query), [pages, query]);
   const searchSuggestionsVisible = searchSuggestionsOpen && Boolean(query.trim());
+
+  useEffect(() => {
+    setSelectedBlockIds([]);
+    setSelectionAnchorId(null);
+    setBlockUndoStack([]);
+  }, [projectId, selectedPageId]);
+
+  useEffect(() => {
+    const available = new Set(pageData?.page.blocks.map((block) => block.id) ?? []);
+    setSelectedBlockIds((ids) => {
+      const next = ids.filter((id) => available.has(id));
+      return next.length === ids.length ? ids : next;
+    });
+    setSelectionAnchorId((id) => (id && available.has(id) ? id : null));
+  }, [pageData?.page.blocks]);
 
   useEffect(() => {
     setActiveSearchSuggestion((index) => Math.min(index, Math.max(searchCandidates.length - 1, 0)));
@@ -1688,6 +1735,87 @@ export function KnowledgeView({
     queued.catch((nextError) => setError(displayError(nextError))).finally(() => setSaving(false));
     return queued;
   };
+
+  const selectBlock = (blockId, modifiers) => {
+    const blockIds = pageRef.current?.blocks.map((block) => block.id) ?? [];
+    const next = updateBlockSelection(blockIds, selectedBlockIds, selectionAnchorId, blockId, modifiers);
+    setSelectedBlockIds(next.selectedIds);
+    setSelectionAnchorId(next.anchorId);
+  };
+
+  const clearBlockSelection = () => {
+    setSelectedBlockIds([]);
+    setSelectionAnchorId(null);
+  };
+
+  const removeBlocks = async (requestedIds) => {
+    const current = pageRef.current;
+    if (!current || readOnly || blockRemoveBusyRef.current) return null;
+    const requested = new Set(requestedIds);
+    const blockIds = current.blocks.map((block) => block.id).filter((id) => requested.has(id));
+    if (!blockIds.length) return null;
+    const undoEntry = {
+      projectId: current.projectId,
+      pageId: current.id,
+      blocks: buildBlockRestoreEntries(current.blocks, blockIds),
+    };
+    blockRemoveBusyRef.current = true;
+    clearBlockSelection();
+    try {
+      const result = await runMutation({ type: "blocks-remove", blockIds });
+      if (result) setBlockUndoStack((entries) => [...entries, undoEntry].slice(-20));
+      return result;
+    } catch {
+      setSelectedBlockIds(blockIds);
+      return null;
+    } finally {
+      blockRemoveBusyRef.current = false;
+    }
+  };
+
+  const undoBlockRemoval = async () => {
+    if (blockUndoBusyRef.current || readOnly) return null;
+    const entry = blockUndoStack.at(-1);
+    const current = pageRef.current;
+    if (!entry || !current || entry.projectId !== current.projectId || entry.pageId !== current.id) return null;
+    blockUndoBusyRef.current = true;
+    try {
+      const result = await runMutation({ type: "blocks-restore", blocks: entry.blocks });
+      if (result) {
+        setBlockUndoStack((entries) => entries.slice(0, -1));
+        setSelectedBlockIds(entry.blocks.map(({ block }) => block.id));
+        setSelectionAnchorId(entry.blocks[0]?.block.id ?? null);
+      }
+      return result;
+    } catch {
+      return null;
+    } finally {
+      blockUndoBusyRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!pageData?.page || readOnly) return undefined;
+    const onKeyDown = (event) => {
+      if (isNativeTextEditingTarget(event.target)) return;
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLocaleLowerCase() === "z" && blockUndoStack.length) {
+        event.preventDefault();
+        undoBlockRemoval();
+        return;
+      }
+      if (event.key === "Escape" && selectedBlockIds.length) {
+        event.preventDefault();
+        clearBlockSelection();
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && selectedBlockIds.length) {
+        event.preventDefault();
+        removeBlocks(selectedBlockIds);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [blockUndoStack, pageData?.page, readOnly, selectedBlockIds]);
 
   const createUntitledPage = async () => {
     setError("");
@@ -2564,6 +2692,26 @@ export function KnowledgeView({
                   }
                 }}
               >
+                {(selectedBlockIds.length > 0 || blockUndoStack.length > 0) && (
+                  <div className="knowledge-block-selection-bar" role="toolbar" aria-label="選択したBlockの操作">
+                    <span role="status">
+                      {selectedBlockIds.length > 0 ? `${selectedBlockIds.length}個のBlockを選択中` : "Blockを削除しました"}
+                    </span>
+                    {selectedBlockIds.length > 0 && (
+                      <button type="button" disabled={saving} onClick={clearBlockSelection}>選択解除</button>
+                    )}
+                    {blockUndoStack.length > 0 && (
+                      <button type="button" disabled={saving} onClick={undoBlockRemoval}>
+                        <ArrowUDownLeft size={16} aria-hidden="true" />元に戻す <kbd>Ctrl Z</kbd>
+                      </button>
+                    )}
+                    {selectedBlockIds.length > 0 && (
+                      <button type="button" className="danger" disabled={saving} onClick={() => removeBlocks(selectedBlockIds)}>
+                        <Trash size={16} aria-hidden="true" />選択したBlockを削除
+                      </button>
+                    )}
+                  </div>
+                )}
                 {pageData.page.blocks.map((block, index) => {
                   const authorColor = authorColorFor(block.updatedBy, memberColors[block.updatedBy]);
                   return <BlockRow
@@ -2580,11 +2728,13 @@ export function KnowledgeView({
                     onCommit={runMutation}
                     onAddAfter={addBlockAfter}
                     onPasteBlocks={pasteBlocks}
-                    onRemove={(blockId) => runMutation({ type: "block-remove", blockId })}
+                    onRemove={(blockId) => removeBlocks(selectedBlockIds.includes(blockId) ? selectedBlockIds : [blockId])}
                     onOpenPage={(targetId) => selectPage(projectId, targetId)}
                     onOpenUrl={(url) => client.openExternalUrl(url).catch((nextError) => setError(String(nextError?.message ?? nextError)))}
                     onReadImage={(resourceId) => client.readImage(resourceId)}
                     onAutoEditHandled={() => setAutoEditBlockId(null)}
+                    isSelected={selectedBlockIds.includes(block.id)}
+                    onSelect={selectBlock}
                     isDragging={dragBlockId === block.id}
                     isDragOver={dragOverBlockId === block.id && dragBlockId !== block.id}
                     onDragStart={setDragBlockId}

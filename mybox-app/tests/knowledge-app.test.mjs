@@ -9,6 +9,7 @@ import { createKnowledgeApp } from "../src/knowledge/app.js";
 import { createKnowledgeClient } from "../src/knowledge/client.js";
 import {
   applyColorWrap,
+  buildBlockRestoreEntries,
   buildInlineNodes,
   groupedListEnter,
   indentTextSelection,
@@ -18,6 +19,7 @@ import {
   splitPastedBlock,
   splitListItems,
   toggleInlineWrap,
+  updateBlockSelection,
 } from "../src/knowledge/editor-behavior.js";
 import { AUTHOR_COLOR_PALETTE, NO_AUTHOR_COLOR, isVisibleAuthorColor } from "../src/knowledge/author-color.js";
 import { projectMemberAccountName, visibleProjectMembers } from "../src/knowledge/member-profile.js";
@@ -44,7 +46,7 @@ function deterministicIds() {
 test("publishes Page title paths for Workflow command output mapping", () => {
   const app = createKnowledgeApp();
   const operation = app.manifest.operations.find((item) => item.id === "knowledge.page.list");
-  assert.equal(app.manifest.version, "0.5.12");
+  assert.equal(app.manifest.version, "0.5.13");
   assert.ok(workflowSchemaPaths(operation.outputSchema).includes("$.pages[*].title"));
 });
 
@@ -459,7 +461,7 @@ test("describes the Page mutation vocabulary to agents while still accepting the
   assert.deepEqual(mutation.required, ["type"]);
   assert.deepEqual(
     [...mutation.properties.type.enum].sort(),
-    ["block-add", "block-move", "block-paste", "block-remove", "block-update", "link-add", "markdown-set", "rename", "tags-set"],
+    ["block-add", "block-move", "block-paste", "block-remove", "block-update", "blocks-remove", "blocks-restore", "link-add", "markdown-set", "rename", "tags-set"],
   );
   assert.ok(mutation.description.includes("block-add"));
   // Without these an agent writes a whole document into one paragraph Block,
@@ -482,6 +484,21 @@ test("describes the Page mutation vocabulary to agents while still accepting the
     mutation: { type: "block-add", afterBlockId: undefined, blockType: "quote", text: "引用" },
   }, { actor });
   assert.equal(added.page.blocks.at(-1).type, "quote");
+
+  const removedBlock = added.page.blocks.at(-1);
+  const removed = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: added.page.revision,
+    mutation: { type: "blocks-remove", blockIds: [removedBlock.id] },
+  }, { actor });
+  const restored = await host.invoke("knowledge.page.update", {
+    projectId,
+    pageId: page.id,
+    expectedRevision: removed.page.revision,
+    mutation: { type: "blocks-restore", blocks: [{ block: removedBlock, beforeBlockId: null }] },
+  }, { actor });
+  assert.equal(restored.page.blocks.at(-1).id, removedBlock.id);
 
   // A mutation with no type is now refused by the schema, before the domain sees it.
   await assert.rejects(
@@ -829,6 +846,104 @@ test("parses a Markdown document into typed Blocks, grouping list items into one
     { type: "divider", text: "", checked: false },
     { type: "url-embed", text: "https://example.com", checked: false },
   ]);
+});
+
+test("selects one, toggles additional Blocks, and extends an inclusive range", () => {
+  const blockIds = ["block-a", "block-b", "block-c", "block-d"];
+  const first = updateBlockSelection(blockIds, [], null, "block-b");
+  assert.deepEqual(first, { selectedIds: ["block-b"], anchorId: "block-b" });
+  const toggled = updateBlockSelection(blockIds, first.selectedIds, first.anchorId, "block-d", { toggle: true });
+  assert.deepEqual(toggled, { selectedIds: ["block-b", "block-d"], anchorId: "block-d" });
+  const range = updateBlockSelection(blockIds, toggled.selectedIds, toggled.anchorId, "block-b", { range: true });
+  assert.deepEqual(range, { selectedIds: ["block-b", "block-c", "block-d"], anchorId: "block-d" });
+});
+
+test("removes multiple Blocks atomically and restores their content and order", () => {
+  const setup = fixture();
+  const created = createPage(setup.state, {
+    projectId: setup.projectId,
+    title: "Undo Page",
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  let current = updatePage(created.state, {
+    projectId: setup.projectId,
+    pageId: created.page.id,
+    expectedRevision: created.page.revision,
+    mutation: { type: "block-update", blockId: created.page.blocks[0].id, text: "first" },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  for (const text of ["second", "third"]) {
+    current = updatePage(current.state, {
+      projectId: setup.projectId,
+      pageId: created.page.id,
+      expectedRevision: current.page.revision,
+      mutation: { type: "block-add", afterBlockId: current.page.blocks.at(-1).id, blockType: "paragraph", text },
+      idFactory: setup.idFactory,
+      now: setup.now,
+    });
+  }
+  const removedIds = [current.page.blocks[0].id, current.page.blocks[2].id];
+  const undoBlocks = buildBlockRestoreEntries(current.page.blocks, removedIds);
+  const removed = updatePage(current.state, {
+    projectId: setup.projectId,
+    pageId: created.page.id,
+    expectedRevision: current.page.revision,
+    mutation: { type: "blocks-remove", blockIds: removedIds },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  assert.deepEqual(removed.page.blocks.map((block) => block.text), ["second"]);
+
+  const restored = updatePage(removed.state, {
+    projectId: setup.projectId,
+    pageId: created.page.id,
+    expectedRevision: removed.page.revision,
+    mutation: { type: "blocks-restore", blocks: undoBlocks },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  assert.deepEqual(restored.page.blocks.map((block) => block.text), ["first", "second", "third"]);
+  assert.deepEqual(restored.page.blocks.map((block) => block.id), current.page.blocks.map((block) => block.id));
+});
+
+test("keeps one empty Block when all selected Blocks are removed and restores them", () => {
+  const setup = fixture();
+  const created = createPage(setup.state, {
+    projectId: setup.projectId,
+    title: "Undo All Page",
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  const original = updatePage(created.state, {
+    projectId: setup.projectId,
+    pageId: created.page.id,
+    expectedRevision: created.page.revision,
+    mutation: { type: "block-update", blockId: created.page.blocks[0].id, blockType: "heading-2", text: "restored" },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  const undoBlocks = buildBlockRestoreEntries(original.page.blocks, [original.page.blocks[0].id]);
+  const removed = updatePage(original.state, {
+    projectId: setup.projectId,
+    pageId: created.page.id,
+    expectedRevision: original.page.revision,
+    mutation: { type: "blocks-remove", blockIds: [original.page.blocks[0].id] },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  assert.deepEqual(removed.page.blocks.map(({ type, text }) => ({ type, text })), [{ type: "paragraph", text: "" }]);
+  const restored = updatePage(removed.state, {
+    projectId: setup.projectId,
+    pageId: created.page.id,
+    expectedRevision: removed.page.revision,
+    mutation: { type: "blocks-restore", blocks: undoBlocks },
+    idFactory: setup.idFactory,
+    now: setup.now,
+  });
+  assert.equal(restored.page.blocks[0].type, "heading-2");
+  assert.equal(restored.page.blocks[0].text, "restored");
 });
 
 test("splits pasted prose at hard line breaks while preserving Markdown structures", () => {

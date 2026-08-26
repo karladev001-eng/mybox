@@ -188,12 +188,43 @@ const pageMutationInput = {
   properties: {
     type: {
       type: "string",
-      enum: ["rename", "markdown-set", "block-add", "block-update", "block-paste", "block-remove", "block-move", "tags-set", "link-add"],
+      enum: ["rename", "markdown-set", "block-add", "block-update", "block-paste", "block-remove", "blocks-remove", "blocks-restore", "block-move", "tags-set", "link-add"],
     },
     markdown: { type: "string" },
     mode: { type: "string", enum: ["append", "replace"] },
     title: { type: "string" },
     blockId: { type: "string" },
+    blockIds: { type: "array", items: { type: "string" } },
+    blocks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          beforeBlockId: { type: ["string", "null"] },
+          block: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              type: { type: "string", enum: [...BLOCK_TYPES] },
+              text: { type: "string" },
+              checked: { type: "boolean" },
+              revision: { type: "integer", minimum: 1 },
+              updatedBy: { type: "string" },
+              links: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    targetPageId: { type: "string" },
+                    token: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
     afterBlockId: { type: ["string", "null"] },
     beforeBlockId: { type: ["string", "null"] },
     blockType: { type: "string", enum: [...BLOCK_TYPES] },
@@ -213,6 +244,8 @@ const pageMutationInput = {
     "block-update → blockId, and any of text, blockType, checked.",
     "block-paste → blockId, text (clipboard text), sourceText, selectionStart, and selectionEnd; Markdown and hard line breaks become typed Blocks.",
     "block-remove → blockId.",
+    "blocks-remove → blockIds, used by the editor for one atomic multi-Block deletion.",
+    "blocks-restore → blocks containing Block snapshots and beforeBlockId anchors; this is the editor's immediate undo payload.",
     "block-move → blockId, beforeBlockId (the Block to insert before, or null for the end).",
     "tags-set → labels, the complete replacement list.",
     "link-add → blockId, then either targetPageId for an existing Page or createTitle to create one.",
@@ -244,7 +277,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.5.12",
+      version: "0.5.13",
       hostCapabilities: ["app-storage", "workflows"],
       operations: [
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema, outputSchema: { type: "object", required: ["projects"], properties: { projects: { type: "array", title: "Projects", items: projectSummarySchema } } } }),

@@ -404,6 +404,7 @@
 
 .knowledge-blocks { margin-top: var(--space-6); display: grid; gap: 2px; }
 .knowledge-block { position: relative; min-width: 0; display: grid; grid-template-columns: 1fr; border-radius: var(--radius-sm); }
+.knowledge-block.selected { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); box-shadow: inset 3px 0 var(--accent); }
 .knowledge-block.authored { margin-top: 14px; border-left: 2px solid var(--author-color); }
 .knowledge-block-author { position: absolute; right: 8px; top: -16px; z-index: 2; max-width: min(45%, 220px); display: flex; align-items: center; gap: 5px; color: var(--subtle); font-size: 9px; line-height: 14px; }
 .knowledge-block-author > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -411,10 +412,24 @@
 .knowledge-block:focus-within { background: color-mix(in srgb, var(--surface-hover) 62%, transparent); }
 .knowledge-block-rail { position: absolute; right: calc(100% + 4px); top: 5px; z-index: 3; height: 30px; display: flex; align-items: center; gap: 2px; opacity: 0; transition: opacity var(--motion-fast) var(--ease-standard); }
 .knowledge-block:hover .knowledge-block-rail,
-.knowledge-block:focus-within .knowledge-block-rail { opacity: 1; }
+.knowledge-block:focus-within .knowledge-block-rail,
+.knowledge-block.selected .knowledge-block-rail { opacity: 1; }
 .knowledge-block-kind { max-width: 62px; overflow: hidden; color: var(--subtle); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .knowledge-block-rail button { width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; display: grid; place-items: center; color: var(--subtle); background: var(--surface); }
 .knowledge-block-rail button:hover { color: var(--text); background: var(--surface-strong); }
+.knowledge-block-rail .knowledge-block-select { width: 40px; height: 40px; margin: -5px 0; }
+.knowledge-block-rail button:focus-visible,
+.knowledge-block-selection-bar button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.knowledge-block-rail .knowledge-block-select[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface-strong)); }
+
+.knowledge-block-selection-bar { position: sticky; top: 8px; z-index: 9; min-height: 46px; margin-bottom: var(--space-3); padding: 5px 6px 5px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-md); display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; color: var(--muted); background: color-mix(in srgb, var(--surface-elevated) 94%, transparent); box-shadow: var(--shadow-popup); backdrop-filter: blur(12px); }
+.knowledge-block-selection-bar > span { margin-right: auto; font-size: 11px; font-weight: 700; }
+.knowledge-block-selection-bar button { min-height: 40px; padding: 0 10px; border: 1px solid transparent; border-radius: 7px; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); background: transparent; font-size: 11px; }
+.knowledge-block-selection-bar button:hover:not(:disabled) { border-color: var(--line); color: var(--text); background: var(--surface-strong); }
+.knowledge-block-selection-bar button.danger { color: color-mix(in srgb, var(--danger) 78%, white); }
+.knowledge-block-selection-bar button.danger:hover:not(:disabled) { border-color: color-mix(in srgb, var(--danger) 42%, var(--line)); background: color-mix(in srgb, var(--danger) 10%, var(--surface-strong)); }
+.knowledge-block-selection-bar button:disabled { opacity: .48; cursor: not-allowed; }
+.knowledge-block-selection-bar kbd { padding: 2px 5px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--subtle); background: var(--surface); font: 600 9px/1.2 inherit; }
 
 .knowledge-block-preview { position: relative; width: 100%; min-height: 40px; padding: 7px 42px 7px 8px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text); background: transparent; text-align: left; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
 .knowledge-block-preview:hover { border-color: var(--line); }
@@ -541,12 +556,16 @@
 .knowledge-setup > div > div { margin-top: var(--space-5); display: flex; gap: var(--space-2); }
 .knowledge-setup > div > div button { min-height: 44px; padding: 0 var(--space-4); border: 1px solid var(--line-strong); border-radius: var(--radius-md); color: var(--text); background: var(--surface-strong); }
 
+@media (max-width: 1400px) {
+  .knowledge-block-rail { position: static; height: 40px; justify-content: flex-end; opacity: 1; }
+  .knowledge-block-rail .knowledge-block-select { margin: 0; }
+  .knowledge-block-kind { margin-right: auto; }
+}
+
 @media (max-width: 1120px) {
   .knowledge-shell { grid-template-columns: 210px 260px minmax(0, 1fr); }
   .knowledge-topbar { grid-template-columns: 40px 112px minmax(170px, 210px) minmax(200px, 1fr) auto max-content; gap: var(--space-2); }
   .knowledge-page { width: min(100% - 36px, 780px); }
-  .knowledge-block-rail { position: static; height: 28px; justify-content: flex-end; opacity: 1; }
-  .knowledge-block-kind { margin-right: auto; }
 }
 
 @media (max-width: 900px) {

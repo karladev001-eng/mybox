@@ -587,6 +587,62 @@ export function updatePage(state, {
       }
       break;
     }
+    case "blocks-remove": {
+      const blockIds = [...new Set(Array.isArray(mutation.blockIds) ? mutation.blockIds : [])];
+      if (!blockIds.length) throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "At least one Block is required");
+      const selected = new Set(blockIds);
+      for (const blockId of blockIds) {
+        if (!page.blocks.some((block) => block.id === blockId)) {
+          throw new KnowledgeDomainError("BLOCK_NOT_FOUND", "Block was not found", { blockId });
+        }
+      }
+      const removesEveryBlock = page.blocks.every((block) => selected.has(block.id));
+      if (removesEveryBlock) {
+        const [placeholder] = page.blocks;
+        page.blocks = [{
+          ...placeholder,
+          type: "paragraph",
+          text: "",
+          checked: false,
+          links: [],
+          revision: placeholder.revision + 1,
+          updatedBy: actorId,
+        }];
+      } else {
+        page.blocks = page.blocks.filter((block) => !selected.has(block.id));
+      }
+      break;
+    }
+    case "blocks-restore": {
+      const entries = Array.isArray(mutation.blocks) ? mutation.blocks : [];
+      if (!entries.length) throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "Blocks to restore are required");
+      for (const entry of entries) {
+        const restored = entry?.block;
+        if (!restored || typeof restored.id !== "string" || !BLOCK_TYPES.includes(restored.type) || typeof restored.text !== "string") {
+          throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "A restored Block is invalid");
+        }
+        const block = {
+          id: restored.id,
+          type: restored.type,
+          text: restored.text,
+          checked: restored.checked === true,
+          revision: Math.max(1, Number(restored.revision) || 1),
+          updatedBy: actorId,
+          links: Array.isArray(restored.links) ? copy(restored.links) : [],
+        };
+        const existingIndex = page.blocks.findIndex((item) => item.id === block.id);
+        if (existingIndex >= 0) {
+          block.revision = Math.max(block.revision, page.blocks[existingIndex].revision + 1);
+          page.blocks.splice(existingIndex, 1, block);
+          continue;
+        }
+        const targetIndex = entry.beforeBlockId === null || entry.beforeBlockId === undefined
+          ? page.blocks.length
+          : page.blocks.findIndex((item) => item.id === entry.beforeBlockId);
+        page.blocks.splice(targetIndex < 0 ? page.blocks.length : targetIndex, 0, block);
+      }
+      break;
+    }
     case "block-move": {
       const index = page.blocks.findIndex((item) => item.id === mutation.blockId);
       if (index < 0) throw new KnowledgeDomainError("BLOCK_NOT_FOUND", "Block was not found", { blockId: mutation.blockId });

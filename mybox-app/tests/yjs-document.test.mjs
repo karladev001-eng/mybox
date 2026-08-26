@@ -221,6 +221,26 @@ test("moving a Block reorders it and keeps its content", () => {
   assert.deepEqual(readPage(doc, PAGE.id).blocks.map((block) => block.id), ["block-1", "block-2"]);
 });
 
+test("shared Pages remove multiple Blocks atomically and restore the same IDs", () => {
+  const doc = createProjectDoc();
+  seedPage(doc, PAGE);
+  applyPageMutation(doc, PAGE.id, { type: "blocks-remove", blockIds: ["block-1", "block-2"] }, { actorId: "profile-a" });
+  assert.deepEqual(
+    readPage(doc, PAGE.id).blocks.map(({ id, type, text }) => ({ id, type, text })),
+    [{ id: "block-1", type: "paragraph", text: "" }],
+  );
+
+  applyPageMutation(doc, PAGE.id, {
+    type: "blocks-restore",
+    blocks: [
+      { block: PAGE.blocks[0], beforeBlockId: null },
+      { block: PAGE.blocks[1], beforeBlockId: null },
+    ],
+  }, { actorId: "profile-a" });
+  assert.deepEqual(readPage(doc, PAGE.id).blocks.map((block) => block.id), ["block-1", "block-2"]);
+  assert.equal(readPage(doc, PAGE.id).blocks[1].text, "second");
+});
+
 test("a PageLink keeps its token and target through a merge", () => {
   const { a, b, sync } = twoPeers();
   applyPageMutation(a, PAGE.id, {

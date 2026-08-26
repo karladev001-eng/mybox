@@ -42,13 +42,17 @@ Implements the first vertical slice of the `knowledge` App described in
   files are submitted as one structural paste, then focus continues in the last
   pasted Block. Persistent navigation uses section dividers instead of nested
   card outlines, while repeated Page and Block actions are icon-only controls
-  with accessible names and themed pointer/focus tooltips.
+  with accessible names and themed pointer/focus tooltips. Block selection uses
+  a pressed control plus an explicit action bar; its selection control and
+  Ctrl/Cmd-click toggle Blocks, Shift-click extends a range, and successful single or bulk deletions can be restored with
+  the visible action or `Ctrl+Z` while focus is outside a native text editor.
 - `search-behavior.js`: normalized Page candidate filtering and pure keyboard
   actions for the search combobox.
 - `tag-behavior.js`: IME-safe half-width/full-width Space delimiter detection
   and live, used-only candidate filtering for the Tag combobox. Space keeps the
   combobox focused for sequential entry; Enter commits and exits the field.
-- `editor-behavior.js`: pure Markdown conversion, Tab indentation, and grouped-list editing rules.
+- `editor-behavior.js`: pure Markdown conversion, Tab indentation, grouped-list
+  editing, Block-selection, and deletion-restore anchor rules.
   `markdownConversion` handles one line as the User types; `parseMarkdownBlocks`
   is its document-level counterpart, turning a whole Markdown text into typed
   Blocks for the `markdown-set` mutation. Consecutive bullets or numbers become

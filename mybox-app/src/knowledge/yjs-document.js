@@ -265,6 +265,51 @@ export function applyPageMutation(doc, pageId, mutation, { actorId } = {}) {
         break;
       }
 
+      case "blocks-remove": {
+        const blockIds = [...new Set(Array.isArray(mutation.blockIds) ? mutation.blockIds : [])];
+        if (!blockIds.length) throw new Error("INVALID_PAGE_MUTATION: At least one Block is required");
+        const indices = blockIds.map((blockId) => {
+          const index = blockIndex(blocks, blockId);
+          if (index < 0) throw new Error(`BLOCK_NOT_FOUND: ${blockId}`);
+          return index;
+        });
+        if (new Set(indices).size === blocks.length) {
+          const placeholder = blocks.get(0);
+          placeholder.set("type", "paragraph");
+          placeholder.set("checked", false);
+          applyText(placeholder.get("text"), "");
+          placeholder.get("links").delete(0, placeholder.get("links").length);
+          if (actorId) placeholder.set("updatedBy", actorId);
+          indices.filter((index) => index !== 0).sort((left, right) => right - left).forEach((index) => blocks.delete(index, 1));
+        } else {
+          indices.sort((left, right) => right - left).forEach((index) => blocks.delete(index, 1));
+        }
+        break;
+      }
+
+      case "blocks-restore": {
+        const entries = Array.isArray(mutation.blocks) ? mutation.blocks : [];
+        if (!entries.length) throw new Error("INVALID_PAGE_MUTATION: Blocks to restore are required");
+        for (const entry of entries) {
+          const restored = entry?.block;
+          if (!restored || typeof restored.id !== "string" || !BLOCK_TYPES.includes(restored.type) || typeof restored.text !== "string") {
+            throw new Error("INVALID_PAGE_MUTATION: A restored Block is invalid");
+          }
+          const snapshot = { ...restored, updatedBy: actorId ?? restored.updatedBy, links: restored.links ?? [] };
+          const existingIndex = blockIndex(blocks, restored.id);
+          if (existingIndex >= 0) {
+            blocks.delete(existingIndex, 1);
+            blocks.insert(existingIndex, [newBlock(snapshot)]);
+            continue;
+          }
+          const targetIndex = entry.beforeBlockId === null || entry.beforeBlockId === undefined
+            ? blocks.length
+            : blockIndex(blocks, entry.beforeBlockId);
+          blocks.insert(targetIndex < 0 ? blocks.length : targetIndex, [newBlock(snapshot)]);
+        }
+        break;
+      }
+
       case "block-move": {
         const index = blockIndex(blocks, mutation.blockId);
         if (index < 0) throw new Error(`BLOCK_NOT_FOUND: ${mutation.blockId}`);
