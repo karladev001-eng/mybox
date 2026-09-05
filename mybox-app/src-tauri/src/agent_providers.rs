@@ -673,7 +673,7 @@ pub async fn openai_api_generate(
         .unwrap_or(configured_model);
     let mut body = json!({
         "model": model,
-        "instructions": "Return only the requested answer. Never claim to have used a tool or changed MyBox unless the prompt includes an observed result.",
+        "instructions": provider_instructions("apiText"),
         "input": request.prompt,
         "store": false
     });
@@ -685,8 +685,7 @@ pub async fn openai_api_generate(
         body["tool_choice"] = Value::String("auto".to_string());
         body["include"] = json!(["web_search_call.action.sources"]);
         body["instructions"] = Value::String(
-            "Return the requested answer. Use web search when current information is useful, cite web-supported claims, and never claim to have changed MyBox unless the prompt includes an observed result."
-                .to_string(),
+            provider_instructions("apiWeb"),
         );
     }
     if let Some(schema) = request.response_schema.clone() {
@@ -753,7 +752,7 @@ pub async fn local_llm_generate(
     let mut body = json!({
         "model": model,
         "messages": [
-            {"role": "system", "content": "Return only the requested answer. Never claim to have used a tool or changed MyBox unless the prompt includes an observed result."},
+            {"role": "system", "content": provider_instructions("apiText")},
             {"role": "user", "content": request.prompt}
         ],
         "stream": false
@@ -861,4 +860,11 @@ mod tests {
             Some(&json!(true))
         );
     }
+}
+
+/// The renderer records the same immutable instructions before dispatch.
+pub(crate) fn provider_instructions(key: &str) -> String {
+    let values: Value = serde_json::from_str(include_str!("../../src/core/provider-instructions.json"))
+        .expect("bundled provider instructions are valid JSON");
+    values[key].as_str().expect("known instruction key").to_string()
 }

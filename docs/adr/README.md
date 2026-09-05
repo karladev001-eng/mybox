@@ -48,3 +48,9 @@ notes of the ADR it realizes.
 - [0040 — Store Note Projects in User-selected directories](0040-store-note-projects-in-user-selected-directories.md)
 - [0041 — Restore each App's last stable content position](0041-restore-each-apps-last-stable-content-position.md)
 - [0042 — Select and undo Note Blocks as structural edits](0042-select-and-undo-note-blocks.md)
+
+- [0043 — Make Knowledge the mandatory record foundation](0043-record-centered-knowledge-workspace.md)
+- [0044 — Collect Context in a private Record Project](0044-collect-context-in-private-record-project.md)
+- [0045 — Render chat Markdown with quiet actions](0045-render-chat-markdown-with-quiet-actions.md)
+
+- [0046 — Link record Pages automatically](0046-link-record-pages-automatically.md)

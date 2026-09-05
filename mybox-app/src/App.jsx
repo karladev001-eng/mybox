@@ -1,3 +1,7 @@
+import providerInstructions from "./core/provider-instructions.json";
+import { createKnowledgeChatStore } from "./core/knowledge-chat-store.js";
+import { createKnowledgeClient } from "./knowledge/client.js";
+import { readChatImage as readLegacyChatImage } from "./desktop/agent-providers.js";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { chooseWorkspace, getCurrentWorkspace, isDesktopRuntime } from "./desktop/workspace.js";
 import { ChatView } from "./ChatView.jsx";
@@ -5,7 +9,7 @@ import { ThemedSelect } from "./ThemedSelect.jsx";
 import { WorkflowHistoryView, WorkflowView } from "./WorkflowView.jsx";
 import {
   appendChatMessage,
-  buildConversationPrompt,
+  buildConversationInput,
   createChatSession,
   createEmptyChatHistory,
   deleteChatSession,
@@ -74,6 +78,7 @@ import {
   Robot,
   SignOut,
   SlidersHorizontal,
+  FileText,
   Star,
   Trash,
   UserCircle,
@@ -181,7 +186,7 @@ function AppTile({ app, installedVersion, onOpen, onMenu, menuOpen, onDelete, on
       {menuOpen && (
         <div className="context-menu" role="menu">
           <button role="menuitem" onClick={() => onFavorite(app)}><Star size={19} />固定</button>
-          <button className="danger" role="menuitem" onClick={() => onDelete(app)}><Trash size={19} />削除</button>
+          {app.id !== "knowledge" && <button className="danger" role="menuitem" onClick={() => onDelete(app)}><Trash size={19} />削除</button>}
         </div>
       )}
     </article>
@@ -409,7 +414,7 @@ function AppWorkspace({ app, onClose, onDone }) {
   );
 }
 
-function RegisteredAppWorkspace({ app, desktop, profile, appRuntime, shortcutCommand, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
+function RegisteredAppWorkspace({ onOpenRecordContext, recordTarget, onOpenConversation, onAddContext, app, desktop, profile, appRuntime, shortcutCommand, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
   const Surface = resolveLazyAppSurface(app);
   if (!Surface) return <AppWorkspace app={app} onClose={onClose} onDone={onDone} />;
   return (
@@ -417,6 +422,10 @@ function RegisteredAppWorkspace({ app, desktop, profile, appRuntime, shortcutCom
       <Surface
         desktop={desktop}
         appRuntime={appRuntime}
+        onOpenRecordContext={onOpenRecordContext}
+        recordTarget={recordTarget}
+        onOpenConversation={onOpenConversation}
+        onAddContext={onAddContext}
         profileId={profile.profileId}
         profile={profile}
         shortcutCommand={shortcutCommand}
@@ -670,6 +679,7 @@ function HostUpdateRow({ desktop, updater }) {
 }
 
 function SettingsView({
+  contextAutoRecord, contextSettingBusy, onContextAutoRecord,
   desktop,
   workspace,
   workspaceBusy,
@@ -743,6 +753,7 @@ function SettingsView({
           <span className="settings-row-copy"><strong>保存場所</strong><small>{workspace?.name ?? (desktop ? "未選択" : "Webプレビュー")}</small></span>
           <span className="settings-row-control">{workspaceBusy ? "確認中…" : workspace ? "変更" : desktop ? "選択" : "Desktop"}</span>
         </button>
+        <button type="button" role="switch" aria-checked={contextAutoRecord} disabled={contextSettingBusy || !workspace && desktop} onClick={() => onContextAutoRecord(!contextAutoRecord)}><span className="settings-row-icon"><FileText size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>Contextを自動記録</strong><small>AIへ送信した情報をRecordに保存</small></span><span className="settings-row-control"><span className={contextAutoRecord ? "switch on" : "switch"}><span /></span></span></button>
         <button role="switch" aria-checked={confirmDelete} onClick={() => setConfirmDelete(!confirmDelete)}><span className="settings-row-icon"><Trash size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>削除前に確認</strong></span><span className="settings-row-control"><span className={confirmDelete ? "switch on" : "switch"}><span /></span></span></button>
         <button role="switch" aria-checked={reduceMotion} onClick={() => setReduceMotion(!reduceMotion)}><span className="settings-row-icon"><SlidersHorizontal size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>動きを抑える</strong></span><span className="settings-row-control"><span className={reduceMotion ? "switch on" : "switch"}><span /></span></span></button>
         <button role="switch" aria-checked={workflowBackground.background} disabled={!desktop} onClick={() => onWorkflowBackgroundChange({ background: !workflowBackground.background, autostart: workflowBackground.background ? false : workflowBackground.autostart })}><span className="settings-row-icon"><FlowArrow size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>バックグラウンド実行</strong><small>{workflowBackground.background ? "ウィンドウを閉じても実行" : "MyBox起動中のみ"}</small></span><span className="settings-row-control"><span className={workflowBackground.background ? "switch on" : "switch"}><span /></span></span></button>
@@ -855,6 +866,7 @@ export function App() {
   // regardless of which App is open, so the Host owns this control rather than
   // any one App's sidebar.
   const [profilePreferences, setProfilePreferences] = useState(createDefaultProfilePreferences);
+  const [contextSettingBusy, setContextSettingBusy] = useState(false);
   const [aiText, setAiText] = useState("");
   const [toast, setToast] = useState("");
   const [workspace, setWorkspace] = useState(null);
@@ -886,7 +898,14 @@ export function App() {
   const appShortcutSequence = useRef(0);
   const lastNonChatView = useRef("apps");
   const hostSessionStore = useRef(getHostSessionStore()).current;
-  const chatStore = useRef(getChatHistoryStore()).current;
+  const [chatStore] = useState(() => createKnowledgeChatStore({
+    client: createKnowledgeClient({ desktop, appRuntime, getProfileId: () => activeUserIdRef.current }),
+    legacy: getChatHistoryStore(), desktop, readLegacyImage: readLegacyChatImage,
+  }));
+  const [contextSources, setContextSources] = useState([]);
+  const [chatProjects, setChatProjects] = useState([]);
+  const [newChatProject, setNewChatProject] = useState("");
+  const [recordTarget, setRecordTarget] = useState(null);
   const hostUpdater = useHostUpdater(desktop);
   const activeProfile = useMemo(() => resolveProfilePresentation(accountSession), [accountSession]);
   confirmationLevelRef.current = profilePreferences.confirmationLevel;
@@ -1017,6 +1036,15 @@ export function App() {
     return () => { active = false; };
   }, [desktop, workspace]);
 
+  const changeContextAutoRecord = async (enabled) => {
+    setContextSettingBusy(true);
+    try {
+      const current = await getProfilePreferencesStore().load();
+      setProfilePreferences(await getProfilePreferencesStore().setContextAutoRecord(current, enabled));
+    } catch (error) { setToast(`設定を保存できません：${String(error.message || error)}`); }
+    finally { setContextSettingBusy(false); }
+  };
+
   const changeConfirmationLevel = async (confirmationLevel) => {
     try {
       setProfilePreferences(await getProfilePreferencesStore().setConfirmationLevel(profilePreferences, confirmationLevel));
@@ -1045,15 +1073,18 @@ export function App() {
     let active = true;
     setChatLoaded(false);
     chatStore.load()
-      .then((history) => {
+      .then(async (history) => {
+        const savedPosition = await chatStore.client.readViewState();
         if (!active) return;
         setChatHistory(history);
+        if (history.unavailableProjects?.length) setToast(`利用できないProject：${history.unavailableProjects.map((p) => p.name).join("、")}`);
+        chatStore.client.listProjects().then(({ projects }) => setChatProjects(projects));
         setActiveChatId((current) => history.sessions.some((session) => session.id === current)
           ? current
-          : history.sessions[0]?.id ?? null);
+          : history.sessions.find((s) => s.id === savedPosition.pageId)?.id ?? history.sessions[0]?.id ?? null);
       })
-      .catch((error) => active && setToast(`チャット履歴を読み込めません：${String(error)}`))
-      .finally(() => active && setChatLoaded(true));
+      .then(() => active && setChatLoaded(true))
+      .catch((error) => active && setToast(`チャット履歴を読み込めません：${String(error)}`));
     return () => { active = false; };
   }, [chatStore, desktop, workspace]);
 
@@ -1254,6 +1285,7 @@ export function App() {
   };
 
   const deleteApp = async () => {
+    if (pendingDelete?.id === "knowledge") return;
     const next = apps.filter((app) => app.id !== pendingDelete.id);
     const nextVersions = Object.fromEntries(Object.entries(installedVersions).filter(([id]) => id !== pendingDelete.id));
     try {
@@ -1374,18 +1406,23 @@ export function App() {
       return;
     }
     const created = createChatSession(chatHistory);
+    if (newChatProject) created.session.projectId = newChatProject;
     setActiveChatId(created.session.id);
-    if (openChat) setView("chat");
+    if (openChat) { setSelectedApp(null); setView("chat"); }
     try {
-      await saveChatHistory(created.history);
+      const saved = await saveChatHistory(created.history);
+      const session = saved.sessions.find((s) => s.id === created.session.id);
+      await chatStore.client.saveViewState(session.projectId, session.id);
     } catch (error) {
       setToast(`新しいチャットを保存できません：${String(error)}`);
     }
   };
 
   const selectChatSession = (sessionId, { openChat = true } = {}) => {
+    const session = chatHistory.sessions.find((s) => s.id === sessionId);
+    if (session) chatStore.client.saveViewState(session.projectId, session.id).catch((error) => setToast(String(error)));
     setActiveChatId(sessionId);
-    if (openChat) setView("chat");
+    if (openChat) { setSelectedApp(null); setView("chat"); }
   };
 
   const updateChatTitle = async (sessionId, title) => {
@@ -1468,9 +1505,16 @@ export function App() {
    * Blocks) is folded in as additive context when present, not a gate: the
    * model can still discover one itself through a read Operation.
    */
-  const runAgentTurn = async ({ request, contextLabel, operationContext }) => {
+  const runAgentTurn = async ({ request, contextLabel, operationContext, onModelRequest, projectId }) => {
     const preferences = await getProfilePreferencesStore().load();
-    const agentHost = createAggregateAgentHost();
+    const baseHost = createAggregateAgentHost();
+    const agentHost = {
+      listOperations: (options) => baseHost.listOperations(options).filter((op) => op.inputSchema?.properties?.projectId && !op.id.includes("project.")),
+      invoke: (id, input, options) => {
+        if (input.projectId !== projectId || input.projectIds?.some((p) => p !== projectId)) throw new Error("Contextは同じProject内に限定されています");
+        return baseHost.invoke(id, input, options);
+      },
+    };
     const runtime = new AgentRuntime({ host: agentHost, providers: { get: () => activeProvider } });
     const goal = [
       request,
@@ -1488,13 +1532,19 @@ export function App() {
       confirmationLevel: preferences.confirmationLevel,
       onApprovalNeeded: requestApproval,
       grant: { operationIds: ["*"] },
+      onModelRequest,
+      projectId,
+      profileId: activeUserIdRef.current,
+      model: selectedModelId || undefined,
+      reasoningEffort: selectedReasoningEffort || undefined,
     });
     return { text: runResult.message };
   };
 
   const sendChatMessage = async (text, { openChat = true, contextLabel = null } = {}) => {
     const request = text.trim();
-    if (!request || agentBusy) return;
+    const recordContext = profilePreferences.contextAutoRecord;
+    if (!request || agentBusy || contextSettingBusy) return;
     if (!chatPersistenceReady) {
       setView("settings");
       setToast("先にチャットの保存場所を設定してください");
@@ -1504,6 +1554,7 @@ export function App() {
     let workingHistory = chatHistory;
     if (!sessionId || !workingHistory.sessions.some((session) => session.id === sessionId)) {
       const created = createChatSession(workingHistory);
+      if (newChatProject) created.session.projectId = newChatProject;
       sessionId = created.session.id;
       workingHistory = created.history;
       setActiveChatId(sessionId);
@@ -1514,21 +1565,27 @@ export function App() {
     workingHistory = appendChatMessage(workingHistory, sessionId, {
       role: "user",
       content: request,
+      contextRecording: recordContext,
       skills: selectedSkills,
       imageRequested: imageGenerationSupported && imageGenerationEnabled,
     }).history;
-    if (openChat) setView("chat");
+    if (openChat) { setSelectedApp(null); setView("chat"); }
     setAiText("");
     setAiOpen(false);
+    let turnContext = null;
+    let sentMessageId = null;
     const providerReady = activeProviderReady();
-    setAgentBusy(providerReady);
+    setAgentBusy(true);
     try {
       workingHistory = await saveChatHistory(workingHistory);
+      sentMessageId = workingHistory.sessions.find((item) => item.id === sessionId).messages.at(-1).id;
       if (!providerReady) {
         const message = "AIプロバイダーが接続されていません。右下の接続ボタンから設定してください。";
         workingHistory = appendChatMessage(workingHistory, sessionId, {
           role: "assistant",
           content: message,
+          replyTo: sentMessageId,
+          contextRecording: recordContext,
           providerId: activeProviderId,
           status: "error",
         }).history;
@@ -1537,7 +1594,28 @@ export function App() {
         return;
       }
       const session = workingHistory.sessions.find((item) => item.id === sessionId);
-      const conversationPrompt = buildConversationPrompt(session);
+      const sourceSnapshots = await chatStore.readContextSources(session.projectId, contextSources);
+      const conversationInput = buildConversationInput(session);
+      const conversationPrompt = [conversationInput.prompt, ...sourceSnapshots.map((source) => `Reference (${source.pageId}, revision ${source.revision}): ${source.title}\n${source.text}`)].join("\n\n");
+      const destination = recordContext ? await chatStore.contextDestination(session.projectId, session.id) : null;
+      const messageId = session.messages.at(-1).id;
+      sentMessageId = messageId;
+      const captureRequest = async (modelRequest) => {
+        if (!recordContext) return;
+        const codex = activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID;
+        const skills = availableSkills.filter((s) => modelRequest.skillIds?.includes(s.id));
+        const instructionKey = codex ? modelRequest.imageGeneration ? "codexImage" : modelRequest.webSearch ? "codexWeb" : skills.length ? "codexSkills" : "codexText" : modelRequest.webSearch ? "apiWeb" : "apiText";
+        const skillMarkers = skills.map((s) => `$${s.name}`).join(" ");
+        const outboundPrompt = codex && skillMarkers ? `${skillMarkers}\n\n${modelRequest.prompt}` : modelRequest.prompt;
+        await chatStore.capture({ ...destination, conversationProjectId: session.projectId, conversationId: session.id, messageId,
+          callId: `call-${crypto.randomUUID()}`, prompt: outboundPrompt, sources: sourceSnapshots,
+          settings: { history: conversationInput.history, instructions: providerInstructions[instructionKey], providerId: activeProviderId, model: modelRequest.model || selectedModelId || null,
+            reasoningEffort: modelRequest.reasoningEffort || selectedReasoningEffort || null,
+            webSearch: !!modelRequest.webSearch, imageGeneration: !!modelRequest.imageGeneration,
+            skillIds: modelRequest.skillIds || [], responseSchema: modelRequest.responseSchema || null },
+        });
+        turnContext = { projectId: destination.projectId, pageId: destination.contextId, messageId };
+      };
 
       // Available once any installed App has registered its host (ADR
       // 0025), regardless of which screen is open. Image generation is an
@@ -1545,8 +1623,8 @@ export function App() {
       // who turned it on for this message keeps the free-form path instead.
       const useAgentTurn = hasRegisteredAgentHosts() && !(imageGenerationSupported && imageGenerationEnabled);
       const result = useAgentTurn
-        ? await runAgentTurn({ request, contextLabel: assistantContextLabel, operationContext: surfaceContext?.operationContext ?? null })
-        : await activeProvider.generate({
+        ? await runAgentTurn({ request: conversationPrompt, contextLabel: assistantContextLabel, operationContext: null, onModelRequest: captureRequest, projectId: session.projectId })
+        : await (async (modelRequest) => { await captureRequest(modelRequest); return activeProvider.generate(modelRequest); })({
           prompt: contextLabel
             ? `Current MyBox screen: ${contextLabel}. Use this label only as interface context; do not assume access to data or operations that were not explicitly provided.\n\n${conversationPrompt}`
             : conversationPrompt,
@@ -1559,6 +1637,8 @@ export function App() {
       workingHistory = appendChatMessage(workingHistory, sessionId, {
         role: "assistant",
         content: result.text,
+        replyTo: sentMessageId,
+        contextRecording: recordContext,
         providerId: activeProviderId,
         sources: result.sources,
         webSearchUsed: result.webSearchUsed,
@@ -1568,18 +1648,22 @@ export function App() {
         tokenUsage: result.usage,
       }).history;
       await saveChatHistory(workingHistory);
+      if (turnContext) await chatStore.finish({ ...turnContext, status: "complete" });
       if (activeProviderId === CODEX_SUBSCRIPTION_PROVIDER_ID && typeof activeProvider.getUsage === "function") {
         activeProvider.getUsage().then(setSubscriptionUsage).catch(() => {});
       }
       setSelectedSkillIds([]);
       setImageGenerationEnabled(false);
     } catch (error) {
+      if (turnContext) await chatStore.finish({ ...turnContext, status: "unknown" }).catch(() => {});
       const message = `AIを実行できません：${String(error)}`;
       if (sessionId && workingHistory.sessions.some((session) => session.id === sessionId)) {
         try {
           workingHistory = appendChatMessage(workingHistory, sessionId, {
             role: "assistant",
             content: message,
+            replyTo: sentMessageId,
+            contextRecording: recordContext,
             providerId: activeProviderId,
             status: "error",
           }).history;
@@ -1710,7 +1794,28 @@ export function App() {
     if (shortcutId !== "shortcut-menu" && shortcutId !== "command-palette") window.setTimeout(() => runHostShortcut(shortcutId), 0);
   };
 
+  const openRecord = (projectId, pageId, blockId = null) => {
+    setRecordTarget({ projectId, pageId, blockId, nonce: Date.now() });
+    setSelectedApp(appRegistry.get("knowledge")); setView("apps");
+  };
   const sharedChatProps = {
+    chatProjects, newChatProject, onNewChatProject: setNewChatProject,
+    onReadImage: (image) => image.appId === "knowledge" ? chatStore.client.readImage(image.resourceId) : readLegacyChatImage(image.resourceId),
+    contextSources,
+    onClearContext: () => setContextSources([]),
+    onOpenContext: async (message) => {
+      if (message.contextRecording === false) { setToast("この送信はContext記録OFFです。"); return; }
+      try {
+        const messageId = message.role === "user" ? message.id : message.replyTo || activeChatSession.messages.slice(0, activeChatSession.messages.findIndex((m) => m.id === message.id)).findLast((m) => m.role === "user")?.id;
+        const target = await chatStore.findContext(activeChatSession.projectId, activeChatId, messageId);
+        if (target) openRecord(target.projectId, target.pageId, target.blockId);
+        else setToast("Context記録はありません（移行前、または送信前の失敗）。");
+      } catch (error) { setToast(String(error.message || error)); }
+    },
+    onExtractMessage: async (message) => {
+      try { const { page } = await chatStore.client.invoke("knowledge.record.extract.v1", { projectId: activeChatSession.projectId, pageId: activeChatId, blockId: message.id }); openRecord(page.projectId, page.id); }
+      catch (error) { setToast(String(error)); }
+    },
     history: chatHistory,
     activeSessionId: activeChatId,
     value: aiText,
@@ -1774,13 +1879,13 @@ export function App() {
           <section className="apps-view" aria-labelledby="apps-heading">
             <h1 id="apps-heading">アプリ</h1>
             <div className="app-grid">
-              {apps.map((app) => <AppTile key={app.id} app={app} installedVersion={installedVersions[app.id] ?? app.version} updating={updatingAppId === app.id} onUpdate={updateApp} onOpen={setSelectedApp} menuOpen={menuOpen === app.id} onMenu={(id) => setMenuOpen((current) => current === id ? null : id)} onDelete={setPendingDelete} onFavorite={(item) => { setToast(`${item.name}を固定しました`); setMenuOpen(null); }} />)}
+              {apps.map((app) => <AppTile key={app.id} app={app} installedVersion={installedVersions[app.id] ?? app.version} updating={updatingAppId === app.id} onUpdate={updateApp} onOpen={setSelectedApp} menuOpen={menuOpen === app.id} onMenu={(id) => setMenuOpen((current) => current === id ? null : id)} onDelete={(app) => app.id !== "knowledge" && setPendingDelete(app)} onFavorite={(item) => { setToast(`${item.name}を固定しました`); setMenuOpen(null); }} />)}
             </div>
           </section>
         )}
         {view === "workflows" && <WorkflowView runtime={appRuntime} onToast={setToast} backgroundSettings={workflowBackground} onScheduleEnabled={() => desktop && !workflowBackground.background && setBackgroundPromptOpen(true)} />}
         {view === "history" && <WorkflowHistoryView runtime={appRuntime} onToast={setToast} targetRunId={notificationRunId} />}
-        {view === "settings" && <SettingsView desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} workflowBackground={workflowBackground} onWorkflowBackgroundChange={changeWorkflowBackground} onExit={exitMyBox} />}
+        {view === "settings" && <SettingsView contextAutoRecord={profilePreferences.contextAutoRecord} contextSettingBusy={contextSettingBusy} onContextAutoRecord={changeContextAutoRecord} desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} workflowBackground={workflowBackground} onWorkflowBackgroundChange={changeWorkflowBackground} onExit={exitMyBox} />}
         {view === "chat" && <ChatView
           {...sharedChatProps}
           onBack={() => setView("apps")}
@@ -1800,7 +1905,24 @@ export function App() {
       {addOpen && <AddAppModal catalog={appRegistry.list()} installedVersions={installedVersions} updatingAppId={updatingAppId} onClose={() => setAddOpen(false)} onAdd={addApp} onUpdate={updateApp} />}
       {selectedApp && (
         <RegisteredAppWorkspace
+          onOpenRecordContext={async (page, message) => {
+            try {
+              const previous = page.blocks.slice(0, page.blocks.findIndex((b) => b.id === message.id)).findLast((b) => b.message?.role === "user");
+              const messageId = message.role === "user" ? message.id : message.replyTo || previous?.id;
+              const target = await chatStore.findContext(page.projectId, page.id, messageId);
+              if (target) openRecord(target.projectId, target.pageId, target.blockId);
+              else setToast(message.contextRecording === false ? "この送信はContext記録OFFです。" : "この送信のContext記録はありません。");
+            } catch (e) { setToast(String(e.message || e)); }
+          }}
           app={selectedApp}
+          recordTarget={recordTarget}
+          onOpenConversation={async (projectId, pageId) => {
+            const history = await chatStore.load(); setChatHistory(history); selectChatSession(pageId);
+          }}
+          onAddContext={(ref) => {
+            setContextSources((refs) => refs.some((r) => r.pageId === ref.pageId && r.blockId === ref.blockId) ? refs : [...refs, ref]);
+            setToast("次の送信の参照に追加しました。");
+          }}
           desktop={desktop}
           appRuntime={appRuntime}
           profile={activeProfile}

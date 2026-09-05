@@ -57,3 +57,8 @@ never trust a WebView-supplied pair without revalidation.
 For image-generation turns, admit only the image tool, validate bounded PNG/JPEG/
 WebP output, persist it under the private `ai-chat` namespace, and return only an
 opaque resource ID.
+
+`agent_providers.rs` and `codex.rs` read bundled provider instructions from the same
+`src/core/provider-instructions.json` used by pre-dispatch Context recording.
+
+ADR 0044 raises the Project manifest to 3 for Context notebooks and shared copies.

@@ -2,7 +2,7 @@ import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { parseMarkdownBlocks, splitPastedBlock } from "./editor-behavior.js";
 import { authorColorFor, isAuthorColor } from "./author-color.js";
 
-export const KNOWLEDGE_SCHEMA_VERSION = 1;
+export const KNOWLEDGE_SCHEMA_VERSION = 3;
 export const PAGE_STATES = Object.freeze(["active", "trash"]);
 export const PROJECT_ROLES = Object.freeze(["viewer", "editor", "owner"]);
 // `url-embed` and `image` reuse `text` for their payload (a URL, or an opaque
@@ -174,7 +174,7 @@ function convertLinksToText(state, targetPage, context) {
   for (const sourcePage of state.pages) {
     let pageChanged = false;
     for (const block of sourcePage.blocks) {
-      const incoming = block.links.filter((link) => link.targetPageId === targetPage.id);
+      const incoming = block.links.filter((link) => link.targetPageId === targetPage.id && !link.recordRelation);
       if (!incoming.length) continue;
       if (!recorded.has(sourcePage.id)) {
         recordHistory(state, sourcePage, context);
@@ -183,7 +183,7 @@ function convertLinksToText(state, targetPage, context) {
       for (const link of incoming) {
         block.text = replaceAll(block.text, link.token, targetPage.title);
       }
-      block.links = block.links.filter((link) => link.targetPageId !== targetPage.id);
+      block.links = block.links.filter((link) => link.targetPageId !== targetPage.id || link.recordRelation);
       block.revision += 1;
       block.updatedBy = context.actorId;
       pageChanged = true;
@@ -237,6 +237,7 @@ export function createKnowledgeState({
 }
 
 export function validateKnowledgeState(state) {
+  if ([1, 2].includes(state?.schemaVersion)) state = { ...state, schemaVersion: KNOWLEDGE_SCHEMA_VERSION };
   if (!state || state.schemaVersion !== KNOWLEDGE_SCHEMA_VERSION) {
     throw new KnowledgeDomainError("INVALID_KNOWLEDGE_STATE", "Knowledge state schema is unsupported");
   }
@@ -401,6 +402,7 @@ export function listPages(state, {
       id: page.id,
       projectId: page.projectId,
       title: page.title,
+      kind: page.kind ?? "note",
       state: page.state,
       revision: page.revision,
       updatedAt: page.updatedAt,
@@ -481,6 +483,7 @@ export function updatePage(state, {
   if (!mutation || typeof mutation.type !== "string") {
     throw new KnowledgeDomainError("INVALID_PAGE_MUTATION", "Page mutation type is required");
   }
+  if (page.kind && page.kind !== "note" && !["rename", "tags-set"].includes(mutation.type)) throw new KnowledgeDomainError("IMMUTABLE_RECORD", "会話とContextの本文は変更できません。Noteへ切り出してください。");
   const context = { actorId, now, idFactory };
   recordHistory(next, page, context);
 
@@ -493,13 +496,13 @@ export function updatePage(state, {
       page.normalizedTitle = normalizedTitle;
       for (const sourcePage of next.pages) {
         const hasIncomingLink = sourcePage.blocks.some((block) => (
-          block.links.some((link) => link.targetPageId === page.id)
+          block.links.some((link) => link.targetPageId === page.id && !link.recordRelation)
         ));
         if (hasIncomingLink && sourcePage.id !== page.id) recordHistory(next, sourcePage, context);
         let sourceChanged = false;
         for (const block of sourcePage.blocks) {
           for (const link of block.links) {
-            if (link.targetPageId !== page.id) continue;
+            if (link.targetPageId !== page.id || link.recordRelation) continue;
             const nextToken = `[[${title}]]`;
             block.text = replaceAll(block.text, link.token, nextToken);
             link.token = nextToken;
@@ -855,6 +858,7 @@ export function restorePageHistory(state, {
   assertRole(project, profileId, "editor");
   const page = findPage(next, projectId, pageId);
   assertRevision(page, expectedRevision);
+  if (page.kind && page.kind !== "note") throw new KnowledgeDomainError("IMMUTABLE_RECORD", "Recorded content cannot be replaced from history");
   const entry = next.history.find((item) => item.id === historyId && item.pageId === pageId);
   if (!entry) throw new KnowledgeDomainError("HISTORY_NOT_FOUND", "Page history entry was not found", { historyId });
   assertUniqueTitle(next, projectId, entry.snapshot.title, page.id);
@@ -876,13 +880,17 @@ export function getBacklinks(state, {
   const project = findProject(state, projectId);
   assertRole(project, profileId, "viewer");
   findPage(state, projectId, pageId);
-  return state.pages.flatMap((page) => page.blocks.flatMap((block) => (
+  return state.pages.filter((page) => {
+    if (page.state !== "active") return false;
+    try { assertRole(findProject(state, page.projectId), profileId, "viewer"); return true; } catch { return false; }
+  }).flatMap((page) => page.blocks.flatMap((block) => (
     block.links
-      .filter((link) => link.targetPageId === pageId)
+      .filter((link) => link.targetPageId === pageId && (link.targetProjectId ?? page.projectId) === projectId)
       .map(() => ({
-        projectId,
+        projectId: page.projectId,
         pageId: page.id,
         pageTitle: page.title,
+        kind: page.kind ?? "note",
         pageState: page.state,
         blockId: block.id,
         excerpt: block.text.slice(0, 180),
@@ -922,6 +930,7 @@ export function searchPages(state, {
         projectId: page.projectId,
         pageId: page.id,
         pageTitle: page.title,
+        kind: page.kind ?? "note",
         pageState: page.state,
         pageRevision: page.revision,
         blockId: page.blocks[0]?.id ?? null,
@@ -939,6 +948,7 @@ export function searchPages(state, {
         projectId: page.projectId,
         pageId: page.id,
         pageTitle: page.title,
+        kind: page.kind ?? "note",
         pageState: page.state,
         pageRevision: page.revision,
         blockId: block.id,

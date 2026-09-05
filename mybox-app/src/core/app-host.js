@@ -67,6 +67,7 @@ export async function defaultAuthorize({ actor, operation, grant, approval, conf
 
 export class AppHost {
   #apps = new Map();
+  #requiredAppIds;
   #operations = new Map();
   #events = new Map();
   #subscriptions = new Map();
@@ -87,7 +88,9 @@ export class AppHost {
     connections = null,
     workflows = null,
     resources = null,
+    requiredAppIds = [],
   } = {}) {
+    this.#requiredAppIds = new Set(requiredAppIds);
     this.#authorize = authorize;
     this.#audit = audit;
     this.#clock = clock;
@@ -142,6 +145,7 @@ export class AppHost {
   }
 
   unregister(appId) {
+    if (this.#requiredAppIds.has(appId)) throw new AppHostError("REQUIRED_FOUNDATION", "The Knowledge foundation cannot be removed");
     const app = this.#apps.get(appId);
     if (!app) return false;
 

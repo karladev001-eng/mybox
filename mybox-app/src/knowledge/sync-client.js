@@ -29,6 +29,7 @@ export function syncUrl(endpoint, projectId, token) {
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
   base.pathname = `${base.pathname.replace(/\/$/, "")}/projects/${encodeURIComponent(projectId)}/sync`;
   base.searchParams.set("token", token);
+  base.searchParams.set("records", "2");
   return base.toString();
 }
 
@@ -57,11 +58,19 @@ export function createSyncClient({
   let attempts = 0;
   let closed = false;
   let retryHandle = null;
+  const readiness = new Set();
 
   const setStatus = (next) => {
     if (status === next) return;
     status = next;
     onStatus({ status, role });
+    if (["connected", "offline", "incompatible"].includes(status)) {
+      for (const waiter of readiness) {
+        clearTimeout(waiter.timer);
+        if (status === "connected") waiter.resolve(); else waiter.reject(new Error(status === "incompatible" ? "同期サーバーを更新してください" : "同期Projectへ接続できません"));
+      }
+      readiness.clear();
+    }
   };
 
   const sendLocalUpdate = (update, origin) => {
@@ -93,6 +102,10 @@ export function createSyncClient({
     }
 
     if (message.type === "sync") {
+      if (message.records !== 2) {
+        closed = true; role = null; socket?.close();
+        setStatus("incompatible"); onError(new Error("同期サーバーの更新が必要です（記録形式 v1）。")); return;
+      }
       role = message.role ?? null;
       applyUpdate(doc, fromBase64(message.update), REMOTE_ORIGIN);
       // Hand the server anything written while disconnected. Yjs merges an
@@ -141,6 +154,15 @@ export function createSyncClient({
 
   return {
     connect: open,
+    ready() {
+      if (status === "connected") return Promise.resolve();
+      if (["offline", "incompatible"].includes(status)) return Promise.reject(new Error("同期Projectを利用できません。接続とサーバーの版を確認してください。"));
+      return new Promise((resolve, reject) => {
+        const waiter = { resolve, reject };
+        waiter.timer = setTimeout(() => { readiness.delete(waiter); reject(new Error("同期接続の待機がタイムアウトしました")); }, 10000);
+        readiness.add(waiter);
+      });
+    },
     get status() { return status; },
     get role() { return role; },
     /** Presence is ephemeral: it is relayed, never written to the document. */

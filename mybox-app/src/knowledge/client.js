@@ -154,10 +154,11 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
           });
         }
         return {
-          connect: () => Promise.all(transports.map(({ client: transport }) => transport.connect())),
+          connect: () => Promise.all(transports.map(async ({ client: transport }) => { await transport.connect(); await transport.ready?.(); })),
+          flush: () => Promise.all(transports.filter(({ type }) => type === "store").map(({ client: transport }) => transport.flush())),
           disconnect: () => transports.forEach(({ client: transport }) => transport.disconnect()),
           sendAwareness: (state) => transports.find(({ type }) => type === "server")?.client.sendAwareness(state),
-          get role() { return transports.find(({ type }) => type === "server")?.client.role ?? "owner"; },
+          get role() { const server = transports.find(({ type }) => type === "server"); return server ? server.client.role : "owner"; },
         };
       },
     });
@@ -196,7 +197,7 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
       if (!store && !server) return null;
 
       let shared = sharedSessions.get(projectId) ?? null;
-      if (shared?.matchesConnection?.({ store, server })) return shared;
+      if (shared?.matchesConnection?.({ store, server }) && shared.role && shared.status !== "offline") return shared;
       if (shared) {
         shared.dispose();
         sharedSessions.delete(projectId);
@@ -209,6 +210,7 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
       shared.adopt(local.pages, local.tags);
       sharedSessions.set(projectId, shared);
       await shared.connect();
+      if (store && shared.status === "offline") throw new Error("Project storeを読み込めません。保存場所を確認してください。");
       return shared;
     })();
     sessionPreparations.set(projectId, preparation);
@@ -220,6 +222,8 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
   };
 
   return Object.freeze({
+    invoke,
+    listSyncEndpoints: () => listSyncEndpoints(),
     listProjects: () => invoke("knowledge.project.list"),
     readViewState: () => invokeOptionalViewState(
       "knowledge.view-state.read",
@@ -310,4 +314,13 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
       else sharedSessions.delete(projectId);
     },
   });
+}
+
+/** Optional repair must not block record reads during an in-place Surface update. */
+export async function readPageWithRecordLinks(client, projectId, pageId) {
+  try { await client.invoke("knowledge.record.links.v1", { projectId, pageId }); }
+  catch (error) {
+    if (!["OPERATION_NOT_FOUND", "PROJECT_ROLE_REQUIRED"].includes(error?.code)) throw error;
+  }
+  return client.readPage(projectId, pageId);
 }

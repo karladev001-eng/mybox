@@ -6,7 +6,7 @@ Read it before changing layout, controls, styling, icons, motion, or interaction
 
 ## Direction
 
-MyBox is a calm, precise desktop toolbox: dark, content-first, icon-led, and
+MyBox is a calm, precise knowledge workspace: dark, content-first, icon-led, and
 compact without feeling crowded. Keep the existing graphite surfaces and mint
 accent. Prefer flat layered surfaces, subtle borders, and restrained elevation;
 avoid decorative gradients, oversized cards, glass effects, and bright color
@@ -17,6 +17,19 @@ controls, keyboard behavior, focus management, and accessibility are mandatory.
 Any OS or browser default surface visible to the user is an unfinished state.
 
 ## Quiet information hierarchy
+
+Buttons should look small and quiet by default. Repeated message actions use
+16 px icons, muted color and transparent backgrounds without permanent outlines.
+Keep their 40 px hit areas and visible keyboard focus; visual compactness must not
+make controls difficult to operate. Use short 12–13 px text only when an icon would
+be ambiguous. Reserve strong fills and prominent labels for the main action in a
+flow, not every action below every message.
+
+Chat content must render Markdown rather than display formatting syntax. Use the
+same renderer in chat, Conversation Pages and Context answer previews. Support
+headings, emphasis, lists, quotes, code and GFM tables; keep wide tables/code locally
+scrollable and paragraphs comfortably spaced. Preserve stored source text. Raw
+HTML is not executable content, and Markdown must not load remote media implicitly.
 
 The interface should explain itself through placement, familiar controls, and
 immediate feedback. Keep persistent explanatory copy to the minimum needed to

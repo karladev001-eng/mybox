@@ -10,7 +10,7 @@ export function createDefaultHostSession() {
   return {
     schemaVersion: HOST_SESSION_SCHEMA_VERSION,
     view: "apps",
-    appId: null,
+    appId: "knowledge",
   };
 }
 

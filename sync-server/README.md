@@ -87,3 +87,10 @@ write from a Viewer and from a removed member.
 Tokens are stored as digests, so a copy of the database reveals none that still
 open a Project. Invites are spent on first use. Removing a member deletes their
 tokens and closes their open sockets rather than waiting for the next request.
+
+## Record compatibility
+
+The record-aware client sends `records=2` during the WebSocket handshake. Version 1 and older
+clients receive HTTP 426 and old hibernating sockets are closed before receiving
+new record updates. Updated clients refuse older servers. Redeploy the server
+bundle through the existing MyBox deployment UI before using shared records.

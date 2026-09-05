@@ -1,5 +1,20 @@
 # MyBox Knowledge App Specification
 
+> ADR 0043 supersedes independent Knowledge/chat ownership below. Knowledge is now
+> mandatory and owns note, conversation and context Pages. Project boundaries,
+> role checks, storage ports and public Operations remain. The current store is
+> append-only Yjs (ADR 0040); SQLite and raw Markdown are not being introduced.
+> Conversations preserve immutable message Blocks; each model call is recorded
+> before sending when recording is enabled. Folders, files, graph UI and semantic
+> retrieval are later stages.
+>
+> ADR 0044 groups Context into one notebook per conversation in a private Record
+> Project. Recording defaults on; authorized sources may cross Project boundaries.
+> Selected completed turns are previewed and copied with questions, answers and
+> raster media into a shared Project as fixed records. Ordinary PageLinks retain
+> their same-Project rule; Context provenance uses explicit authorized source IDs.
+
+
 - Status: Accepted implementation baseline
 - Date: 2026-08-16
 - Planned App ID: `knowledge`
@@ -538,3 +553,7 @@ demonstrate at least the following scenarios:
 5. Add Agent retrieval/change-proposal flows and Obsidian import/export.
 6. Design cloud sharing and real-time collaboration in separate ADRs before adding
    a synchronization provider or CRDT.
+
+### Automatic record PageLinks
+
+Conversation and Context receive persisted reciprocal PageLinks within a Project. Context also links its actual source Pages and legacy Context. Across Projects, reverse navigation uses authorized backlinks. Opening existing records repairs missing links through `knowledge.record.links.v1`; message and input text remain unchanged. See ADR 0046.

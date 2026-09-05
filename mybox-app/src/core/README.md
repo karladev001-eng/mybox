@@ -51,3 +51,10 @@ Production filesystem, secrets, network, and cloud adapters belong behind these
 ports. `app-runtime.js` is the composition root and may register trusted built-in
 App definitions and their narrow desktop ports; the other core modules do not
 import React, Tauri, provider SDKs, or app-specific modules.
+
+- `knowledge-chat-store.js`: Host migration coordinator and conversation view adapter; records use Knowledge Operations and old chat storage stays a backup.
+
+- `provider-instructions.json`: shared native/provider instructions included in Context snapshots before dispatch.
+
+The Host freezes `contextAutoRecord` at send start. `knowledge-chat-store.js` resolves
+private Record destinations, recovers unfinished turns and links legacy Context.

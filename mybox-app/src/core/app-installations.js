@@ -88,6 +88,8 @@ export function createAppInstallationsStore(storage, { defaultInstalledApps = []
       const normalized = stored.schemaVersion === LEGACY_INSTALLATION_SCHEMA_VERSION
         ? migrateLegacyAppInstallations(stored, availableApps)
         : validateAppInstallations(stored);
+      const foundation = availableApps.find((app) => app.id === "knowledge");
+      if (foundation) normalized.installedApps = [...normalized.installedApps.filter((app) => app.id !== "knowledge"), installationEntry(foundation)];
       return clone(normalized);
     },
     async save(apps, catalog = apps, installedVersions = {}) {

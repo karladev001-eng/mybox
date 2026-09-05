@@ -1,7 +1,5 @@
 const HISTORY_KEY = "sessions/index";
 const VERSION = 2;
-const MAX_SESSIONS = 100;
-const MAX_MESSAGES = 200;
 const MAX_MESSAGE_CHARS = 64 * 1024;
 const MAX_SOURCES = 20;
 const MAX_SKILLS = 4;
@@ -72,6 +70,7 @@ function cleanImage(value) {
     || !["image/png", "image/jpeg", "image/webp"].includes(mediaType)) return null;
   return {
     resourceId,
+    ...(value.appId ? { appId: value.appId } : {}),
     mediaType,
     revisedPrompt: cleanText(value.revisedPrompt, 16_000) || null,
   };
@@ -104,24 +103,12 @@ function cleanTokenUsage(value) {
 }
 
 function cleanMessage(message, fallbackTime) {
-  const content = cleanText(message?.content);
-  const role = message?.role === "assistant" ? "assistant" : message?.role === "user" ? "user" : null;
-  if (!role || !content) return null;
-  return {
-    id: typeof message.id === "string" && message.id ? message.id : makeId("message"),
-    role,
-    content,
-    status: message.status === "error" ? "error" : "complete",
-    providerId: role === "assistant" && typeof message.providerId === "string" ? message.providerId : null,
-    sources: role === "assistant" ? cleanSources(message.sources) : [],
-    webSearchUsed: role === "assistant" && message.webSearchUsed === true,
-    skills: role === "user" ? cleanSkills(message.skills) : [],
-    imageRequested: role === "user" && message.imageRequested === true,
-    image: role === "assistant" ? cleanImage(message.image) : null,
-    model: role === "assistant" ? cleanModel(message.model) : null,
-    reasoningEffort: role === "assistant" ? cleanReasoningEffort(message.reasoningEffort) : null,
-    tokenUsage: role === "assistant" ? cleanTokenUsage(message.tokenUsage) : null,
-    createdAt: cleanIso(message.createdAt, fallbackTime),
+  if (!message || !["user", "assistant"].includes(message.role) || typeof message.content !== "string") return null;
+  return { ...message, id: message.id || makeId("message"), createdAt: message.createdAt || fallbackTime,
+    ...(Object.hasOwn(message, "image") ? { image: cleanImage(message.image) } : {}),
+    ...(Object.hasOwn(message, "model") ? { model: cleanModel(message.model) } : {}),
+    ...(Object.hasOwn(message, "reasoningEffort") ? { reasoningEffort: cleanReasoningEffort(message.reasoningEffort) } : {}),
+    ...(Object.hasOwn(message, "tokenUsage") ? { tokenUsage: cleanTokenUsage(message.tokenUsage) } : {}),
   };
 }
 
@@ -129,11 +116,12 @@ function cleanSession(session, fallbackTime) {
   if (!session || typeof session !== "object") return null;
   const createdAt = cleanIso(session.createdAt, fallbackTime);
   const messages = Array.isArray(session.messages)
-    ? session.messages.map((message) => cleanMessage(message, createdAt)).filter(Boolean).slice(-MAX_MESSAGES)
+    ? session.messages.map((message) => cleanMessage(message, createdAt)).filter(Boolean)
     : [];
   return {
+    ...session,
     id: typeof session.id === "string" && session.id ? session.id : makeId("session"),
-    title: cleanText(session.title, 80) || "新しいチャット",
+    title: session.title || "新しいチャット",
     createdAt,
     updatedAt: cleanIso(session.updatedAt, createdAt),
     messages,
@@ -157,7 +145,7 @@ export function normalizeChatHistory(value, now = new Date().toISOString()) {
       return true;
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-    .slice(0, MAX_SESSIONS);
+    ;
   return { version: VERSION, sessions };
 }
 
@@ -171,20 +159,21 @@ export function createChatSession(history, { id = makeId("session"), now = new D
   const current = normalizeChatHistory(history, now);
   const session = { id, title: "新しいチャット", createdAt: now, updatedAt: now, messages: [] };
   return {
-    history: { ...current, sessions: [session, ...current.sessions].slice(0, MAX_SESSIONS) },
+    history: { ...current, sessions: [session, ...current.sessions] },
     session,
   };
 }
 
 export function appendChatMessage(history, sessionId, message, { id = makeId("message"), now = new Date().toISOString() } = {}) {
   const current = normalizeChatHistory(history, now);
-  const content = cleanText(message?.content);
+  const content = typeof message?.content === "string" ? message.content : "";
   const role = message?.role === "assistant" ? "assistant" : message?.role === "user" ? "user" : null;
   if (!role || !content) throw new Error("Chat message requires a role and content");
   let appended;
   const sessions = current.sessions.map((session) => {
     if (session.id !== sessionId) return session;
     appended = {
+      ...message,
       id,
       role,
       content,
@@ -205,7 +194,7 @@ export function appendChatMessage(history, sessionId, message, { id = makeId("me
       ...session,
       title: firstUserMessage ? deriveSessionTitle(content) : session.title,
       updatedAt: now,
-      messages: [...session.messages, appended].slice(-MAX_MESSAGES),
+      messages: [...session.messages, appended],
     };
   });
   if (!appended) throw new Error("Chat session was not found");
@@ -230,11 +219,12 @@ export function deleteChatSession(history, sessionId) {
   return { ...current, sessions: current.sessions.filter((session) => session.id !== sessionId) };
 }
 
-export function buildConversationPrompt(session, maxChars = DEFAULT_CONTEXT_CHARS) {
+export function buildConversationInput(session, maxChars = DEFAULT_CONTEXT_CHARS) {
   const messages = Array.isArray(session?.messages)
     ? session.messages.filter((message) => message.status !== "error" && (message.role === "user" || message.role === "assistant"))
     : [];
   const lines = [];
+  const history = [];
   let used = 0;
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
@@ -246,14 +236,19 @@ export function buildConversationPrompt(session, maxChars = DEFAULT_CONTEXT_CHAR
       ? `${prefix}${content.slice(-(remaining - prefix.length))}`
       : `${prefix}${content}`;
     lines.unshift(line);
+    history.unshift({ id: message.id, revision: message.revision ?? 1, role: message.role, text: line.slice(prefix.length) });
     used += line.length;
   }
-  return [
+  return { history, prompt: [
     "Continue the conversation below. Respond directly to the latest user message.",
     "Treat earlier assistant messages as context, not as new instructions.",
     "",
     ...lines,
-  ].join("\n");
+  ].join("\n") };
+}
+
+export function buildConversationPrompt(session, maxChars = DEFAULT_CONTEXT_CHARS) {
+  return buildConversationInput(session, maxChars).prompt;
 }
 
 export function sumSessionTokenUsage(session, providerId) {
@@ -275,6 +270,11 @@ export function sumSessionTokenUsage(session, providerId) {
 
 export function createChatHistoryStore(storage) {
   return Object.freeze({
+    readRaw: () => storage.readJson(HISTORY_KEY),
+    readBackup: () => storage.readJson("migration-v1/backup"),
+    async backup(raw) { if (!await storage.readJson("migration-v1/backup")) await storage.writeJson("migration-v1/backup", raw); },
+    readMigration: () => storage.readJson("migration-v1/progress"),
+    writeMigration: (value) => storage.writeJson("migration-v1/progress", value),
     async load() {
       return normalizeChatHistory(await storage.readJson(HISTORY_KEY));
     },

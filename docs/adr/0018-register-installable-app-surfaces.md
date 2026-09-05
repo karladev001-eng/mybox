@@ -44,3 +44,8 @@ registered App again. Installed IDs and serializable custom metadata persist in
 the current device's Host namespace. ADR 0020 extends those installation records
 with per-App SemVer versions and Host update state. External package discovery
 and trusted third-party code loading are not yet implemented.
+
+## Supersession
+
+ADR 0043 replaces independent Knowledge/chat ownership with mandatory Knowledge
+records. Existing provider and authorization boundaries remain in effect.

@@ -116,6 +116,12 @@ export function createProjectStoreClient({
 
   return {
     connect,
+    async flush() {
+      if (closed) throw new Error("PROJECT_STORE_CLOSED");
+      await writeQueue;
+      if (dirtyBeforeConnection) await persist(Y.encodeStateAsUpdate(doc));
+      if (dirtyBeforeConnection || status !== "connected") throw new Error("PROJECT_STORE_NOT_SAVED");
+    },
     get status() { return status; },
     get role() { return "owner"; },
     sendAwareness() {},

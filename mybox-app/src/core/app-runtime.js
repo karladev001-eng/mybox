@@ -21,6 +21,7 @@ export function createSharedAppRuntime({ desktop = false, getConfirmationLevel =
   const resources = new ResourceBroker();
   let workflows;
   const host = new AppHost({
+    requiredAppIds: ["knowledge"],
     storageDriver,
     resources,
     workflows: { request: (...args) => workflows.request(...args) },
@@ -56,7 +57,7 @@ export function createSharedAppRuntime({ desktop = false, getConfirmationLevel =
   });
 
   function syncInstalled(appIds) {
-    const wanted = new Set(appIds);
+    const wanted = new Set(["knowledge", ...appIds]);
     for (const manifest of host.listApps()) if (!wanted.has(manifest.id)) host.unregister(manifest.id);
     for (const appId of wanted) {
       const create = definitions.get(appId);

@@ -1059,15 +1059,7 @@ async fn generate_with_server_refs(
         "sandbox": "read-only",
         "ephemeral": true,
         "serviceName": "mybox",
-        "baseInstructions": if request.image_generation {
-            "You are the image generation adapter for MyBox. Use the image generation tool to create exactly one image that satisfies the latest user request. Do not merely write an image prompt. Follow explicitly selected skill instructions. Never use commands, file-change tools, MCP, Web search, image viewing, or any other external capability. Save generated output only inside the current working directory. Return one short Japanese sentence after generation."
-        } else if request.web_search {
-            "You are an inference adapter for MyBox. You may use only the hosted web search tool when current information is useful. Never use commands, files, MCP, image tools, or any other external capability. Cite web-supported claims and include the source URLs in the answer."
-        } else if selected_skills.is_empty() {
-            "You are an inference adapter for MyBox. Never use tools, commands, files, network access, MCP, or external resources. Work only from the text in the user message and return the requested answer or structured JSON."
-        } else {
-            "You are an inference adapter for MyBox. Follow the explicitly selected skill instructions, but never use tools, commands, files, network access, MCP, or external resources. If a skill needs a blocked capability, explain that limitation instead of attempting it. Work only from the provided text and return the requested answer or structured JSON."
-        }
+        "baseInstructions": crate::agent_providers::provider_instructions(if request.image_generation { "codexImage" } else if request.web_search { "codexWeb" } else if selected_skills.is_empty() { "codexText" } else { "codexSkills" })
     });
     if request.web_search {
         thread_params["config"] = json!({

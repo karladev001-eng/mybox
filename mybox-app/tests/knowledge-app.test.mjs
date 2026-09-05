@@ -686,6 +686,7 @@ test("routes a shared Project's writes to its document, so every App and the edi
   const document = new Map();
   const sharedTags = [];
   const session = {
+    role: "owner",
     listPages: (includeTrash = false) => [...document.values()]
       .filter((page) => includeTrash || page.state !== "trash")
       .map(({ id, title, state = "active" }) => ({ id, title, state, excerpt: "" })),

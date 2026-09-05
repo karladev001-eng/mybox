@@ -2,13 +2,12 @@
 
 ## Product
 
-**MyBox** is a local-first desktop toolbox containing independently useful apps.
-An app can be installed, enabled, disabled, or removed without requiring another
-app to function.
+**MyBox** is a local knowledge workspace centered on writing and reusable records.
+Knowledge is its mandatory foundation; optional tools operate through public APIs.
 
 ## Domain language
 
-**App** — A trusted, self-built package with a manifest, private state, UI, and
+**App** — An optional trusted tool package with a manifest, private tool state, UI, and
 optional public operations and events.
 
 **Host** — The MyBox runtime that registers apps, routes operations and events,
@@ -134,11 +133,11 @@ currently used through Codex. It identifies which inference account is active bu
 is neither a MyBox Linked account nor a credential, and is not persisted by MyBox.
 _Avoid_: Linked account, API key, access token
 
-**Chat session** — A provider-neutral, locally stored conversation owned by the
-`ai-chat` app. It contains ordered user and assistant messages and may continue
-through a different provider without exposing another app's state.
+**Chat session** — A provider-neutral Conversation Page owned by Knowledge. Its
+ordered message Blocks keep stable identities and provider metadata across restarts.
+The old `ai-chat` store is a migration backup, not a second content authority.
 
-**Assistant panel** — A Host-owned, collapsible view of the `ai-chat` App that
+**Assistant panel** — A Host-owned, collapsible conversation view that
 stays beside another active Surface. A Surface may provide a display-only context
 label, but the panel gains no App storage access, Operation grant, or additional
 provider capability from that label.
@@ -317,11 +316,40 @@ retain their identity and Blocks but not their incoming Page links, and are
 excluded from discovery unless the Search scope explicitly includes Trash.
 _Avoid_: Deleted Pages
 
+**Page kind** — The renderer and behavior of a record: note, conversation, or
+context. Existing Pages default to note. All kinds belong to exactly one Project.
+
+**Record Project** — The non-shared default destination for automatic Context
+recording. Its stable Project ID is retained from My Records. If it becomes shared,
+a new private destination is created for future records; old Pages remain in place.
+
+**Context notebook** — One Context Page per conversation in Record, with append-only
+turn sections and model-call Blocks. The persisted recording preference defaults on.
+Each send fixes that preference until completion. Old per-turn Pages remain linked.
+
+**Context snapshot** — The immutable inputs within one recorded turn, including
+Agent follow-up calls, source Project/Page/Block IDs, revisions, copied text and
+settings. Authorized sources may cross Project boundaries. Source changes or lost
+access do not erase saved input; following a source link still requires access.
+
+**Shared record copy** — A previewed selection of questions, answers and Context
+copied into another Project as an immutable Page, including required raster media.
+It inherits the destination's roles and does not receive future conversation updates.
+
+**Conversation Page** — A Page of immutable user/assistant message Blocks. Titles
+and Tags are editable; authored changes are extracted to Notes with provenance.
+
+**Chunk** — A derived semantic retrieval unit, potentially spanning several Blocks.
+It is not an editing identity or an authoritative record. Retrieval is a later phase.
+
 ## Fixed boundaries
 
-- App state is private to its owner.
+- Shared records belong to the mandatory Knowledge foundation. Optional App state
+  is private to its owner.
 - Cross-app work uses operations and events only.
 - Removing an app removes its callable capabilities; retained user data follows a
   separate explicit deletion policy.
 - Local Workspace and Project-store data remain authoritative; cloud sharing is a
   synchronized adapter path rather than direct access to App internals.
+
+Automatic record PageLinks connect Conversation, Context and actual source Pages. Cross-Project reverse navigation uses permission-filtered backlinks without publishing private Record metadata into source Projects (ADR 0046).

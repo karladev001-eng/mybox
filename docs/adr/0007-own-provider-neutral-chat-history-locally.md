@@ -63,3 +63,8 @@ defined by ADR 0003 and ADR 0005.
   the local transcript without storing image bytes in chat JSON.
 - ADR 0010 records the effective model, reasoning effort, and validated API token
   breakdown on completed assistant messages.
+
+## Supersession
+
+ADR 0043 replaces independent Knowledge/chat ownership with mandatory Knowledge
+records. Existing provider and authorization boundaries remain in effect.

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { readChatImage } from "./desktop/agent-providers.js";
 import { openExternalUrl } from "./desktop/open-url.js";
 import { ThemedSelect } from "./ThemedSelect.jsx";
+import { MessageMarkdown } from "./MessageMarkdown.js";
+import { RecordAction } from "./RecordAction.jsx";
 import {
   ArrowSquareOut,
   ArrowLeft,
@@ -119,7 +121,7 @@ function ChatIconButton({ label, children, ...props }) {
 
 const openSource = openExternalUrl;
 
-function ChatGeneratedImage({ image, fallbackAlt }) {
+function ChatGeneratedImage({ image, fallbackAlt, onReadImage }) {
   const [dataUrl, setDataUrl] = useState("");
   const [error, setError] = useState("");
 
@@ -127,11 +129,11 @@ function ChatGeneratedImage({ image, fallbackAlt }) {
     let active = true;
     setDataUrl("");
     setError("");
-    readChatImage(image.resourceId)
+    (image.dataUrl ? Promise.resolve(image.dataUrl) : onReadImage ? onReadImage(image) : readChatImage(image.resourceId))
       .then((value) => active && setDataUrl(value))
       .catch((reason) => active && setError(String(reason)));
     return () => { active = false; };
-  }, [image.resourceId]);
+  }, [image.resourceId, image.appId]);
 
   const alt = image.revisedPrompt || fallbackAlt || "AIが生成した画像";
   return (
@@ -193,6 +195,12 @@ export function ChatView({
   onSelectConfirmationLevel,
   variant = "full",
   contextLabel = "MyBox",
+  chatProjects = [], newChatProject = "", onNewChatProject,
+  onReadImage,
+  contextSources = [],
+  onClearContext,
+  onOpenContext,
+  onExtractMessage,
   onClose,
   onOpenFull,
 }) {
@@ -407,7 +415,7 @@ export function ChatView({
               <span><span className={`provider-dot${providerReady ? "" : " disconnected"}`} aria-hidden="true" />{providerName}{providerReady ? "" : "・未接続"}</span>
             </div>
           </div>
-          <div className="chat-header-actions"><button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button></div>
+          <div className="chat-header-actions">{onNewChatProject && <div className="record-destination"><ThemedSelect placement="bottom" id="conversation-destination" label="新しい会話の保存先（共有Projectでは会話とContextも共有）" value={newChatProject} onChange={onNewChatProject} options={[{ id: "", label: "個人の記録（既定）" }, ...chatProjects.filter((p) => p.role !== "viewer").map((p) => ({ id: p.id, label: p.name }))]} /></div>}<button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button></div>
         </header>}
 
         <div ref={messageListRef} className="chat-messages" role="log" aria-live="polite" aria-relevant="additions text">
@@ -435,14 +443,17 @@ export function ChatView({
                       {message.role === "assistant" && message.tokenUsage && <span title={tokenUsageTitle(message.tokenUsage)}>{compactNumber(message.tokenUsage.totalTokens)} tokens</span>}
                       <time dateTime={message.createdAt}>{messageTime(message.createdAt)}</time>
                     </header>
-                    <p>{message.content}</p>
+                    <RecordedMessageBody message={message} onReadImage={onReadImage} />
                     {(message.imageRequested || message.skills?.length > 0) && (
                       <div className="message-tools" aria-label="使用したツール">
                         {message.imageRequested && <span><ImageSquare size={14} aria-hidden="true" />画像生成</span>}
                         {message.skills?.map((skill) => <span key={skill.id}><MagicWand size={14} aria-hidden="true" />{skill.name}</span>)}
                       </div>
                     )}
-                    {message.image && <ChatGeneratedImage image={message.image} fallbackAlt={message.content} />}
+                    <div className="record-actions">
+                      {onOpenContext && (message.contextRecording === false ? <span className="record-notice">Context記録OFF</span> : <RecordAction label="この送信のContext" icon={Brain} onClick={() => onOpenContext(message)} />)}
+                      {onExtractMessage && <RecordAction label="Noteへ切り出す" icon={NotePencil} onClick={() => onExtractMessage(message)} />}
+                    </div>
                     {message.sources?.length > 0 && (
                       <nav className="message-sources" aria-label="回答の出典">
                         <span><GlobeHemisphereWest size={15} aria-hidden="true" />出典</span>
@@ -475,6 +486,7 @@ export function ChatView({
 
         <form className="chat-composer" onSubmit={submit} aria-busy={busy}>
           <UsageBadge usage={usage} />
+          {contextSources.length > 0 && <div className="record-context-strip"><span>{contextSources.map((r) => r.title || "Context").join(" · ")}</span><button type="button" onClick={onClearContext}>解除</button></div>}
           {slashOpen && (
             <section className="slash-menu" aria-label="コマンド候補">
               <header><span><strong>/</strong> コマンド</span><small>↑↓ 移動　Tab 選択</small></header>
@@ -676,4 +688,8 @@ export function ChatView({
       </div>
     </section>
   );
+}
+
+export function RecordedMessageBody({ message, onReadImage }) {
+  return <><MessageMarkdown text={message.content} onOpenLink={openExternalUrl} />{message.image && <ChatGeneratedImage image={message.image} fallbackAlt={message.content} onReadImage={onReadImage} />}</>;
 }

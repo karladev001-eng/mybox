@@ -1,3 +1,4 @@
+import { commitRecordPage } from "./yjs-document.js";
 import { createSyncClient, encodeDocState } from "./sync-client.js";
 import { isAuthorColor } from "./author-color.js";
 import { normalizePageTitle, normalizeTagLabel } from "./domain.js";
@@ -233,6 +234,11 @@ export function createSharedProject({
     doc,
     get status() { return status; },
     get role() { return client.role; },
+    flush: () => client.flush?.() ?? Promise.resolve(),
+    commitRecord(page) {
+      if (!["owner", "editor"].includes(client.role)) throw new SharedProjectError("PROJECT_ROLE_REQUIRED", "Editor Project role is required");
+      commitRecordPage(doc, page);
+    },
     get disposed() { return disposed; },
 
     /**
@@ -262,6 +268,8 @@ export function createSharedProject({
           id: page.id,
           projectId,
           title: page.title,
+          kind: page.kind ?? "note",
+          updatedAt: page.updatedAt ?? "",
           state: page.state,
           tagIds: page.tagIds,
           tagLabels: page.tagIds.map((tagId) => labelsById.get(tagId)).filter(Boolean),
@@ -297,6 +305,9 @@ export function createSharedProject({
      * document is not a second, parallel write path with its own shapes.
      */
     mutate(pageId, mutation, actorId) {
+      if (client.role === "viewer") throw new SharedProjectError("PROJECT_ROLE_REQUIRED", "Editor Project role is required");
+      const record = readPage(doc, pageId);
+      if (record?.kind && record.kind !== "note" && !["rename", "tags-set", "page-state"].includes(mutation.type)) throw new SharedProjectError("IMMUTABLE_RECORD", "会話とContextの本文は変更できません。");
       if (!SHARED_MUTATIONS.has(mutation.type)) {
         throw new SharedProjectError(
           "MUTATION_UNSUPPORTED_WHEN_SHARED",

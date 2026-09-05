@@ -336,11 +336,33 @@
   min-height: 0;
   border-right: 1px solid var(--line);
   display: grid;
-  grid-template-rows: 58px minmax(0, 1fr);
+  grid-template-rows: auto 58px minmax(0, 1fr);
   background: #1d2023;
   overflow: hidden;
 }
 .knowledge-page-list-header { padding: 0 var(--space-3) 0 var(--space-4); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
+.knowledge-page-list > .composer-picker { margin: var(--space-2) var(--space-3); }
+.context-notebook { min-width: 0; }
+.context-notebook summary, .record-share-preview summary { min-height: 40px; padding: var(--space-2); cursor: pointer; overflow-wrap: anywhere; }
+.context-notebook summary:hover, .record-share-preview summary:hover { background: var(--surface-hover); }
+.context-notebook summary:active, .record-share-preview summary:active { background: var(--surface-strong); }
+.context-notebook summary:focus-visible, .record-share-preview summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.context-notebook pre, .record-share-preview pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.record-turn-selection { display: flex; align-items: center; gap: var(--space-2); min-height: 40px; color: var(--muted); }
+.record-turn-selection input { appearance: none; width: 20px; height: 20px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.record-turn-selection input:checked { background: var(--accent); box-shadow: inset 0 0 0 4px var(--surface); }
+.record-turn-selection input:hover { border-color: var(--accent); }
+.record-turn-selection input:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.record-turn-selection input:disabled { opacity: .4; cursor: not-allowed; }
+.record-source { margin-block: var(--space-2); }
+dialog.record-share-dialog { margin: auto; color: var(--text); background: var(--surface); border: 1px solid var(--line); width: min(720px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; }
+.record-share-dialog::backdrop { background: #0009; }
+.record-share-preview { border-block: 1px solid var(--line); margin-block: var(--space-4); }
+.context-notebook button, .record-share-dialog button { min-height: 40px; padding: var(--space-2) var(--space-3); color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); font: inherit; cursor: pointer; }
+.context-notebook button:not(:disabled):hover, .record-share-dialog button:not(:disabled):hover { color: var(--accent); background: var(--surface-hover); }
+.context-notebook button:not(:disabled):active, .record-share-dialog button:not(:disabled):active { background: var(--surface-strong); }
+.context-notebook button:focus-visible, .record-share-dialog button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.context-notebook button:disabled, .record-share-dialog button:disabled { opacity: .4; cursor: not-allowed; }
 .knowledge-page-list-header > div { display: flex; align-items: baseline; gap: var(--space-2); }
 .knowledge-page-list-header h1 { margin: 0; font-size: 14px; }
 .knowledge-page-list-header span { color: var(--subtle); font-size: 11px; font-variant-numeric: tabular-nums; }
@@ -750,3 +772,15 @@
 }
 
 .knowledge-history article button:hover { border-color: transparent; background: var(--surface-hover); }
+
+.record-turn-meta { display: block; color: var(--muted); font-weight: 400; margin-top: var(--space-1); }
+
+/* Secondary Context controls follow the quiet-button policy in FRONTEND.md. */
+.context-notebook button { font-size: 12px; padding: 6px 8px; color: var(--muted); background: transparent; border-color: transparent; }
+.context-notebook .record-actions .record-icon-action { padding: 0; }
+.record-share-dialog button { font-size: 13px; }
+.context-session-relation { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.context-notebook .context-session-link { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; text-align: left; }
+.context-session-link svg { flex-shrink: 0; }
+.context-session-link span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-session-relation small { color: var(--muted); font-size: 11px; }

@@ -1448,3 +1448,62 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .workflow-switch > span,
   .workflow-switch > span::after { transition: none; }
 }
+
+/* Record actions share flat rows and semantic control states with Knowledge. */
+.record-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-block: var(--space-2); }
+.record-actions button { min-height: 40px; padding: 6px 8px; color: var(--muted); background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); font: inherit; font-size: 12px; cursor: pointer; }
+.record-actions button:hover { background: var(--surface-hover); }
+.record-actions button:active { background: var(--surface-strong); }
+.record-actions button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.record-actions button:disabled { opacity: .5; cursor: not-allowed; }
+.record-block { padding-block: var(--space-4); border-bottom: 1px solid var(--line); min-width: 0; }
+.record-block header, .record-notice { color: var(--muted); }
+.record-block pre, .record-message-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.record-destination { min-width: 0; max-width: 220px; }
+.record-destination .composer-picker-trigger { max-width: 100%; }
+.record-context-strip { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2); color: var(--muted); border-bottom: 1px solid var(--line); }
+.record-context-strip span { flex: 1; overflow-wrap: anywhere; min-width: 0; }
+.record-context-strip button { flex: 0 0 auto; width: auto; min-height: 40px; color: var(--text); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.record-context-strip button:hover { background: var(--surface-hover); }
+.record-context-strip button:active { background: var(--surface-strong); }
+.record-context-strip button:focus-visible { outline: 2px solid var(--focus); }
+@media (max-width: 760px) { .record-destination { max-width: 135px; } .chat-header-actions { gap: var(--space-1); } }
+
+/* Message content stays primary; small glyphs retain generous hit targets. */
+.record-actions { gap: 2px; margin-block: 4px 0; }
+.record-actions .record-icon-action { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; padding: 0; flex: 0 0 40px; }
+.record-actions .record-icon-action:hover { color: var(--text); }
+.record-actions .record-icon-action::after { font-size: 11px; font-weight: 400; }
+.record-block > header { font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+.record-actions .record-notice { font-size: 11px; align-self: center; }
+.message-markdown { min-width: 0; color: var(--text); font-size: 15px; line-height: 1.8; overflow-wrap: anywhere; }
+.message-markdown > :first-child { margin-top: 0; }
+.message-markdown > :last-child { margin-bottom: 0; }
+.message-markdown p { margin: 0 0 14px; font-size: inherit; line-height: inherit; white-space: normal; }
+.message-markdown :is(h1,h2,h3,h4,h5,h6) { margin: 24px 0 10px; color: var(--text); line-height: 1.45; font-weight: 650; }
+.message-markdown h1 { font-size: 1.4em; }
+.message-markdown h2 { font-size: 1.25em; }
+.message-markdown :is(h3,h4,h5,h6) { font-size: 1.08em; }
+.message-markdown :is(ul,ol) { margin: 10px 0 16px; padding-left: 1.5em; }
+.message-markdown li { margin-block: 4px; padding-left: 2px; }
+.message-markdown li > p { margin-bottom: 6px; }
+.message-markdown li :is(ul,ol) { margin-block: 4px; }
+.message-markdown blockquote { margin: 16px 0; padding-left: 16px; border-left: 2px solid var(--line-strong); color: var(--muted); }
+.message-markdown a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.message-markdown a:hover { color: var(--text); }
+.message-markdown :is(a,pre,.markdown-table-scroll):focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.message-markdown code { font-family: Consolas, monospace; font-size: .88em; background: var(--surface); border-radius: 3px; padding: 2px 5px; }
+.message-markdown.message-markdown pre { white-space: pre; overflow: auto; max-width: 100%; padding: 14px 16px; margin: 16px 0; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); line-height: 1.65; }
+.message-markdown pre code { padding: 0; background: transparent; border: 0; }
+.message-markdown hr { border: 0; border-top: 1px solid var(--line); margin: 20px 0; }
+.markdown-table-scroll { max-width: 100%; overflow-x: auto; margin: 16px 0; }
+.message-markdown table { width: 100%; min-width: 480px; border-collapse: collapse; font-size: .9em; line-height: 1.65; }
+.message-markdown :is(th,td) { padding: 10px 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; min-width: 110px; }
+.message-markdown th { background: var(--surface); color: var(--text); font-weight: 600; }
+.message-markdown td { color: var(--muted); }
+.message-markdown .task-list-item { list-style: none; }
+.message-markdown input[type=checkbox] { appearance: none; width: 13px; height: 13px; margin-right: 6px; border: 1px solid var(--line-strong); border-radius: 3px; background: var(--surface); }
+.message-markdown input:checked { background: var(--accent); box-shadow: inset 0 0 0 3px var(--surface); }
+.message-markdown pre, .markdown-table-scroll { scrollbar-color: var(--line-strong) transparent; scrollbar-width: thin; }
+.markdown-image-label { color: var(--muted); font-style: italic; }

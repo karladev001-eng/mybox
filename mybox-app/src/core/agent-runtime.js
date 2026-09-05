@@ -95,6 +95,10 @@ export class AgentRuntime {
     approval,
     confirmationLevel = "review",
     onApprovalNeeded,
+    onModelRequest,
+    profileId,
+    model,
+    reasoningEffort,
     // Structural Operations are one unit per call — a Block at a time — so
     // writing even a short structured Page costs several steps before the
     // closing reply. At 8 the agent had to choose between structure and
@@ -117,10 +121,13 @@ export class AgentRuntime {
     const observations = [];
 
     for (let step = 1; step <= maxSteps; step += 1) {
-      const result = await provider.generate({
+      const modelRequest = {
+        model, reasoningEffort,
         prompt: createPrompt(goal.trim(), operations, observations),
         responseSchema: DECISION_SCHEMA,
-      });
+      };
+      await onModelRequest?.(modelRequest);
+      const result = await provider.generate(modelRequest);
       const decision = parseDecision(result);
 
       if (decision.type === "respond" && typeof decision.message === "string") {
@@ -170,7 +177,7 @@ export class AgentRuntime {
       let output;
       try {
         output = await this.#host.invoke(decision.operationId, input, {
-          actor: { type: "agent", id: agentId },
+          actor: { type: "agent", id: agentId, ...(profileId ? { profileId } : {}) },
           grant,
           approval: stepApproval,
           confirmationLevel,

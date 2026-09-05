@@ -1,6 +1,11 @@
+import { RecordAction } from "../RecordAction.jsx";
+import { ContextNotebook } from "./ContextNotebook.jsx";
+import { RecordedMessageBody } from "../ChatView.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  Brain,
+  NotePencil,
   ArrowSquareOut,
   ArrowUDownLeft,
   CaretRight,
@@ -41,7 +46,7 @@ import "katex/dist/katex.min.css";
 import { ThemedSelect } from "../ThemedSelect.jsx";
 import { LOCAL_ACCOUNT_DISPLAY_NAME, LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { AUTHOR_COLOR_OPTIONS, NO_AUTHOR_COLOR, authorColorFor, isVisibleAuthorColor } from "./author-color.js";
-import { createKnowledgeClient } from "./client.js";
+import { createKnowledgeClient, readPageWithRecordLinks } from "./client.js";
 import { resolveKnowledgeResumeLocation } from "./domain.js";
 import { decodeInviteLink, encodeInviteLink } from "./invite-link.js";
 import { projectMemberAccountName, visibleProjectMembers } from "./member-profile.js";
@@ -1026,6 +1031,7 @@ function BlockRow({
 
   return (
     <article
+      id={`record-${block.id}`}
       className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${showAuthor && block.updatedBy ? " authored" : ""}`}
       style={showAuthor && block.updatedBy ? { "--author-color": authorColor } : undefined}
       onDragOver={(event) => {
@@ -1373,6 +1379,7 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
 }
 
 export function KnowledgeView({
+  recordTarget, onOpenConversation, onAddContext, onOpenRecordContext,
   desktop = false,
   profileId = LOCAL_PROFILE_ID,
   profile = null,
@@ -1430,10 +1437,12 @@ export function KnowledgeView({
   const [pageData, setPageData] = useState(null);
   const [viewStateReady, setViewStateReady] = useState(false);
   const restoredProfileRef = useRef(null);
+  const [kindFilter, setKindFilter] = useState("all");
   const [query, setQuery] = useState("");
   const [searchSuggestionsOpen, setSearchSuggestionsOpen] = useState(false);
   const [activeSearchSuggestion, setActiveSearchSuggestion] = useState(0);
   const [includeTrash, setIncludeTrash] = useState(false);
+  const [recordFocus, setRecordFocus] = useState(null);
   const [searchScope, setSearchScope] = useState("current");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1545,8 +1554,7 @@ export function KnowledgeView({
       setPageData(null);
       return null;
     }
-    // knowledge.page.read resolves a shared Project from its document itself.
-    const result = await client.readPage(nextProjectId, pageId);
+    const result = await readPageWithRecordLinks(client, nextProjectId, pageId);
     setPageData(result);
     setSelectedPageId(pageId);
     return result;
@@ -1561,19 +1569,6 @@ export function KnowledgeView({
     ]);
     setLinkCandidates(candidatesResult.pages);
     setTagCandidates(tagsResult.tags);
-    if (sharedRef.current && nextProjectId === projectId) {
-      // Cross-Project search still reads the local model, so search the live
-      // shared Page summaries (including their resolved Tag labels) here.
-      const needle = normalized(query);
-      setPages(query.trim()
-        ? candidatesResult.pages.filter((page) => (
-          normalized(page.title).includes(needle)
-          || normalized(page.excerpt).includes(needle)
-          || page.tagLabels?.some((label) => normalized(label).includes(needle))
-        ))
-        : candidatesResult.pages);
-      return candidatesResult.pages;
-    }
     if (query.trim()) {
       const projectIds = searchScope === "all" ? nextProjects.map((project) => project.id) : [nextProjectId];
       const result = await client.search({ query, projectIds, includeTrash });
@@ -1582,6 +1577,8 @@ export function KnowledgeView({
         id: item.pageId,
         projectId: item.projectId,
         title: item.pageTitle,
+        kind: item.kind,
+        blockId: item.blockId,
         state: item.pageState,
         revision: item.pageRevision,
         excerpt: item.excerpt,
@@ -2387,6 +2384,7 @@ export function KnowledgeView({
   const pageTitle = pageData?.page.title ?? "Pageを選択";
   const pageState = pageData?.page.state ?? null;
   const selectedListPage = pages.find((page) => page.id === selectedPageId);
+  const visibleRecords = pages.filter((page) => kindFilter === "all" || (page.kind ?? "note") === kindFilter);
 
   useEffect(() => {
     const page = pageData?.page;
@@ -2405,6 +2403,15 @@ export function KnowledgeView({
       } : null,
     });
   }, [currentProject?.name, onContextChange, pageData?.page?.id, pageData?.page?.title, pageData?.page?.revision, pageData?.page?.blocks]);
+
+  useEffect(() => {
+    if (recordTarget && viewStateReady) {
+      selectPage(recordTarget.projectId, recordTarget.pageId).then(() => {
+        setRecordFocus({ pageId: recordTarget.pageId, blockId: recordTarget.blockId });
+        if (recordTarget.blockId) requestAnimationFrame(() => document.getElementById(`record-${recordTarget.blockId}`)?.scrollIntoView({ block: "center" }));
+      }).catch((error) => setError(displayError(error)));
+    }
+  }, [recordTarget, viewStateReady]);
 
   if (!persistenceReady) {
     return (
@@ -2585,15 +2592,16 @@ export function KnowledgeView({
       </aside>
 
       <section className="knowledge-page-list" aria-labelledby="knowledge-pages-title">
+        <ThemedSelect id="record-kind" label="記録の種類" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "コンテキスト" }]} />
         <div className="knowledge-page-list-header">
-          <div><h1 id="knowledge-pages-title">{query ? "検索結果" : includeTrash ? "Active + Trash" : "Pages"}</h1><span>{pages.length}</span></div>
+          <div><h1 id="knowledge-pages-title">{query ? "検索結果" : includeTrash ? "Active + Trash" : "Pages"}</h1><span>{visibleRecords.length}</span></div>
           <button type="button" aria-label="新しいPage" data-tooltip="新しいPage" onClick={createUntitledPage}><Plus size={19} /></button>
         </div>
-        {loading ? <div className="knowledge-list-status"><span className="spinner" />読み込み中…</div> : pages.length ? (
+        {loading ? <div className="knowledge-list-status"><span className="spinner" />読み込み中…</div> : visibleRecords.length ? (
           <ul className="knowledge-pages">
-            {pages.map((page) => (
+            {visibleRecords.map((page) => (
               <li key={`${page.projectId}-${page.id}`}>
-                <button type="button" className={page.id === selectedPageId ? "knowledge-page-row active" : "knowledge-page-row"} aria-current={page.id === selectedPageId ? "page" : undefined} onClick={() => selectPage(page.projectId ?? projectId, page.id)}>
+                <button type="button" className={page.id === selectedPageId ? "knowledge-page-row active" : "knowledge-page-row"} aria-current={page.id === selectedPageId ? "page" : undefined} onClick={async () => { await selectPage(page.projectId ?? projectId, page.id); setRecordFocus({ pageId: page.id, blockId: page.blockId }); if (page.blockId) requestAnimationFrame(() => document.getElementById(`record-${page.blockId}`)?.scrollIntoView({ block: "center" })); }}>
                   <FileText size={18} weight={page.id === selectedPageId ? "fill" : "regular"} aria-hidden="true" />
                   <span><strong>{page.title}</strong><small>{page.excerpt || "空のPage"}</small></span>
                   {page.state === "trash" ? <span className="knowledge-trash-badge">Trash</span> : <CaretRight size={16} aria-hidden="true" />}
@@ -2712,7 +2720,30 @@ export function KnowledgeView({
                     )}
                   </div>
                 )}
-                {pageData.page.blocks.map((block, index) => {
+                <div className="record-actions">
+                  {onAddContext && <button type="button" disabled={pageData.page.state !== "active"} onClick={() => onAddContext({ projectId, pageId: pageData.page.id, title: pageData.page.title })}>Contextに追加</button>}
+                  {pageData.page.kind === "conversation" && <button type="button" onClick={() => onOpenConversation?.(projectId, pageData.page.id)}>会話を続ける</button>}
+                </div>
+                {pageData.page.kind === "context" && <ContextNotebook key={pageData.page.id} page={pageData.page} client={client} desktop={desktop} readOnly={readOnly} targetBlockId={recordFocus?.pageId === pageData.page.id ? recordFocus.blockId : null} onNavigate={async (nextProjectId, pageId, blockId) => {
+                  try { await selectPage(nextProjectId, pageId); setRecordFocus({ pageId, blockId }); if (blockId) requestAnimationFrame(() => document.getElementById(`record-${blockId}`)?.scrollIntoView({ block: "center" })); }
+                  catch { setError("参照先は削除済み、または閲覧権限がありません。"); }
+                }} />}
+                {pageData.page.legacyContextUnavailable && <p className="record-notice">移行前の送信Contextは記録されていません。</p>}
+                {pageData.page.kind !== "context" && pageData.page.blocks.map((block, index) => {
+                  if (block.links?.some((link) => link.recordRelation)) return null;
+                  if (pageData.page.kind && pageData.page.kind !== "note") return <section key={block.id} id={`record-${block.id}`} className="record-block">
+                    <header>{block.message ? (block.message.role === "user" ? "あなた" : "MyBox AI") : `送信 ${index + 1}`}</header>
+                    {block.message ? <RecordedMessageBody message={{ ...block.message, content: block.text }} onReadImage={(image) => client.readImage(image.resourceId)} /> : <>
+                      <pre>{block.text}</pre>
+                      {block.call && <details><summary>送信時の設定と指示</summary><pre>{JSON.stringify(block.call.settings, null, 2)}</pre></details>}
+                    </>}
+                    <div className="record-actions">
+                      {block.message && onOpenRecordContext && <RecordAction label="この送信のContext" icon={Brain} onClick={() => onOpenRecordContext(pageData.page, { ...block.message, id: block.id })} />}
+                      {onAddContext && <RecordAction label="Contextに追加" icon={Plus} onClick={() => onAddContext({ projectId, pageId: pageData.page.id, blockId: block.id, title: pageData.page.title })} />}
+                      <RecordAction label="Noteへ切り出す" icon={NotePencil} disabled={readOnly} onClick={async () => { try { const { page } = await client.invoke("knowledge.record.extract.v1", { projectId, pageId: pageData.page.id, blockId: block.id }); await selectPage(projectId, page.id); } catch (error) { setError(displayError(error)); } }} />
+                    </div>
+                  </section>;
+
                   const authorColor = authorColorFor(block.updatedBy, memberColors[block.updatedBy]);
                   return <BlockRow
                     key={block.id}
@@ -2746,7 +2777,7 @@ export function KnowledgeView({
                     }}
                   />;
                 })}
-                {!readOnly && dragBlockId && (
+                {!readOnly && (!pageData.page.kind || pageData.page.kind === "note") && dragBlockId && (
                   <div
                     className={`knowledge-block-dropzone${dragOverBlockId === "__end__" ? " drag-over" : ""}`}
                     onDragOver={(event) => {
@@ -2761,7 +2792,7 @@ export function KnowledgeView({
                     }}
                   />
                 )}
-                {!readOnly && (
+                {!readOnly && (!pageData.page.kind || pageData.page.kind === "note") && (
                   <div className="knowledge-add-block-row">
                     <button type="button" className="knowledge-add-block" aria-label="Blockを追加" data-tooltip="Blockを追加" onClick={() => addBlockAfter(pageData.page.blocks.at(-1)?.id)}><Plus size={17} /></button>
                     <button type="button" className="knowledge-add-block" aria-label="画像を追加" data-tooltip={desktop ? "画像を追加" : "デスクトップ版で利用できます"} disabled={!desktop} onClick={addImageBlock}><ImageIcon size={17} /></button>
@@ -2769,10 +2800,15 @@ export function KnowledgeView({
                 )}
               </div>
 
+              {!!pageData.pageLinks?.length && <section className="knowledge-backlinks" aria-label="ページリンク">
+                <h2><LinkIcon size={18} aria-hidden="true" />ページリンク <span>{pageData.pageLinks.length}</span></h2>
+                {pageData.pageLinks.map((link) => <button key={`${link.projectId}-${link.pageId}`} type="button" onClick={() => selectPage(link.projectId, link.pageId)}><FileText size={17} aria-hidden="true" /><span><strong>{link.title}</strong></span><CaretRight size={16} aria-hidden="true" /></button>)}
+              </section>}
+
               <section className="knowledge-backlinks" aria-labelledby="knowledge-backlinks-title">
                 <h2 id="knowledge-backlinks-title"><LinkIcon size={18} aria-hidden="true" />被リンク <span>{pageData.backlinks.length}</span></h2>
                 {pageData.backlinks.length ? pageData.backlinks.map((backlink) => (
-                  <button key={`${backlink.pageId}-${backlink.blockId}`} type="button" onClick={() => selectPage(projectId, backlink.pageId)}><FileText size={17} /><span><strong>{backlink.pageTitle}</strong><small>{backlink.excerpt}</small></span><CaretRight size={16} /></button>
+                  <button key={`${backlink.pageId}-${backlink.blockId}`} type="button" onClick={() => selectPage(backlink.projectId, backlink.pageId)}><FileText size={17} /><span><strong>{backlink.pageTitle}</strong><small>{backlink.excerpt}</small></span><CaretRight size={16} /></button>
                 )) : <p>このPageを参照しているActive Pageはありません。</p>}
               </section>
             </article>

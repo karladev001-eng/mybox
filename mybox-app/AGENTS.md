@@ -14,10 +14,15 @@ Build app UI in `src/`. Keep `.openai/hosting.json`, `worker/index.js`, `scripts
 
 ## Durable product direction
 
-- MyBox is primarily a collection of independent, removable self-built apps.
+- MyBox is a record-centered local knowledge workspace. Knowledge is mandatory;
+  chat and optional tools work through its public Operations.
 - App-to-app flows are an optional secondary feature, never the home-screen hero.
 - Keep the UI simple and stylish, with generous spacing, many consistent vector icons, and minimal Japanese copy.
-- The selected visual direction is a dark charcoal command deck with colorful app icons, a compact AI shortcut, and secondary bottom navigation.
+- The default surface is the record editor. Preserve graphite surfaces, mint
+  accents, compact controls, and the existing contextual assistant.
 - The target runtime is a Tauri desktop shell with a user-selected local workspace as the source of truth.
 - Apps own private state and collaborate through host-mediated operations and events only.
 - Flows and AI agents use the same public app operations and remain subject to authorization and audit.
+
+- Message actions should look small and quiet: muted 16 px icons, no permanent
+  outline, and 40 px hit targets. Render chat Markdown consistently across surfaces.

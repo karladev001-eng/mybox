@@ -8,8 +8,8 @@ must only be called when `isDesktopRuntime()` returns true.
 - `tauri-storage.js`: app-scoped storage driver backed by Rust commands.
 - `agent-providers.js`: ChatGPT subscription, OpenAI API, and local-LLM adapters
   whose credentials, processes, and network calls stay in the native host.
-- `chat-history.js`: binds the independent AI chat app to native app-scoped
-  workspace storage, with an in-memory Web preview fallback.
+- `chat-history.js`: owns the legacy chat storage port, backup and migration
+  checkpoint. Active conversation content now uses Knowledge Operations.
 - `profile-preferences.js`: binds host profile preferences to the same native
   app-scoped storage boundary, with an in-memory Web preview fallback.
 - `host-session.js`: binds the Host's last stable destination to app-scoped

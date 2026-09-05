@@ -11,3 +11,7 @@ native security boundaries.
 
 Read `src/README.md` for workspace persistence work and `capabilities/README.md`
 before adding a native plugin. App-specific business logic does not belong here.
+
+
+Record-aware writes upgrade Project manifests to version 2 before persisting
+updates. Version 1 is readable by this Host; older Hosts reject version 2 stores.

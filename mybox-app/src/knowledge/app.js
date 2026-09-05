@@ -1,3 +1,5 @@
+import { recordPageLinks } from "./record-links.js";
+import { recordOperations, createRecordHandlers, withProjectSessions } from "./record-operations.js";
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { APP_SCHEMA_VERSION, defineApp } from "../core/app-contract.js";
 import {
@@ -34,7 +36,7 @@ const objectSchema = { type: "object" };
 const actorCallers = ["user", "agent", "flow", "app"];
 
 function profileIdFor(actor) {
-  return actor.type === "user" ? actor.id : LOCAL_PROFILE_ID;
+  return actor.type === "user" ? actor.id : actor.profileId || LOCAL_PROFILE_ID;
 }
 
 async function loadState(storage) {
@@ -81,6 +83,7 @@ async function writeViewState(storage, profileId, viewState) {
 
 function blockToMarkdown(block) {
   const text = block.text ?? "";
+  if (block.message) return `## ${block.message.role === "user" ? "User" : "Assistant"}\n\n${text}`;
   if (block.type === "heading-1") return `# ${text}`;
   if (block.type === "heading-2") return `## ${text}`;
   if (block.type === "heading-3") return `### ${text}`;
@@ -272,7 +275,7 @@ const pageMutationInput = {
 const noSharedSessions = Object.freeze({ get: () => null });
 
 export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
-  return defineApp({
+  const definition = {
     manifest: {
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
@@ -280,6 +283,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       version: "0.5.13",
       hostCapabilities: ["app-storage", "workflows"],
       operations: [
+        ...recordOperations,
         operation({ id: "knowledge.project.list", title: "Projectを一覧", effect: "read", confirmationClass: "review", inputSchema: objectSchema, outputSchema: { type: "object", required: ["projects"], properties: { projects: { type: "array", title: "Projects", items: projectSummarySchema } } } }),
         operation({ id: "knowledge.view-state.read", title: "最後に開いたPageを読む", effect: "read", confirmationClass: "review", callers: ["user"], inputSchema: objectSchema, outputSchema: viewStateSchema }),
         operation({ id: "knowledge.view-state.update", title: "最後に開いたPageを記録", effect: "write", confirmationClass: "autonomous", callers: ["user"], inputSchema: viewStateSchema, outputSchema: viewStateSchema }),
@@ -488,6 +492,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       }],
     },
     handlers: {
+      ...createRecordHandlers({ loadState, sharedSessions }),
       async "knowledge.project.list"(_input, { actor, storage }) {
         const state = await loadState(storage);
         const projects = listProjects(state, { profileId: profileIdFor(actor) }).map((project) => {
@@ -563,18 +568,12 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { pages: listPages(state, { projectId, includeTrash, profileId: profileIdFor(actor) }) };
       },
       async "knowledge.page.read"({ projectId, pageId }, { actor, storage }) {
-        const session = sharedSessions.get(projectId);
-        if (session) {
-          const shared = session.readPage(pageId);
-          if (!shared) throw new KnowledgeDomainError("PAGE_NOT_FOUND", "Page was not found", { pageId });
-          return shared;
-        }
-        const state = await loadState(storage);
         const profileId = profileIdFor(actor);
+        const state = withProjectSessions(await loadState(storage), sharedSessions, profileId);
         const page = readPage(state, { projectId, pageId, profileId });
-        const tags = getProjectTags(state, { projectId, profileId }).filter((tag) => page.tagIds.includes(tag.id));
+        const tags = sharedSessions.get(projectId)?.readPage(pageId)?.tags ?? getProjectTags(state, { projectId, profileId }).filter((tag) => page.tagIds.includes(tag.id));
         const backlinks = getBacklinks(state, { projectId, pageId, profileId });
-        return { page, tags, backlinks };
+        return { page, tags, backlinks, pageLinks: recordPageLinks(state, { projectId, pageId }, profileId) };
       },
       async "knowledge.page.markdown.read"({ projectId, pageId }, { actor, storage }) {
         const session = sharedSessions.get(projectId);
@@ -584,10 +583,10 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       },
       async "knowledge.page.search"({ query = "", projectIds, includeTrash = false }, { actor, storage }) {
         const state = await loadState(storage);
-        return { results: searchPages(state, { query, projectIds, includeTrash, profileId: profileIdFor(actor) }) };
+        return { results: searchPages(withProjectSessions(state, sharedSessions, profileIdFor(actor)), { query, projectIds, includeTrash, profileId: profileIdFor(actor) }) };
       },
       async "knowledge.page.backlinks"({ projectId, pageId }, { actor, storage }) {
-        const state = await loadState(storage);
+        const state = withProjectSessions(await loadState(storage), sharedSessions, profileIdFor(actor));
         return { backlinks: getBacklinks(state, { projectId, pageId, profileId: profileIdFor(actor) }) };
       },
       async "knowledge.page.create"({ projectId, title }, { actor, storage, emit }) {
@@ -804,5 +803,23 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { adoptedProjectIds: mutation.adoptedProjectIds };
       },
     },
-  });
+  };
+  // Serialize knowledge mutations before they read/replace common state. Deliver
+  // events after releasing the transaction, so subscribers may invoke Operations.
+  let mutations = Promise.resolve();
+  for (const declaration of definition.manifest.operations.filter((op) => op.effect !== "read")) {
+    const handler = definition.handlers[declaration.id];
+    definition.handlers[declaration.id] = (input, context) => {
+      const events = [];
+      const run = mutations.catch(() => {}).then(() => handler(input, {
+        ...context, emit: async (...args) => { events.push(args); return {}; },
+      }));
+      mutations = run.then(() => {}, () => {});
+      return run.then(async (result) => {
+        for (const args of events) await context.emit(...args);
+        return result;
+      });
+    };
+  }
+  return defineApp(definition);
 }

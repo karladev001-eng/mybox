@@ -7,6 +7,7 @@ export function createDefaultProfilePreferences() {
   return {
     schemaVersion: PROFILE_SCHEMA_VERSION,
     confirmationLevel: "review",
+    contextAutoRecord: true,
   };
 }
 
@@ -18,14 +19,30 @@ export function validateProfilePreferences(value) {
   ) {
     throw new TypeError("Profile preferences are invalid");
   }
-  return value;
+  if (value.contextAutoRecord !== undefined && typeof value.contextAutoRecord !== "boolean") throw new TypeError("Context recording preference is invalid");
+  return { ...value, contextAutoRecord: value.contextAutoRecord ?? true };
 }
 
 export function createProfilePreferencesStore(storage) {
   if (!storage || typeof storage.readJson !== "function" || typeof storage.writeJson !== "function") {
     throw new TypeError("Profile preferences require an App storage port");
   }
+  let queue = Promise.resolve();
+  const update = (current, changes) => {
+    const pending = queue.catch(() => {}).then(async () => {
+      const stored = await storage.readJson(PROFILE_KEY);
+      const next = { ...validateProfilePreferences(stored ?? current), ...changes };
+      await storage.writeJson(PROFILE_KEY, next);
+      return structuredClone(next);
+    });
+    queue = pending;
+    return pending;
+  };
   return Object.freeze({
+    async setContextAutoRecord(current, enabled) {
+      if (typeof enabled !== "boolean") throw new TypeError("Context recording preference is invalid");
+      return update(current, { contextAutoRecord: enabled });
+    },
     async load() {
       const stored = await storage.readJson(PROFILE_KEY);
       return stored ? structuredClone(validateProfilePreferences(stored)) : createDefaultProfilePreferences();
@@ -34,9 +51,7 @@ export function createProfilePreferencesStore(storage) {
       if (!CONFIRMATION_LEVELS.includes(confirmationLevel)) {
         throw new TypeError("Confirmation level is invalid");
       }
-      const next = { ...validateProfilePreferences(current), confirmationLevel };
-      await storage.writeJson(PROFILE_KEY, next);
-      return structuredClone(next);
+      return update(current, { confirmationLevel });
     },
   });
 }

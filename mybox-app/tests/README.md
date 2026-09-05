@@ -7,6 +7,12 @@ server meet.
 
 Contains Node tests for framework behavior and Sites packaging.
 
+- `context-preview.html` / `context-preview.jsx`: manual dark UI fixture served
+  by Vite at `/tests/context-preview.html`. Exercises real in-memory Context
+  Operations and a simulated sharing destination, without provider/network writes.
+- `knowledge-records.test.mjs`: record migration, Context notebooks, preferences,
+  source/destination authorization, frozen sharing and embedded media convergence.
+
 - `app-host.test.mjs`: operation/event contracts, agent authorization, auditing,
   app removal, and state isolation.
 - `agent-runtime.test.mjs`: the provider decision loop, Operation grants, and
@@ -47,3 +53,8 @@ Contains Node tests for framework behavior and Sites packaging.
 
 Run `npm test` for framework tests. Run `npm run build` before `npm run test:sites`
 because the Sites test checks generated package files.
+
+- `message-markdown.test.mjs`: semantic GFM output and blocked HTML, unsafe links
+  and implicit remote media. The Context preview also shows rich message rendering.
+
+The Context preview supports `?workspace&sameProject` for reciprocal PageLink verification and `?workspace` for cross-Project backlink navigation using the actual KnowledgeView and in-memory records.

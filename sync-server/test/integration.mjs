@@ -26,7 +26,7 @@ async function post(path, body, token) {
 
 function connect(token, name) {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`${BASE.replace("http", "ws")}/projects/${PROJECT}/sync?token=${token}`);
+    const socket = new WebSocket(`${BASE.replace("http", "ws")}/projects/${PROJECT}/sync?records=2&token=${token}`);
     const inbox = [];
     const waiters = [];
     socket.onmessage = (event) => {
@@ -91,9 +91,14 @@ check("awareness is relayed to peers", awareness.type === "awareness" && awarene
 
 const v = await connect(viewer.token, "viewer");
 const viewerGreeting = await v.next();
-check("a viewer still receives the document", viewerGreeting.type === "sync" && viewerGreeting.role === "viewer");
+check("a viewer still receives the document", viewerGreeting.type === "sync" && viewerGreeting.role === "viewer" && viewerGreeting.records === 2);
+const legacyResponse = await fetch(`${BASE}/projects/${PROJECT}/sync?token=${viewer.token}`);
+check("legacy clients must update before receiving records", legacyResponse.status === 426);
+const previousResponse = await fetch(`${BASE}/projects/${PROJECT}/sync?records=1&token=${viewer.token}`);
+check("previous record clients must update", previousResponse.status === 426);
 v.send({ type: "update", update: b64(Y.encodeStateAsUpdate(docA)) });
-const refusal = await v.next();
+let refusal = await v.next();
+while (refusal.type === "awareness") refusal = await v.next();
 check("the server refuses a viewer's write", refusal.type === "error" && refusal.error === "ROLE_READ_ONLY",
   refusal.error ?? "");
 

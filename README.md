@@ -1,8 +1,9 @@
 <img src="docs/assets/mybox-wordmark.png" alt="MyBox" width="220">
 
-MyBox is a local-first desktop toolbox for independently usable, removable apps.
-Apps can be composed through public operations and events, and the same contracts
-are available to flows and authorized AI agents.
+MyBox is a local knowledge workspace for writing, linking, searching, and reusing
+notes, AI conversations, and recorded model context. Knowledge is the mandatory
+record foundation; optional tools use its authorized Operations. Structured Blocks
+remain canonical, and Markdown is an interchange and AI-readable representation.
 
 ## Start here
 

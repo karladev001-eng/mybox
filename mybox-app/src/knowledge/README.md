@@ -1,6 +1,6 @@
 # Knowledge App
 
-Implements the first vertical slice of the `knowledge` App described in
+Implements the mandatory Knowledge record foundation described in
 `../../../docs/knowledge-app-spec.md`.
 
 - `domain.js`: runtime-neutral Project, member author color, Page, Block,
@@ -99,3 +99,16 @@ Implements the first vertical slice of the `knowledge` App described in
 
 Keep domain rules out of React. Other Apps and Agents must use the Operations in
 `app.js`; they must not import or mutate stored state directly.
+
+- `records.js`: Conversation and Context record mutations, immutability and provenance.
+- `record-operations.js`: versioned record Operations and authorized live-Project projections.
+
+- `context-records.js`: v2 Context notebooks, turn outcomes, cross-Project source
+  authorization, preview tokens and immutable shared copies with embedded media.
+- `ContextNotebook.jsx`: turn details, source navigation, selection and shared-copy
+  preview. Old Context Pages remain readable through the same component.
+
+Context notebook reads automatically resolve the session-conversation link with
+current title and source access checks, including existing Context records.
+
+- `record-links.js`: idempotent automatic PageLinks for Conversation, Context, legacy records and actual sources; authorized cross-Project backlinks.

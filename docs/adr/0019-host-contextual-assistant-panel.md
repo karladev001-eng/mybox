@@ -45,3 +45,8 @@ As of 2026-08-16, the React Host renders the existing `ChatView` in a compact
 panel variant. Knowledge publishes its current Project/Page label and exposes a
 panel toggle in its top bar. The label is included only as untrusted interface
 context in the provider prompt.
+
+## Supersession
+
+ADR 0043 replaces independent Knowledge/chat ownership with mandatory Knowledge
+records. Existing provider and authorization boundaries remain in effect.

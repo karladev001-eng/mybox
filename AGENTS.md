@@ -59,7 +59,9 @@ or a release.
 
 ## Architecture invariants
 
-- Apps are independent, removable units and own their private state.
+- Knowledge is the mandatory shared record foundation. Optional Apps are removable
+  tools and own only private tool settings or execution state; shared records belong
+  to Knowledge (ADR 0043).
 - Apps collaborate only through host-mediated, versioned operations and events;
   they never read or mutate another app's storage directly.
 - Flows and AI agents use the same public operations as other callers.

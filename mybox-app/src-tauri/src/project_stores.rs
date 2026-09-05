@@ -11,7 +11,7 @@ use tempfile::NamedTempFile;
 use uuid::Uuid;
 
 const SETTINGS_VERSION: u32 = 1;
-const MANIFEST_VERSION: u32 = 1;
+const MANIFEST_VERSION: u32 = 3;
 const MANIFEST_KIND: &str = "mybox-note-project-store";
 const LEGACY_PROJECTS_DIRECTORY: &str = "MyBox Projects";
 const MAX_UPDATE_BYTES: usize = 10 * 1024 * 1024;
@@ -213,7 +213,7 @@ fn read_manifest(directory: &Path) -> Result<ProjectManifest, String> {
             .map_err(|error| format!("Project manifestを開けません：{error}"))?,
     ))
     .map_err(|error| format!("Project manifestを読み込めません：{error}"))?;
-    if manifest.version != MANIFEST_VERSION || manifest.kind != MANIFEST_KIND {
+    if !(1..=MANIFEST_VERSION).contains(&manifest.version) || manifest.kind != MANIFEST_KIND {
         return Err("選択したフォルダーは対応するMyBox Note Projectではありません".to_string());
     }
     validate_project_id(&manifest.project_id)?;
@@ -714,7 +714,13 @@ pub fn write_project_store_update(
     if bytes.is_empty() || bytes.len() > MAX_UPDATE_BYTES {
         return Err("同期更新のサイズが不正です".to_string());
     }
-    let (directory, _) = configured_store(&app, &project_id)?;
+    let (directory, mut manifest) = configured_store(&app, &project_id)?;
+    // Upgrade before accepting new writes. Older hosts reject version 3 rather
+    // than projecting away conversation metadata they do not understand.
+    if manifest.version < MANIFEST_VERSION {
+        manifest.version = MANIFEST_VERSION;
+        atomic_write_json(&directory.join("manifest.json"), &manifest)?;
+    }
     let updates_directory = directory.join("updates");
     fs::create_dir_all(&updates_directory)
         .map_err(|error| format!("更新フォルダーを作成できません：{error}"))?;

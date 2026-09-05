@@ -7,7 +7,7 @@ Contains the React interface and the host-independent app framework.
 - `WorkflowView.jsx`: searchable horizontal Workflow editor for typed Actions
   and Agent Commands, with Schema-driven settings and Step-level durable history.
 - `ChatView.jsx`: session navigation, conversation transcript, and composer for
-  the independent AI chat app, including Web-search consent, explicit skill
+  Knowledge Conversation Pages, including Web-search consent, explicit skill
   selection, slash-command discovery, model/Thinking controls, provider-specific
   usage, generated-image display, source links, and the compact Host assistant
   panel variant.
@@ -24,3 +24,6 @@ Contains the React interface and the host-independent app framework.
 
 UI code may call the core API but must not access another app's state or a future
 Tauri adapter directly.
+
+- `MessageMarkdown.js`: shared safe GFM rendering for chat and record transcripts.
+- `RecordAction.jsx`: quiet icon actions with accessible names and themed tooltips.

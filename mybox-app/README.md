@@ -61,8 +61,8 @@ never uses a client secret, so none is needed or stored.
 
 ## AI providers
 
-AI chat owns provider-neutral conversation history inside the selected local
-workspace. The history sidebar supports search, rename, delete, and session
+Knowledge owns provider-neutral conversation history inside the selected local
+workspace; AI chat uses its public Operations. The history sidebar supports search, rename, delete, and session
 switching. Requests send a bounded window of completed local messages to the
 selected provider; failed responses stay visible but are excluded from later
 model context. The Web preview keeps this history only in memory.
@@ -119,3 +119,15 @@ and a command that returns to the MyBox home screen.
 OpenAI API and Local LLM currently report skill and image-generation capabilities
 as unavailable. Their adapters can implement the same provider-neutral contract
 later without changing chat history or UI ownership.
+
+## Record workspace
+
+ADRs 0043/0044 make Knowledge mandatory. Notes, conversations and Context
+notebooks share the record model and search. Settings defaults Context recording
+on. Each conversation gets one notebook in private Record; authorized source
+Projects may differ. Completed turns can be previewed and copied to a shared
+Project with questions, answers and images, without following later changes. New chats default to an unshared
+My Records Project. Existing sessions migrate with restartable backups and media
+verification. Update group sync servers before using the new record protocol.
+
+During development, changes to Host/Knowledge JavaScript definitions reload the document so registered Operations match the UI. JSX and CSS retain fast refresh.

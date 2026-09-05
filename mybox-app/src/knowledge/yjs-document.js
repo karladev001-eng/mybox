@@ -77,6 +77,7 @@ function applyText(yText, nextText) {
 function newBlock(block = {}) {
   const map = new Y.Map();
   map.set("id", block.id);
+  for (const key of ["message", "call", "turn", "revision"]) if (block[key] !== undefined) map.set(key, structuredClone(block[key]));
   map.set("type", BLOCK_TYPES.includes(block.type) ? block.type : "paragraph");
   map.set("checked", block.checked === true);
   if (block.updatedBy) map.set("updatedBy", block.updatedBy);
@@ -104,6 +105,7 @@ function blockIndex(blocks, blockId) {
 export function seedPage(doc, page) {
   doc.transact(() => {
     const map = new Y.Map();
+    for (const key of ["kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"]) if (page[key] !== undefined) map.set(key, structuredClone(page[key]));
     map.set("title", page.title);
     map.set("state", page.state ?? "active");
     if (page.createdBy) map.set("createdBy", page.createdBy);
@@ -168,6 +170,7 @@ export function readPage(doc, pageId) {
   if (!page) return null;
   return {
     id: pageId,
+    ...Object.fromEntries(["kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"].filter((key) => page.has(key)).map((key) => [key, structuredClone(page.get(key))])),
     title: page.get("title"),
     state: page.get("state"),
     ...(page.get("createdBy") ? { createdBy: page.get("createdBy") } : {}),
@@ -175,6 +178,7 @@ export function readPage(doc, pageId) {
     tagIds: page.get("tagIds").toArray(),
     blocks: page.get("blocks").map((block) => ({
       id: block.get("id"),
+      ...Object.fromEntries(["message", "call", "turn", "revision"].filter((key) => block.has(key)).map((key) => [key, structuredClone(block.get(key))])),
       type: block.get("type"),
       text: block.get("text").toString(),
       checked: block.get("checked") === true,
@@ -194,6 +198,7 @@ export function readPage(doc, pageId) {
 export function applyPageMutation(doc, pageId, mutation, { actorId } = {}) {
   const page = pagesOf(doc).get(pageId);
   if (!page) throw new Error(`PAGE_NOT_FOUND: ${pageId}`);
+  if (page.get("kind") && page.get("kind") !== "note" && !["rename", "page-state"].includes(mutation.type)) throw new Error("IMMUTABLE_RECORD");
   const blocks = page.get("blocks");
 
   doc.transact(() => {
@@ -368,4 +373,21 @@ export function encodeState(doc) {
  */
 export function applyUpdate(doc, update, origin) {
   Y.applyUpdate(doc, update, origin);
+}
+
+/** Append immutable record Blocks without replacing concurrent messages. */
+export function commitRecordPage(doc, value) {
+  const existing = pagesOf(doc).get(value.id);
+  if (!existing) { seedPage(doc, value); return; }
+  doc.transact(() => {
+    for (const key of ["title", "kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"]) if (value[key] !== undefined) existing.set(key, structuredClone(value[key]));
+    const blocks = existing.get("blocks");
+    for (const incoming of value.blocks.filter((b) => b.turn)) {
+      const current = blocks.toArray().find((b) => b.get("id") === incoming.id);
+      if (current) current.set("turn", structuredClone(incoming.turn));
+    }
+    const ids = new Set(blocks.map((b) => b.get("id")));
+    const additions = value.blocks.filter((b) => !ids.has(b.id));
+    if (additions.length) blocks.push(additions.map(newBlock));
+  });
 }

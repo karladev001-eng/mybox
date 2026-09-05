@@ -1,5 +1,20 @@
 # MyBox system overview
 
+> ADR 0043 supersedes independent Knowledge/chat ownership below. Knowledge is now
+> mandatory and owns note, conversation and context Pages. Project boundaries,
+> role checks, storage ports and public Operations remain. The current store is
+> append-only Yjs (ADR 0040); SQLite and raw Markdown are not being introduced.
+> Conversations preserve immutable message Blocks; each model call is recorded
+> before sending when recording is enabled. Folders, files, graph UI and semantic
+> retrieval are later stages.
+>
+> ADR 0044 groups Context into one notebook per conversation in a private Record
+> Project. Recording defaults on; authorized sources may cross Project boundaries.
+> Selected completed turns are previewed and copied with questions, answers and
+> raster media into a shared Project as fixed records. Ordinary PageLinks retain
+> their same-Project rule; Context provenance uses explicit authorized source IDs.
+
+
 ![MyBox system overview](assets/mybox-system-overview.png)
 
 The generated overview distinguishes current paths with solid mint lines and
