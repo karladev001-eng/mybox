@@ -1,3 +1,4 @@
+import { assertEmptyFolder } from "./library.js";
 import { recordPageLinks } from "./record-links.js";
 import { recordOperations, createRecordHandlers, withProjectSessions } from "./record-operations.js";
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
@@ -274,7 +275,7 @@ const pageMutationInput = {
  */
 const noSharedSessions = Object.freeze({ get: () => null });
 
-export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
+export function createKnowledgeApp({ sharedSessions = noSharedSessions, fileStore } = {}) {
   const definition = {
     manifest: {
       schemaVersion: APP_SCHEMA_VERSION,
@@ -492,7 +493,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
       }],
     },
     handlers: {
-      ...createRecordHandlers({ loadState, sharedSessions }),
+      ...createRecordHandlers({ loadState, sharedSessions, fileStore }),
       async "knowledge.project.list"(_input, { actor, storage }) {
         const state = await loadState(storage);
         const projects = listProjects(state, { profileId: profileIdFor(actor) }).map((project) => {
@@ -644,6 +645,8 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { page: mutation.page };
       },
       async "knowledge.page.move-to-trash"(input, { actor, storage, emit }) {
+        const projection = withProjectSessions(await loadState(storage), sharedSessions, profileIdFor(actor));
+        assertEmptyFolder(projection, readPage(projection, { ...input, profileId: profileIdFor(actor) }));
         const session = sharedSessions.get(input.projectId);
         if (session) {
           session.mutate(input.pageId, { type: "page-state", state: "trash" }, actor.id);
@@ -696,6 +699,8 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions } = {}) {
         return { page: mutation.page };
       },
       async "knowledge.page.purge"(input, { actor, storage, emit }) {
+        const projection = withProjectSessions(await loadState(storage), sharedSessions, profileIdFor(actor));
+        assertEmptyFolder(projection, readPage(projection, { ...input, profileId: profileIdFor(actor) }));
         const session = sharedSessions.get(input.projectId);
         if (session) {
           const mutation = session.purgePage(input.pageId, actor.id);

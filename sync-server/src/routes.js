@@ -10,6 +10,9 @@ const ROUTES = Object.freeze({
   "GET /members": "members",
   "POST /members/remove": "remove",
   "GET /sync": "sync",
+  "GET /files": "fileRead",
+  "POST /files": "fileWrite",
+  "OPTIONS /files": "fileOptions",
 });
 
 const PROJECT_PATH = /^\/projects\/([^/]+)(\/.*)?$/;

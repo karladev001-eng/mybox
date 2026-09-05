@@ -59,3 +59,6 @@ their Tags without opening each Page. Before those reads, the Host prepares the
 Project's runtime-owned Yjs session from its durable Project store and optional
 sync endpoint. Image therefore sees the same shared Pages after Note closes and
 when Image is opened first after MyBox starts, without importing Note storage.
+
+Image uses the shared workspace typography and restrained amber color tokens
+for selected history and template markers (ADR 0049).

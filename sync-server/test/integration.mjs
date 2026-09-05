@@ -26,7 +26,7 @@ async function post(path, body, token) {
 
 function connect(token, name) {
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(`${BASE.replace("http", "ws")}/projects/${PROJECT}/sync?records=2&token=${token}`);
+    const socket = new WebSocket(`${BASE.replace("http", "ws")}/projects/${PROJECT}/sync?records=3&token=${token}`);
     const inbox = [];
     const waiters = [];
     socket.onmessage = (event) => {
@@ -91,11 +91,12 @@ check("awareness is relayed to peers", awareness.type === "awareness" && awarene
 
 const v = await connect(viewer.token, "viewer");
 const viewerGreeting = await v.next();
-check("a viewer still receives the document", viewerGreeting.type === "sync" && viewerGreeting.role === "viewer" && viewerGreeting.records === 2);
+check("a viewer still receives the document", viewerGreeting.type === "sync" && viewerGreeting.role === "viewer" && viewerGreeting.records === 3);
 const legacyResponse = await fetch(`${BASE}/projects/${PROJECT}/sync?token=${viewer.token}`);
 check("legacy clients must update before receiving records", legacyResponse.status === 426);
 const previousResponse = await fetch(`${BASE}/projects/${PROJECT}/sync?records=1&token=${viewer.token}`);
 check("previous record clients must update", previousResponse.status === 426);
+check("Context notebook clients must update", (await fetch(`${BASE}/projects/${PROJECT}/sync?records=2&token=${viewer.token}`)).status === 426);
 v.send({ type: "update", update: b64(Y.encodeStateAsUpdate(docA)) });
 let refusal = await v.next();
 while (refusal.type === "awareness") refusal = await v.next();
@@ -113,6 +114,19 @@ const docC = new Y.Doc();
 Y.applyUpdate(docC, unb64(restored.update));
 check("state survives a reconnect", docC.getText("body").toString() === "Hello world",
   `text="${docC.getText("body").toString()}"`);
+
+
+const fileBytes = new TextEncoder().encode("%PDF-1.7 shared original" + "x".repeat(300000));
+const fileHash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", fileBytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+const fileUrl = `${BASE}/projects/${PROJECT}/files?hash=${fileHash}`;
+const upload = (token, base64 = b64(fileBytes)) => fetch(fileUrl, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ hash: fileHash, base64 }) });
+check("Viewer cannot upload originals", (await upload(viewer.token)).status === 403);
+check("Owner uploads originals", (await upload(owner.token)).ok);
+check("original upload is idempotent", (await upload(owner.token)).ok);
+check("mismatched original is rejected", (await upload(owner.token, btoa("wrong"))).status === 400);
+const fileResult = await fetch(fileUrl, { headers: { Authorization: `Bearer ${viewer.token}` } });
+check("Viewer reads the identical original", fileResult.ok && (await fileResult.json()).base64 === b64(fileBytes));
+check("unauthenticated original reads fail", (await fetch(fileUrl)).status === 401);
 
 [a, b, v, c].forEach((socket) => socket.close());
 const passed = results.filter(Boolean).length;

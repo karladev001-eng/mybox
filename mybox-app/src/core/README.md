@@ -58,3 +58,9 @@ import React, Tauri, provider SDKs, or app-specific modules.
 
 The Host freezes `contextAutoRecord` at send start. `knowledge-chat-store.js` resolves
 private Record destinations, recovers unfinished turns and links legacy Context.
+
+The desktop Host supplies `enableWorkflows: false` to the shared runtime. This
+skips legacy Workflow loading and refuses connector execution while retaining
+stored definitions; runtime compatibility tests may opt in (ADR 0049).
+
+- `themes.js`: stable appearance IDs and safe fallback for old/unknown preferences.

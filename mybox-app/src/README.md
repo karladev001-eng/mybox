@@ -27,3 +27,10 @@ Tauri adapter directly.
 
 - `MessageMarkdown.js`: shared safe GFM rendering for chat and record transcripts.
 - `RecordAction.jsx`: quiet icon actions with accessible names and themed tooltips.
+
+- `AssistantResizeHandle.jsx`: pointer/keyboard separator for the Host assistant.
+
+- `WorkspaceHome.jsx`: authorized recent records, Projects and primary writing/search entry.
+Workflow surfaces are retired from the Host; stored definitions remain untouched.
+
+Appearance palettes live in `styles.css`; stable IDs are in `core/themes.js`. Settings persists the selection through Host profile preferences (ADR 0050).

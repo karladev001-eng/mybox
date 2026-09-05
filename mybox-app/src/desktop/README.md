@@ -59,3 +59,5 @@ must only be called when `isDesktopRuntime()` returns true.
 
 Keep native command names aligned with `src-tauri/src/lib.rs`. Do not expose raw
 filesystem access to app modules.
+
+- `knowledge-files.js`: original bytes in native Project stores and authorized group File endpoints. Downloads are verified by Knowledge before local caching.

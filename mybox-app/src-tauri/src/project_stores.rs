@@ -11,7 +11,7 @@ use tempfile::NamedTempFile;
 use uuid::Uuid;
 
 const SETTINGS_VERSION: u32 = 1;
-const MANIFEST_VERSION: u32 = 3;
+const MANIFEST_VERSION: u32 = 4;
 const MANIFEST_KIND: &str = "mybox-note-project-store";
 const LEGACY_PROJECTS_DIRECTORY: &str = "MyBox Projects";
 const MAX_UPDATE_BYTES: usize = 10 * 1024 * 1024;
@@ -403,6 +403,26 @@ fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
     Ok(())
 }
 
+fn copy_original_files(source: &Path, destination: &Path) -> Result<(), String> {
+    let source_files = source.join("files");
+    if fs::symlink_metadata(&source_files).is_ok() { reject_symlink(&source_files, "Fileフォルダー")?; }
+    if source_files.exists() {
+        let destination_files = destination.join("files");
+        if fs::symlink_metadata(&destination_files).is_ok() { reject_symlink(&destination_files, "Fileフォルダー")?; }
+        fs::create_dir_all(&destination_files).map_err(|e| e.to_string())?;
+        for entry in fs::read_dir(&source_files).map_err(|e| e.to_string())? {
+            let entry = entry.map_err(|e| e.to_string())?;
+            let hash = entry.file_name().to_string_lossy().to_string();
+            let source_path = file_path(&source, &hash)?;
+            let target_path = file_path(destination, &hash)?;
+            let bytes = fs::read(source_path).map_err(|e| e.to_string())?;
+            if target_path.exists() && fs::read(&target_path).map_err(|e| e.to_string())? != bytes { return Err("保存先のFileと内容が異なります".into()); }
+            if !target_path.exists() { atomic_write_bytes(&target_path, &bytes)?; }
+        }
+    }
+    Ok(())
+}
+
 fn copy_existing_updates(
     app: &AppHandle,
     project_id: &str,
@@ -414,6 +434,7 @@ fn copy_existing_updates(
     if source == destination {
         return Ok(());
     }
+    copy_original_files(&source, destination)?;
     for entry in fs::read_dir(source.join("updates"))
         .map_err(|error| format!("現在のProject storeを開けません：{error}"))?
         .filter_map(Result::ok)
@@ -742,6 +763,41 @@ pub fn write_project_store_update(
     Ok(id)
 }
 
+fn file_path(directory: &Path, hash: &str) -> Result<PathBuf, String> {
+    if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+        return Err("File IDが不正です".into());
+    }
+    let files = directory.join("files");
+    if fs::symlink_metadata(&files).is_ok() { reject_symlink(&files, "Fileフォルダー")?; }
+    let path = files.join(hash);
+    if fs::symlink_metadata(&path).is_ok() { reject_symlink(&path, "File")?; }
+    Ok(path)
+}
+
+#[tauri::command]
+pub fn read_project_file(app: AppHandle, project_id: String, hash: String) -> Result<Option<String>, String> {
+    let (directory, _) = configured_store(&app, &project_id)?;
+    let path = file_path(&directory, &hash)?;
+    if !path.exists() { return Ok(None); }
+    if fs::metadata(&path).map_err(|e| e.to_string())?.len() > 20 * 1024 * 1024 { return Err("Fileが大きすぎます".into()); }
+    Ok(Some(BASE64.encode(fs::read(path).map_err(|e| e.to_string())?)))
+}
+
+#[tauri::command]
+pub fn write_project_file(app: AppHandle, project_id: String, hash: String, base64: String) -> Result<(), String> {
+    if base64.len() > 28 * 1024 * 1024 { return Err("Fileが大きすぎます".into()); }
+    let bytes = BASE64.decode(base64).map_err(|e| e.to_string())?;
+    if bytes.is_empty() || bytes.len() > 20 * 1024 * 1024 { return Err("Fileのサイズが不正です".into()); }
+    let (directory, _) = configured_store(&app, &project_id)?;
+    let path = file_path(&directory, &hash)?;
+    fs::create_dir_all(directory.join("files")).map_err(|e| e.to_string())?;
+    if path.exists() {
+        if fs::read(path).map_err(|e| e.to_string())? != bytes { return Err("保存済みFileと内容が異なります".into()); }
+        return Ok(());
+    }
+    atomic_write_bytes(&path, &bytes)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -878,4 +934,28 @@ mod tests {
         assert!(prepare_store(&directory, "project-1", "Roadmap").is_err());
         assert!(!directory.join("manifest.json").exists());
     }
+    #[test]
+    fn file_ids_cannot_escape_the_project_and_missing_file_directory_is_allowed() {
+        let directory = tempfile::tempdir().unwrap();
+        let hash = "a".repeat(64);
+        assert_eq!(file_path(directory.path(), &hash).unwrap(), directory.path().join("files").join(&hash));
+        for invalid in ["../secret", "bad", "A".repeat(64).as_str()] { assert!(file_path(directory.path(), invalid).is_err()); }
+    }
+
+    #[test]
+    fn moving_project_storage_copies_immutable_originals_and_rejects_conflicts() {
+        let source = tempfile::tempdir().unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        let hash = "b".repeat(64);
+        fs::create_dir(source.path().join("files")).unwrap();
+        let original = source.path().join("files").join(&hash);
+        fs::write(&original, b"original bytes").unwrap();
+        copy_original_files(source.path(), destination.path()).unwrap();
+        assert_eq!(fs::read(destination.path().join("files").join(&hash)).unwrap(), b"original bytes");
+        assert_eq!(fs::read(&original).unwrap(), b"original bytes");
+        copy_original_files(source.path(), destination.path()).unwrap();
+        fs::write(destination.path().join("files").join(&hash), b"different").unwrap();
+        assert!(copy_original_files(source.path(), destination.path()).is_err());
+    }
+
 }

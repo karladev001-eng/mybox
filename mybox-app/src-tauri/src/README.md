@@ -62,3 +62,5 @@ opaque resource ID.
 `src/core/provider-instructions.json` used by pre-dispatch Context recording.
 
 ADR 0044 raises the Project manifest to 3 for Context notebooks and shared copies.
+
+Project stores now use manifest 4 and retain immutable File originals under `files/`. Project moves copy those resources with the update log. File commands accept Project IDs and lowercase SHA-256 IDs, never caller-provided paths.

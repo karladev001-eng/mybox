@@ -1,3 +1,5 @@
+import { PageOutline } from "./PageOutline.jsx";
+import { LibraryToolbar, LibraryDetails } from "./LibraryControls.jsx";
 import { RecordAction } from "../RecordAction.jsx";
 import { ContextNotebook } from "./ContextNotebook.jsx";
 import { RecordedMessageBody } from "../ChatView.jsx";
@@ -64,7 +66,7 @@ import {
   updateBlockSelection,
 } from "./editor-behavior.js";
 import { filterUsedTagCandidates, hasTagDelimiterAtEnd, isTagCommitKey, splitTagDraft } from "./tag-behavior.js";
-import { filterPageSearchCandidates, pageSearchKeyAction } from "./search-behavior.js";
+import { filterPageSearchCandidates, pageSearchKeyAction, knowledgeSearchCommands } from "./search-behavior.js";
 import "./knowledge.css";
 
 const TEXT_COLOR_PRESETS = Object.freeze(["ff6b6b", "ffa94d", "ffd43b", "69db7c", "4dabf7", "748ffc", "b197fc", "f783ac"]);
@@ -123,6 +125,7 @@ function parseImageBlockText(text) {
 
 function formatDate(value) {
   return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -1206,7 +1209,7 @@ function BlockRow({
   );
 }
 
-function TagsEditor({ tags, candidates, readOnly, onCommit }) {
+function TagsEditor({ tags, candidates, readOnly, onCommit, onContinue }) {
   const [labels, setLabels] = useState(tags);
   const [draft, setDraft] = useState("");
   const [open, setOpen] = useState(false);
@@ -1225,7 +1228,7 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
   const commitLabels = (nextLabels) => {
     labelsRef.current = nextLabels;
     setLabels(nextLabels);
-    onCommit(nextLabels);
+    return onCommit(nextLabels);
   };
 
   const addLabels = (values) => {
@@ -1238,8 +1241,9 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
       used.add(key);
       next.push(value);
     }
-    if (next.length !== currentLabels.length) commitLabels(next);
+    const pending = next.length !== currentLabels.length ? commitLabels(next) : Promise.resolve();
     setDraft("");
+    return pending;
   };
 
   const addLabel = (label) => addLabels([label]);
@@ -1319,11 +1323,10 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
                 if (event.key === "Enter" && isTagCommitKey(event)) {
                   event.preventDefault();
                   skipBlurCommitRef.current = true;
-                  if (hasHighlight) addLabel(filteredCandidates[highlightedIndex].label);
-                  else addLabels(splitTagDraft(draft));
+                  const pending = hasHighlight ? addLabel(filteredCandidates[highlightedIndex].label) : addLabels(splitTagDraft(draft));
                   setHighlightedIndex(-1);
                   setOpen(false);
-                  window.setTimeout(() => inputRef.current?.blur(), 0);
+                  Promise.resolve(pending).then(() => onContinue?.()).catch(() => inputRef.current?.focus());
                   return;
                 }
                 if (event.key === "," && isTagCommitKey(event)) {
@@ -1349,7 +1352,7 @@ function TagsEditor({ tags, candidates, readOnly, onCommit }) {
             />
           )}
         </div>
-        {!readOnly && <small id="knowledge-tags-hint" className="knowledge-tags-hint">Spaceで追加・Enterで入力を完了</small>}
+        {!readOnly && <small id="knowledge-tags-hint" className="sr-only">Spaceで追加・Enterで本文へ</small>}
         {!readOnly && open && filteredCandidates.length > 0 && (
           <div id="knowledge-tag-picker" className="knowledge-tag-picker" role="listbox" aria-label="既存のTag">
             {filteredCandidates.map((tag, index) => (
@@ -1438,12 +1441,15 @@ export function KnowledgeView({
   const [viewStateReady, setViewStateReady] = useState(false);
   const restoredProfileRef = useRef(null);
   const [kindFilter, setKindFilter] = useState("all");
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const searchRequest = useRef(0);
+  const [settledSearch, setSettledSearch] = useState(null);
   const [query, setQuery] = useState("");
   const [searchSuggestionsOpen, setSearchSuggestionsOpen] = useState(false);
   const [activeSearchSuggestion, setActiveSearchSuggestion] = useState(0);
   const [includeTrash, setIncludeTrash] = useState(false);
   const [recordFocus, setRecordFocus] = useState(null);
-  const [searchScope, setSearchScope] = useState("current");
+  const [searchScope, setSearchScope] = useState("all");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -1456,6 +1462,8 @@ export function KnowledgeView({
   const [projectSettingsOpen, setProjectSettingsOpen] = useState(false);
   const [projectSettingsBusy, setProjectSettingsBusy] = useState(false);
   const [autoEditBlockId, setAutoEditBlockId] = useState(null);
+  const [creationFocus, setCreationFocus] = useState(null);
+  const handledShortcut = useRef(null);
   const [selectedBlockIds, setSelectedBlockIds] = useState([]);
   const [selectionAnchorId, setSelectionAnchorId] = useState(null);
   const [blockUndoStack, setBlockUndoStack] = useState([]);
@@ -1479,8 +1487,12 @@ export function KnowledgeView({
   );
   const visibleOnlineProfiles = Object.values(onlineProfiles)
     .sort((left, right) => Number(right.profileId === activeProfile.profileId) - Number(left.profileId === activeProfile.profileId));
-  const searchCandidates = useMemo(() => filterPageSearchCandidates(pages, query), [pages, query]);
-  const searchSuggestionsVisible = searchSuggestionsOpen && Boolean(query.trim());
+  const searchCandidates = useMemo(() => {
+    const matches = filterPageSearchCandidates(pages.filter((page) => kindFilter === "all" || (page.kind ?? "note") === kindFilter), query);
+    const settled = settledSearch === JSON.stringify([query, searchScope, includeTrash, projectId]);
+    return [...matches, ...knowledgeSearchCommands(projects, currentProject, query, matches.length, settled)];
+  }, [pages, query, kindFilter, projects, currentProject, settledSearch, searchScope, includeTrash, projectId]);
+  const searchSuggestionsVisible = searchSuggestionsOpen;
 
   useEffect(() => {
     setSelectedBlockIds([]);
@@ -1502,11 +1514,28 @@ export function KnowledgeView({
   }, [searchCandidates.length]);
 
   useEffect(() => {
+    if (!viewStateReady || !shortcutCommand || handledShortcut.current === shortcutCommand.sequence) return;
+    handledShortcut.current = shortcutCommand.sequence;
+    if (["new-page", "trash-page"].includes(shortcutCommand?.shortcutId)) {
+      if (document.activeElement?.closest('.assistant-panel, [role="dialog"]')) return;
+      if (!currentProject || currentProject.role === "viewer") return;
+      if (shortcutCommand.shortcutId === "new-page") createUntitledPage();
+      else if (pageRef.current?.state === "active") moveToTrash();
+      return;
+    }
+    if (shortcutCommand?.shortcutId === "toggle-navigation") { setNavigationOpen((open) => !open); return; }
     if (shortcutCommand?.shortcutId !== "page-search") return;
     searchInputRef.current?.focus();
     searchInputRef.current?.select();
-    setSearchSuggestionsOpen(Boolean(query.trim()));
-  }, [shortcutCommand?.sequence, shortcutCommand?.shortcutId]);
+    setSearchSuggestionsOpen(true);
+  }, [viewStateReady, shortcutCommand?.sequence, shortcutCommand?.shortcutId]);
+
+  useEffect(() => {
+    if (!searchSuggestionsOpen) return;
+    const close = (event) => { if (!event.target.closest(".knowledge-search-wrap")) setSearchSuggestionsOpen(false); };
+    document.addEventListener("pointerdown", close);
+    return () => document.removeEventListener("pointerdown", close);
+  }, [searchSuggestionsOpen]);
 
   // A popup closes on outside pointer input and on Escape, returning focus to
   // its trigger, per the popup rules in FRONTEND.md.
@@ -1562,6 +1591,7 @@ export function KnowledgeView({
 
   const loadPageLists = async (nextProjectId = projectId, nextProjects = projects) => {
     if (!nextProjectId) return;
+    const request = ++searchRequest.current;
     // knowledge.page.list resolves a shared Project from its document itself.
     const [candidatesResult, tagsResult] = await Promise.all([
       client.listPages(nextProjectId, true),
@@ -1569,15 +1599,17 @@ export function KnowledgeView({
     ]);
     setLinkCandidates(candidatesResult.pages);
     setTagCandidates(tagsResult.tags);
-    if (query.trim()) {
+    if (query.trim() || searchScope === "all") {
       const projectIds = searchScope === "all" ? nextProjects.map((project) => project.id) : [nextProjectId];
       const result = await client.search({ query, projectIds, includeTrash });
+      if (request !== searchRequest.current) return candidatesResult.pages;
       const seen = new Set();
       setPages(result.results.filter((item) => !seen.has(item.pageId) && seen.add(item.pageId)).map((item) => ({
         id: item.pageId,
         projectId: item.projectId,
         title: item.pageTitle,
         kind: item.kind,
+        matchedQuery: query,
         blockId: item.blockId,
         state: item.pageState,
         revision: item.pageRevision,
@@ -1585,8 +1617,9 @@ export function KnowledgeView({
       })));
     } else {
       const result = await client.listPages(nextProjectId, includeTrash);
-      setPages(result.pages);
+      if (request === searchRequest.current) setPages(result.pages);
     }
+    if (request === searchRequest.current) setSettledSearch(JSON.stringify([query, searchScope, includeTrash, nextProjectId]));
     return candidatesResult.pages;
   };
 
@@ -1814,22 +1847,41 @@ export function KnowledgeView({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [blockUndoStack, pageData?.page, readOnly, selectedBlockIds]);
 
-  const createUntitledPage = async () => {
+  const createUntitledPage = async (requestedTitle) => {
     setError("");
     try {
       const allPages = await client.listPages(projectId, true);
       const titles = new Set(allPages.pages.map((page) => normalized(page.title)));
-      let title = "無題";
+      const baseTitle = typeof requestedTitle === "string" && requestedTitle.trim() ? requestedTitle.trim() : "無題";
+      let title = baseTitle;
       let suffix = 2;
-      while (titles.has(normalized(title))) title = `無題 ${suffix++}`;
+      while (titles.has(normalized(title))) title = `${baseTitle} ${suffix++}`;
       const result = await client.createPage(projectId, title);
       await loadProjects(projectId);
       await loadPageLists(projectId);
       await loadPage(projectId, result.page.id);
+      setCreationFocus({ pageId: result.page.id, field: typeof requestedTitle === "string" ? "tags" : "title" });
       onToast("Pageを作成しました");
     } catch (nextError) {
       setError(displayError(nextError));
     }
+  };
+
+  useEffect(() => {
+    if (!creationFocus || pageData?.page.id !== creationFocus.pageId) return;
+    const input = document.querySelector(creationFocus.field === "title" ? ".knowledge-title-field input" : ".knowledge-tags-field input");
+    if (input) { input.focus(); if (creationFocus.field === "title") input.select(); setCreationFocus(null); }
+  }, [creationFocus, pageData?.page.id]);
+
+  const beginBody = async () => {
+    if (readOnly || (pageRef.current?.kind ?? "note") !== "note") return;
+    await operationQueue.current;
+    let first = pageRef.current?.blocks.find((block) => !["image", "divider", "url-embed"].includes(block.type));
+    if (!first) {
+      const result = await runMutation({ type: "block-add", blockType: "paragraph" });
+      first = result?.page.blocks.at(-1);
+    }
+    if (first) { setAutoEditBlockId(first.id); requestAnimationFrame(() => document.getElementById(`record-${first.id}`)?.scrollIntoView({ block: "nearest" })); }
   };
 
   const addBlockAfter = async (afterBlockId, blockType = "paragraph") => {
@@ -2294,9 +2346,26 @@ export function KnowledgeView({
     if (!candidate) return;
     setSearchSuggestionsOpen(false);
     setQuery("");
+    if (candidate.command) {
+      if (candidate.command === "create") await createUntitledPage(candidate.newTitle);
+      if (candidate.command === "project") {
+        setProjectId(candidate.projectId);
+        setSelectedPageId(null);
+        setPageData(null);
+      }
+      if (candidate.command !== "create") searchInputRef.current?.focus();
+      setSearchSuggestionsOpen(false);
+      return;
+    }
     await selectPage(candidate.projectId ?? projectId, candidate.id);
+    setRecordFocus({ pageId: candidate.id, blockId: candidate.blockId });
+    if (candidate.blockId) requestAnimationFrame(() => requestAnimationFrame(() => document.getElementById(`record-${candidate.blockId}`)?.scrollIntoView({ block: "center" })));
     window.setTimeout(() => document.getElementById("knowledge-editor")?.focus(), 0);
   };
+
+  useEffect(() => {
+    if (searchSuggestionsVisible) document.getElementById(`knowledge-search-option-${activeSearchSuggestion}`)?.scrollIntoView({ block: "nearest" });
+  }, [activeSearchSuggestion, searchSuggestionsVisible]);
 
   const handleSearchKeyDown = (event) => {
     if (!searchSuggestionsVisible) return;
@@ -2384,7 +2453,7 @@ export function KnowledgeView({
   const pageTitle = pageData?.page.title ?? "Pageを選択";
   const pageState = pageData?.page.state ?? null;
   const selectedListPage = pages.find((page) => page.id === selectedPageId);
-  const visibleRecords = pages.filter((page) => kindFilter === "all" || (page.kind ?? "note") === kindFilter);
+  const visibleRecords = pages.filter((page) => (kindFilter === "all" || (page.kind ?? "note") === kindFilter));
 
   useEffect(() => {
     const page = pageData?.page;
@@ -2406,6 +2475,7 @@ export function KnowledgeView({
 
   useEffect(() => {
     if (recordTarget && viewStateReady) {
+      if (!recordTarget.pageId) { setProjectId(recordTarget.projectId); setSelectedPageId(null); setPageData(null); return; }
       selectPage(recordTarget.projectId, recordTarget.pageId).then(() => {
         setRecordFocus({ pageId: recordTarget.pageId, blockId: recordTarget.blockId });
         if (recordTarget.blockId) requestAnimationFrame(() => document.getElementById(`record-${recordTarget.blockId}`)?.scrollIntoView({ block: "center" }));
@@ -2427,7 +2497,7 @@ export function KnowledgeView({
   }
 
   return (
-    <section className={`knowledge-shell${selectedPageId ? " page-open" : ""}`} aria-label="Knowledge App">
+    <section className={`knowledge-shell${selectedPageId ? " page-open" : ""}${navigationOpen ? "" : " navigation-hidden"}`} aria-label="Knowledge App">
       <header className="knowledge-topbar">
         <button type="button" className="knowledge-icon-button" aria-label="MyBoxへ戻る" data-tooltip="MyBoxへ戻る" onClick={onClose}><ArrowLeft size={22} /></button>
         <div className="knowledge-brand"><FileText size={23} weight="duotone" aria-hidden="true" /><span><strong>Note</strong><small>Knowledge</small></span></div>
@@ -2444,15 +2514,16 @@ export function KnowledgeView({
               ref={searchInputRef}
               role="combobox"
               value={query}
-              onFocus={() => setSearchSuggestionsOpen(Boolean(query.trim()))}
-              onBlur={() => setSearchSuggestionsOpen(false)}
+              onFocus={() => setSearchSuggestionsOpen(true)}
+              onClick={() => setSearchSuggestionsOpen(true)}
+              onBlur={(event) => { if (!event.currentTarget.closest(".knowledge-search-wrap")?.contains(event.relatedTarget)) setSearchSuggestionsOpen(false); }}
               onChange={(event) => {
                 setQuery(event.target.value);
                 setActiveSearchSuggestion(0);
-                setSearchSuggestionsOpen(Boolean(event.target.value.trim()));
+                setSearchSuggestionsOpen(true);
               }}
               onKeyDown={handleSearchKeyDown}
-              placeholder="PageとBlockを検索"
+              placeholder="Page・Projectを検索"
               aria-keyshortcuts="Control+P"
               aria-autocomplete="list"
               aria-expanded={searchSuggestionsVisible}
@@ -2467,9 +2538,16 @@ export function KnowledgeView({
               searchInputRef.current?.focus();
             }}><X size={16} /></button>}
           </label>
-          <span id="knowledge-search-help" className="sr-only">候補はTabで次へ、ShiftとTabで前へ移動し、EnterでPageを開きます。</span>
+          <span id="knowledge-search-help" className="sr-only">上下キーで候補を選び、EnterでPageを開きます。Tabで検索条件へ移動します。一致がなければ新しいPageを作成できます。</span>
           {searchSuggestionsVisible && (
-            <div id="knowledge-search-suggestions" className="knowledge-search-suggestions" role="listbox" aria-label="Page検索候補">
+            <div className="knowledge-search-panel">
+              <div className="knowledge-search-filters">
+                <ThemedSelect id="search-project-scope" label="検索範囲" value={searchScope} onChange={setSearchScope} placement="bottom" options={scopeOptions} />
+                <ThemedSelect id="search-kind" label="検索する記録" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "Context" }, { id: "file", label: "File" }]} />
+                <button type="button" aria-pressed={includeTrash} onClick={() => setIncludeTrash(!includeTrash)}>Trashを含む</button>
+              </div>
+              {!query.trim() && <p className="knowledge-recent-label">PageとProject</p>}
+              <div id="knowledge-search-suggestions" className="knowledge-search-suggestions" role="listbox" aria-label="PageとProjectの検索候補">
               {searchCandidates.length ? searchCandidates.map((candidate, index) => {
                 const candidateProject = projects.find((project) => project.id === (candidate.projectId ?? projectId));
                 const selected = index === activeSearchSuggestion;
@@ -2486,10 +2564,10 @@ export function KnowledgeView({
                     onMouseEnter={() => setActiveSearchSuggestion(index)}
                     onClick={() => openSearchCandidate(candidate)}
                   >
-                    <FileText size={17} weight={selected ? "fill" : "regular"} aria-hidden="true" />
+                    {candidate.command === "create" ? <Plus size={16} aria-hidden="true" /> : candidate.command === "navigation" ? <SidebarSimple size={16} aria-hidden="true" /> : candidate.command === "project" ? <FolderOpen size={16} aria-hidden="true" /> : <FileText size={17} weight={selected ? "fill" : "regular"} aria-hidden="true" />}
                     <span>
                       <strong>{candidate.title}</strong>
-                      <small>{candidateProject?.name ?? currentProject?.name ?? "Project"}{candidate.state === "trash" ? " · Trash" : ""}{candidate.excerpt ? ` · ${candidate.excerpt}` : ""}</small>
+                      <small>{candidate.command === "project" ? "Project" : candidate.command === "create" ? "作成先" : candidateProject?.name ?? currentProject?.name ?? "Project"}{candidate.state === "trash" ? " · Trash" : ""}{candidate.excerpt ? ` · ${candidate.excerpt}` : ""}</small>
                     </span>
                     {selected && <CaretRight size={16} weight="bold" aria-hidden="true" />}
                   </button>
@@ -2497,7 +2575,8 @@ export function KnowledgeView({
               }) : (
                 <div className="knowledge-search-empty">一致するPageがありません</div>
               )}
-              <div className="knowledge-search-keys" aria-hidden="true"><kbd>Tab</kbd> 選択 <kbd>Enter</kbd> 開く <kbd>Esc</kbd> 閉じる</div>
+              <div className="knowledge-search-keys" aria-hidden="true"><kbd>↑↓</kbd> 選択 <kbd>Tab</kbd> 検索条件 <kbd>Enter</kbd> 開く <kbd>Esc</kbd> 閉じる</div>
+            </div>
             </div>
           )}
         </div>
@@ -2505,6 +2584,9 @@ export function KnowledgeView({
         {/* One grid track holds every trailing control, so adding or removing an
             action never rewrites the topbar's responsive column lists. */}
         <div className="knowledge-topbar-actions">
+        <button type="button" className="knowledge-icon-button" aria-label="左のバーを表示・非表示" aria-keyshortcuts="Control+B" data-tooltip="左のバーを表示・非表示（Ctrl+B）" aria-pressed={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}><SidebarSimple size={18} /></button>
+        <RecordAction label="新しいPage（Ctrl+N）" icon={Plus} disabled={!currentProject || currentProject.role === "viewer"} onClick={createUntitledPage} />
+        <LibraryToolbar projectId={projectId} client={client} readOnly={!currentProject || currentProject.role === "viewer"} onError={setError} onCreated={async (page) => { await loadPageLists(); await selectPage(page.projectId, page.id); }} />
         <div className="knowledge-share-menu" ref={shareMenuRef}>
           <button
             type="button"
@@ -2592,7 +2674,8 @@ export function KnowledgeView({
       </aside>
 
       <section className="knowledge-page-list" aria-labelledby="knowledge-pages-title">
-        <ThemedSelect id="record-kind" label="記録の種類" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "コンテキスト" }]} />
+        <ThemedSelect id="record-kind" label="記録の種類" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "コンテキスト" }, { id: "file", label: "File" }]} />
+
         <div className="knowledge-page-list-header">
           <div><h1 id="knowledge-pages-title">{query ? "検索結果" : includeTrash ? "Active + Trash" : "Pages"}</h1><span>{visibleRecords.length}</span></div>
           <button type="button" aria-label="新しいPage" data-tooltip="新しいPage" onClick={createUntitledPage}><Plus size={19} /></button>
@@ -2602,8 +2685,8 @@ export function KnowledgeView({
             {visibleRecords.map((page) => (
               <li key={`${page.projectId}-${page.id}`}>
                 <button type="button" className={page.id === selectedPageId ? "knowledge-page-row active" : "knowledge-page-row"} aria-current={page.id === selectedPageId ? "page" : undefined} onClick={async () => { await selectPage(page.projectId ?? projectId, page.id); setRecordFocus({ pageId: page.id, blockId: page.blockId }); if (page.blockId) requestAnimationFrame(() => document.getElementById(`record-${page.blockId}`)?.scrollIntoView({ block: "center" })); }}>
-                  <FileText size={18} weight={page.id === selectedPageId ? "fill" : "regular"} aria-hidden="true" />
-                  <span><strong>{page.title}</strong><small>{page.excerpt || "空のPage"}</small></span>
+                  {page.kind === "folder" ? <FolderOpen size={18} aria-hidden="true" /> : <FileText size={18} weight={page.id === selectedPageId ? "fill" : "regular"} aria-hidden="true" />}
+                  <span><strong>{page.title}</strong><small>{page.kind === "file" ? "File原本" : page.excerpt || "空のPage"}</small></span>
                   {page.state === "trash" ? <span className="knowledge-trash-badge">Trash</span> : <CaretRight size={16} aria-hidden="true" />}
                 </button>
               </li>
@@ -2622,10 +2705,12 @@ export function KnowledgeView({
               setSelectedPageId(null);
               setPageData(null);
             }}><ArrowLeft size={18} />Page一覧</button></div>
+            <PageOutline key={pageData.page.id} page={pageData.page} />
             <article className="knowledge-page">
               <header className="knowledge-page-header">
                 <div className="knowledge-page-meta">
                   <span>{currentProject?.name}</span><CaretRight size={13} aria-hidden="true" /><span>revision {pageData.page.revision}</span>
+                  {pageData.page.updatedAt && <time className="knowledge-updated-at" dateTime={pageData.page.updatedAt}>最終更新 {formatDate(pageData.page.updatedAt)}</time>}
                   {pageState === "trash" && <span className="knowledge-trash-badge">Trash</span>}
                 </div>
                 <div className="knowledge-page-actions">
@@ -2636,7 +2721,7 @@ export function KnowledgeView({
                   )}
                   <button type="button" aria-label="Page履歴" data-tooltip="履歴" onClick={openHistory}><ClockCounterClockwise size={18} /></button>
                   {pageState === "active" ? (
-                    <button type="button" aria-label="PageをTrashへ移動" data-tooltip="Trashへ" disabled={currentProject?.role === "viewer"} onClick={moveToTrash}><Trash size={18} /></button>
+                    <button type="button" aria-label="PageをTrashへ移動" aria-keyshortcuts="Control+Delete" data-tooltip="Trashへ（Ctrl+Delete）" disabled={currentProject?.role === "viewer"} onClick={moveToTrash}><Trash size={18} /></button>
                   ) : (
                     <button type="button" aria-label="Pageを復元" data-tooltip="復元" disabled={currentProject?.role === "viewer"} onClick={restoreCurrentPage}><ArrowUDownLeft size={18} /></button>
                   )}
@@ -2650,6 +2735,15 @@ export function KnowledgeView({
                   key={`${pageData.page.id}-${pageData.page.revision}-title`}
                   defaultValue={pageData.page.title}
                   readOnly={readOnly}
+                  onKeyDown={async (event) => {
+                    if (event.key !== "Enter" || !isTagCommitKey(event)) return;
+                    event.preventDefault();
+                    const title = event.currentTarget.value.trim();
+                    try {
+                      if (title && title !== pageRef.current?.title) await runMutation({ type: "rename", title });
+                      document.querySelector(".knowledge-tags-field input")?.focus();
+                    } catch { /* Existing mutation error remains visible. */ }
+                  }}
                   onBlur={(event) => {
                     const title = event.target.value.trim();
                     if (title && title !== pageRef.current?.title) runMutation({ type: "rename", title }, "タイトルを保存しました");
@@ -2662,8 +2756,9 @@ export function KnowledgeView({
                 tags={activeTagLabels}
                 candidates={tagCandidates}
                 readOnly={readOnly}
+                onContinue={beginBody}
                 onCommit={(labels) => {
-                  if (labels.join("|") !== activeTagLabels.join("|")) runMutation({ type: "tags-set", labels });
+                  if (labels.join("|") !== activeTagLabels.join("|")) return runMutation({ type: "tags-set", labels });
                 }}
               />
 
@@ -2728,6 +2823,7 @@ export function KnowledgeView({
                   try { await selectPage(nextProjectId, pageId); setRecordFocus({ pageId, blockId }); if (blockId) requestAnimationFrame(() => document.getElementById(`record-${blockId}`)?.scrollIntoView({ block: "center" })); }
                   catch { setError("参照先は削除済み、または閲覧権限がありません。"); }
                 }} />}
+                <LibraryDetails key={pageData.page.id} page={pageData.page} pages={linkCandidates} client={client} readOnly={readOnly} onError={setError} onChanged={async () => { await loadPageLists(); await loadPage(projectId, pageData.page.id); }} onNavigate={(id) => selectPage(projectId, id)} />
                 {pageData.page.legacyContextUnavailable && <p className="record-notice">移行前の送信Contextは記録されていません。</p>}
                 {pageData.page.kind !== "context" && pageData.page.blocks.map((block, index) => {
                   if (block.links?.some((link) => link.recordRelation)) return null;
@@ -2807,15 +2903,15 @@ export function KnowledgeView({
 
               <section className="knowledge-backlinks" aria-labelledby="knowledge-backlinks-title">
                 <h2 id="knowledge-backlinks-title"><LinkIcon size={18} aria-hidden="true" />被リンク <span>{pageData.backlinks.length}</span></h2>
-                {pageData.backlinks.length ? pageData.backlinks.map((backlink) => (
+                {pageData.backlinks.map((backlink) => (
                   <button key={`${backlink.pageId}-${backlink.blockId}`} type="button" onClick={() => selectPage(backlink.projectId, backlink.pageId)}><FileText size={17} /><span><strong>{backlink.pageTitle}</strong><small>{backlink.excerpt}</small></span><CaretRight size={16} /></button>
-                )) : <p>このPageを参照しているActive Pageはありません。</p>}
+                ))}
               </section>
             </article>
           </>
         ) : (
           <div className="knowledge-editor-empty">
-            <div><SidebarSimple size={42} weight="duotone" aria-hidden="true" /><h2>{selectedListPage?.title ?? "Pageを選択"}</h2></div>
+            <div><SidebarSimple size={42} weight="duotone" aria-hidden="true" /><h2>{selectedListPage?.title ?? "検索からPageを開く"}</h2><p>Ctrl + Pで検索・最近のPage。右上からPage作成・File取り込み。</p></div>
           </div>
         )}
       </main>

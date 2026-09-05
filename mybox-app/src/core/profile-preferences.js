@@ -1,3 +1,4 @@
+import { normalizeTheme, THEMES } from "./themes.js";
 import { CONFIRMATION_LEVELS } from "./app-contract.js";
 
 const PROFILE_SCHEMA_VERSION = 1;
@@ -8,6 +9,7 @@ export function createDefaultProfilePreferences() {
     schemaVersion: PROFILE_SCHEMA_VERSION,
     confirmationLevel: "review",
     contextAutoRecord: true,
+    theme: "graphite",
   };
 }
 
@@ -20,7 +22,7 @@ export function validateProfilePreferences(value) {
     throw new TypeError("Profile preferences are invalid");
   }
   if (value.contextAutoRecord !== undefined && typeof value.contextAutoRecord !== "boolean") throw new TypeError("Context recording preference is invalid");
-  return { ...value, contextAutoRecord: value.contextAutoRecord ?? true };
+  return { ...value, theme: normalizeTheme(value.theme), contextAutoRecord: value.contextAutoRecord ?? true };
 }
 
 export function createProfilePreferencesStore(storage) {
@@ -39,6 +41,10 @@ export function createProfilePreferencesStore(storage) {
     return pending;
   };
   return Object.freeze({
+    async setTheme(current, theme) {
+      if (!THEMES.some((entry) => entry.id === theme)) throw new TypeError("Theme is invalid");
+      return update(current, { theme });
+    },
     async setContextAutoRecord(current, enabled) {
       if (typeof enabled !== "boolean") throw new TypeError("Context recording preference is invalid");
       return update(current, { contextAutoRecord: enabled });

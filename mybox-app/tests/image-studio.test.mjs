@@ -230,3 +230,16 @@ test("keeps Workflow reference generation on an always-confirm Operation", async
   const result = await host.invoke("image-studio.workflow.generate-from-reference", input, { ...options, approval: { granted: true, fresh: true } });
   assert.equal(result.item.resource.resourceId, reference.resourceId);
 });
+
+test("built-in templates remain available when Host Workflows are retired", async () => {
+  const { createSharedAppRuntime } = await import("../src/core/app-runtime.js");
+  const runtime = createSharedAppRuntime({ enableWorkflows: false });
+  await runtime.start();
+  const client = createImageStudioClient({ appRuntime: runtime });
+  const { templates } = await client.listTemplates();
+  for (const template of BUILT_IN_TEMPLATES) assert.ok(templates.some((item) => item.id === template.id));
+  assert.ok(templates.length > 0);
+  const { generations } = await client.listGenerations();
+  assert.ok(Array.isArray(generations));
+  runtime.stop();
+});

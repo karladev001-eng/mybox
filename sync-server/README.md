@@ -94,3 +94,7 @@ The record-aware client sends `records=2` during the WebSocket handshake. Versio
 clients receive HTTP 426 and old hibernating sockets are closed before receiving
 new record updates. Updated clients refuse older servers. Redeploy the server
 bundle through the existing MyBox deployment UI before using shared records.
+
+## File originals
+
+Record protocol 3 is required for Folder/File-aware clients. Authorized GET/POST `/projects/:projectId/files?hash=<sha256>` transfers bounded originals independently of Yjs. Hash-verified uploads use chunked SQLite rows and require Owner/Editor; reads require membership. Redeploy the group endpoint before using this client with shared Projects. No automatic remote deployment is performed by this source change.

@@ -118,3 +118,17 @@ single and bulk deletions have a visible undo action and `Ctrl+Z` structural
 undo outside native text editing. The local JSON model and shared Yjs model use
 the same removal and restoration mutations, retaining Block IDs, Page links,
 and ordering while synchronizing an undo as a new edit.
+
+Release `0.9.0` delivers the record-centered workspace (ADRs 0043–0050),
+Knowledge 1.22.10 and Image 0.5.8. It includes durable Context notebooks and
+PageLinks, immutable File originals and inline image/PDF views, search-first
+navigation, sequential keyboard entry, outlines, resizable assistants and four
+shared themes. Workflow surfaces/execution are retired while their stored data
+is retained. Existing shared sync servers require redeployment for the updated
+record/File protocol. Native IME/DPI and exhaustive pointer-state checks remain
+unverified; automated checks and earlier browser reviews are recorded in the
+individual implementation ADRs.
+
+Verification for 0.9.0: 199 core, 4 packaging, 16 sync unit, 18 server integration,
+7 live client and 37 native Rust tests passed (7 existing Rust tests ignored).
+Frontend and embedded sync-server bundles built successfully.

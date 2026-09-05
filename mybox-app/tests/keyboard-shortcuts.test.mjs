@@ -89,3 +89,14 @@ test("adds the active App's declared commands to the command palette", () => {
   );
   assert.equal(commands.find((command) => command.id === "open-app:knowledge")?.group, "Note App");
 });
+
+test("Knowledge declares Ctrl+B for its left navigation", async () => {
+  const { createMyBoxAppRegistry } = await import("../src/apps/registry.js");
+  const shortcuts = createMyBoxAppRegistry().get("knowledge").shortcuts;
+  assert.equal(resolveAppKeyboardShortcut(shortcuts, event("b", { code: "KeyB" }))?.id, "toggle-navigation");
+  assert.equal(resolveAppKeyboardShortcut(shortcuts, event("b", { shiftKey: true })), null);
+  assert.equal(resolveAppKeyboardShortcut(shortcuts, event("n"))?.id, "new-page");
+  assert.equal(resolveHostKeyboardShortcut(event("n")), null);
+  assert.equal(resolveHostKeyboardShortcut(event("n", { shiftKey: true }))?.id, "new-chat");
+  assert.equal(resolveAppKeyboardShortcut(shortcuts, event("Delete"))?.id, "trash-page");
+});

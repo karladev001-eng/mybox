@@ -178,6 +178,8 @@ pub fn run() {
             project_stores::rename_project_store,
             project_stores::read_project_store_updates,
             project_stores::write_project_store_update,
+            project_stores::read_project_file,
+            project_stores::write_project_file,
             agent_providers::agent_provider_settings,
             agent_providers::configure_openai_api_provider,
             agent_providers::disconnect_openai_api_provider,

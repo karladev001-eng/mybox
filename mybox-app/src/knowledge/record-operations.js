@@ -1,3 +1,4 @@
+import { flattenLibrary, importFile, verifyFile } from "./library.js";
 import { reconcileRecordLinks } from "./record-links.js";
 import { authorize, saveConversation, captureContext, finishContext, extractRecord, conversationSession } from "./records.js";
 import { listPages, readPage, normalizePageTitle, KnowledgeDomainError } from "./domain.js";
@@ -5,7 +6,7 @@ import { contextConversationLink, ensureNotebook, captureNotebook, finishNoteboo
 
 const schema = (required, properties = {}) => ({ type: "object", required, properties });
 const string = { type: "string", minLength: 1 };
-const inputs = { projectId: string, pageId: string, conversationId: string, messageId: string, contextId: string, callId: string, prompt: string, status: string, session: { type: "object" }, sources: { type: "array", items: { type: "object" } }, settings: { type: "object" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 } };
+const inputs = { title: string, fileId: string, name: string, base64: string, folderId: { type: ["string", "null"] }, folderIdToCreate: string, projectId: string, pageId: string, conversationId: string, messageId: string, contextId: string, callId: string, prompt: string, status: string, session: { type: "object" }, sources: { type: "array", items: { type: "object" } }, settings: { type: "object" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 } };
 export const recordOperations = [
   ["conversation.save", "会話を保存", "write", ["projectId", "session"]],
   ["conversation.create", "会話を作成", "write", ["projectId", "session"]],
@@ -14,6 +15,9 @@ export const recordOperations = [
   ["conversation.read", "会話履歴を読む", "read", ["projectId", "pageId"]],
   ["context.capture", "送信Contextを記録", "write", ["projectId", "conversationId", "messageId", "contextId", "prompt"]],
   ["context.finish", "送信結果を記録", "write", ["projectId", "pageId", "status"]],
+  ["library.flatten", "旧FolderをリンクNoteへ移行", "write", ["projectId", "pageId"]],
+  ["file.import", "Fileを取り込む", "write", ["projectId", "fileId", "name", "base64"]],
+  ["file.read", "File原本を読む", "read", ["projectId", "pageId"]],
   ["record.links", "記録のPageLinkを整備", "write", ["projectId", "pageId"]],
   ["record.extract", "出典付きNoteを作成", "write", ["projectId", "pageId"]],
 ].map(([id, title, effect, required]) => ({ id: `knowledge.${id}.v1`, title, effect, confirmationClass: effect === "read" ? "review" : "autonomous", callers: id.startsWith("context.") || id === "conversation.save" ? ["user"] : ["user", "agent", "flow", "app"], inputSchema: schema(required, inputs), outputSchema: { type: "object" } }));
@@ -40,7 +44,7 @@ export function withProjectSessions(state, sharedSessions, profileId) {
     next.pages = next.pages.filter((p) => p.projectId !== project.id);
     next.pages.push(...session.listPages(true).map((p) => {
       const page = session.readPage(p.id).page;
-      return { ...page, normalizedTitle: normalizePageTitle(page.title), createdAt: page.createdAt ?? "", updatedAt: page.updatedAt ?? "" };
+      return { ...page, projectId: project.id, normalizedTitle: normalizePageTitle(page.title), createdAt: page.createdAt ?? "", updatedAt: page.updatedAt ?? "" };
     }));
     next.tags = next.tags.filter((tag) => tag.projectId !== project.id);
     next.tags.push(...session.listTags());
@@ -50,9 +54,9 @@ export function withProjectSessions(state, sharedSessions, profileId) {
   return next;
 }
 
-export function createRecordHandlers({ loadState, sharedSessions }) {
+export function createRecordHandlers({ loadState, sharedSessions, fileStore }) {
   let queue = Promise.resolve();
-  const mutations = { "conversation.save": saveConversation, "conversation.create": saveConversation, "conversation.append": saveConversation, "context.capture": captureContext, "context.finish": finishContext, "record.links": reconcileRecordLinks, "record.extract": extractRecord };
+  const mutations = { "library.flatten": flattenLibrary, "file.import": importFile, "conversation.save": saveConversation, "conversation.create": saveConversation, "conversation.append": saveConversation, "context.capture": captureContext, "context.finish": finishContext, "record.links": reconcileRecordLinks, "record.extract": extractRecord };
   Object.assign(mutations, { "context.ensure.v2": ensureNotebook, "context.capture.v2": captureNotebook, "context.finish.v2": finishNotebookTurn, "context.share-copy.v2": copySharedRecord });
   const handlers = {};
   for (const [name, mutate] of Object.entries(mutations)) {
@@ -65,7 +69,8 @@ export function createRecordHandlers({ loadState, sharedSessions }) {
         if (name === "conversation.create" && existing) throw new KnowledgeDomainError("RECORD_ID_CONFLICT", "Conversation already exists");
         if (name === "conversation.append" && !existing) throw new KnowledgeDomainError("PAGE_NOT_FOUND", "Conversation does not exist");
         if (name === "record.links") authorize(state, input.projectId, profileId, true);
-        const result = await mutate(state, input, profileId, ctx.resources);
+        const files = fileStore ?? { put: (project, hash, base64) => ctx.storage.writeJson(`files/${project}/${hash}`, base64), get: (project, hash) => ctx.storage.readJson(`files/${project}/${hash}`) };
+        const result = await mutate(state, input, profileId, ctx.resources, files);
         const linked = reconcileRecordLinks(result.state, { projectId: result.page.projectId, pageId: result.page.id }, profileId);
         result.page = linked.page;
         const changed = linked.state.pages.filter((page) => JSON.stringify(page) !== JSON.stringify(state.pages.find((p) => p.id === page.id)));
@@ -104,6 +109,16 @@ export function createRecordHandlers({ loadState, sharedSessions }) {
     if (page.kind !== "conversation") throw new KnowledgeDomainError("INVALID_CONVERSATION", "Page is not a conversation");
     const session = conversationSession(page);
     return { session: { ...session, messages: session.messages.slice(offset, offset + limit) }, nextOffset: offset + limit < session.messages.length ? offset + limit : null };
+  };
+  handlers["knowledge.file.read.v1"] = async (input, ctx) => {
+    const profileId = ctx.actor.type === "user" ? ctx.actor.id : ctx.actor.profileId || "local-user";
+    const state = withProjectSessions(await loadState(ctx.storage), sharedSessions, profileId);
+    const page = readPage(state, { ...input, profileId });
+    if (page.kind !== "file" || !page.file) throw new KnowledgeDomainError("INVALID_FILE", "File Pageを選択してください");
+    const base64 = fileStore ? await fileStore.get(page.projectId, page.file.hash) : await ctx.storage.readJson(`files/${page.projectId}/${page.file.hash}`);
+    await verifyFile(base64, page.file.hash);
+    await fileStore?.cache?.(page.projectId, page.file.hash, base64);
+    return { ...page.file, base64 };
   };
   return handlers;
 }

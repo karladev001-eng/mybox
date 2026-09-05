@@ -125,7 +125,7 @@ export class AppRegistry {
 const builtInDefinitions = [
   {
     id: "knowledge",
-    version: "1.21.4",
+    version: "1.22.10",
     name: "Note",
     icon: "note",
     color: "#ff796f",
@@ -133,14 +133,17 @@ const builtInDefinitions = [
     builtIn: true,
     defaultInstalled: true,
     shortcuts: [
+      { id: "new-page", group: "Note", label: "新しいPageを作成", key: "n", code: "KeyN", displayKeys: ["Ctrl", "N"] },
+      { id: "trash-page", group: "Note", label: "PageをTrashへ移動", key: "delete", code: "Delete", displayKeys: ["Ctrl", "Delete"] },
+      { id: "toggle-navigation", group: "Note", label: "左バーの表示を切り替え", key: "b", code: "KeyB", displayKeys: ["Ctrl", "B"] },
       {
         id: "page-search",
         group: "Note",
-        label: "Pageを検索",
+        label: "Page・Projectを検索",
         key: "p",
         code: "KeyP",
         displayKeys: ["Ctrl", "P"],
-        searchText: "Note Page ページ 検索",
+        searchText: "Note Page Project ページ プロジェクト 検索",
       },
     ],
     surface: {
@@ -151,7 +154,7 @@ const builtInDefinitions = [
   },
   {
     id: "image-studio",
-    version: "0.5.5",
+    version: "0.5.8",
     name: "Image",
     icon: "image",
     color: "#67d7c4",

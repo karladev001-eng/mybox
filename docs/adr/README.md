@@ -54,3 +54,11 @@ notes of the ADR it realizes.
 - [0045 — Render chat Markdown with quiet actions](0045-render-chat-markdown-with-quiet-actions.md)
 
 - [0046 — Link record Pages automatically](0046-link-record-pages-automatically.md)
+
+- [0047 — Organize Pages and preserve File originals](0047-organize-pages-and-preserve-file-originals.md)
+
+- [0048 — Search-first navigation and inline files](0048-search-first-navigation-and-inline-files.md)
+
+- [0049 — Record-centered home](0049-record-centered-home.md)
+
+- [0050 — Switchable workspace themes](0050-switchable-workspace-themes.md)

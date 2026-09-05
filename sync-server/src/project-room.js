@@ -55,6 +55,7 @@ export class ProjectRoom extends DurableObject {
       token_hash TEXT PRIMARY KEY, profile_id TEXT NOT NULL, role TEXT NOT NULL)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS invites (
       token_hash TEXT PRIMARY KEY, role TEXT NOT NULL, created_at INTEGER NOT NULL)`);
+    sql.exec(`CREATE TABLE IF NOT EXISTS file_chunks (hash TEXT NOT NULL, chunk INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (hash, chunk))`);
     sql.exec(`CREATE TABLE IF NOT EXISTS doc_state (
       id INTEGER PRIMARY KEY CHECK (id = 1), state BLOB NOT NULL)`);
   }
@@ -118,7 +119,31 @@ export class ProjectRoom extends DurableObject {
     if (action === "members") return this.#members(request);
     if (action === "remove") return this.#remove(request);
     if (action === "sync") return this.#sync(request);
+    if (action === "fileRead" || action === "fileWrite") return this.#file(request, action === "fileWrite");
     return json({ error: "UNKNOWN_ACTION" }, 404);
+  }
+
+  async #file(request, write) {
+    const body = write ? await readJson(request) : null;
+    const auth = await this.#requireRole(request, write ? ["owner", "editor"] : null);
+    if (auth.error) return auth.error;
+    const hash = new URL(request.url).searchParams.get("hash");
+    if (!/^[a-f0-9]{64}$/.test(hash ?? "")) return json({ error: "INVALID_FILE_ID" }, 400);
+    if (!write) {
+      const rows = this.ctx.storage.sql.exec("SELECT data FROM file_chunks WHERE hash = ? ORDER BY chunk", hash).toArray();
+      return rows.length ? json({ base64: rows.map((row) => row.data).join("") }) : json({ error: "FILE_NOT_FOUND" }, 404);
+    }
+    const base64 = body?.base64;
+    if (body?.hash !== hash || typeof base64 !== "string" || base64.length > 28 * 1024 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(base64)) return json({ error: "INVALID_FILE" }, 400);
+    let bytes;
+    try { bytes = decodeUpdate(base64); } catch { return json({ error: "INVALID_FILE" }, 400); }
+    if (!bytes.length || bytes.length > 20 * 1024 * 1024) return json({ error: "FILE_TOO_LARGE" }, 413);
+    const actual = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (actual !== hash) return json({ error: "FILE_HASH_MISMATCH" }, 400);
+    this.ctx.storage.transactionSync(() => {
+      for (let offset = 0, chunk = 0; offset < base64.length; offset += 128 * 1024, chunk++) this.ctx.storage.sql.exec("INSERT OR IGNORE INTO file_chunks (hash, chunk, data) VALUES (?, ?, ?)", hash, chunk, base64.slice(offset, offset + 128 * 1024));
+    });
+    return json({ hash });
   }
 
   /**
@@ -208,7 +233,7 @@ export class ProjectRoom extends DurableObject {
   }
 
   async #sync(request) {
-    if (new URL(request.url).searchParams.get("records") !== "2") return json({ error: "CLIENT_UPDATE_REQUIRED" }, 426);
+    if (new URL(request.url).searchParams.get("records") !== "3") return json({ error: "CLIENT_UPDATE_REQUIRED" }, 426);
     if (request.headers.get("Upgrade") !== "websocket") return json({ error: "UPGRADE_REQUIRED" }, 426);
     const auth = await this.#requireRole(request, null);
     if (auth.error) return auth.error;
@@ -217,10 +242,10 @@ export class ProjectRoom extends DurableObject {
     const [client, server] = Object.values(pair);
     // Hibernation keeps an idle room from billing duration while connected.
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ records: 2, profileId: auth.member.profile_id, role: auth.member.role });
+    server.serializeAttachment({ records: 3, profileId: auth.member.profile_id, role: auth.member.role });
     server.send(JSON.stringify({
       type: "sync",
-      records: 2,
+      records: 3,
       update: encodeUpdate(Y.encodeStateAsUpdate(this.#doc)),
       role: auth.member.role,
     }));
@@ -238,7 +263,7 @@ export class ProjectRoom extends DurableObject {
 
   async webSocketMessage(ws, raw) {
     const attachment = ws.deserializeAttachment() ?? {};
-    if (attachment.records !== 2) { ws.close(1008, "CLIENT_UPDATE_REQUIRED"); return; }
+    if (attachment.records !== 3) { ws.close(1008, "CLIENT_UPDATE_REQUIRED"); return; }
     const message = parseClientMessage(raw);
     if (message.error) {
       ws.send(JSON.stringify({ type: "error", error: message.error }));
@@ -277,7 +302,7 @@ export class ProjectRoom extends DurableObject {
 
   #broadcast(sender, payload) {
     for (const socket of this.ctx.getWebSockets()) {
-      if (socket.deserializeAttachment()?.records !== 2) { socket.close(1008, "CLIENT_UPDATE_REQUIRED"); continue; }
+      if (socket.deserializeAttachment()?.records !== 3) { socket.close(1008, "CLIENT_UPDATE_REQUIRED"); continue; }
       if (socket !== sender) socket.send(payload);
     }
   }

@@ -1,3 +1,4 @@
+import { createProjectFileStore } from "../desktop/knowledge-files.js";
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { registerAgentHost } from "../core/agent-host-registry.js";
 import { AppHost } from "../core/app-host.js";
@@ -52,12 +53,13 @@ const webDriver = new MemoryStorageDriver();
  */
 export function createKnowledgeClient({ desktop = false, getProfileId = () => LOCAL_PROFILE_ID, appRuntime = null } = {}) {
   const storageDriver = desktop ? new TauriStorageDriver() : webDriver;
+  const fileStore = desktop ? createProjectFileStore() : null;
   const host = appRuntime?.host ?? new AppHost({ storageDriver });
   // The runtime retains live shared sessions across App surface changes. Every
   // read and write has to reach the same document through Operations, or Image
   // and the assistant fall back to stale JSON while Note shows shared content.
   const sharedSessions = appRuntime?.sharedSessions ?? new Map();
-  if (!host.getManifest("knowledge")) host.register(createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } }));
+  if (!host.getManifest("knowledge")) host.register(createKnowledgeApp({ fileStore, sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } }));
   // Lets the assistant panel invoke this App's Operations (ADR 0025) without
   // holding a private reference to Knowledge's client.
   registerAgentHost("knowledge", host);
@@ -210,6 +212,7 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
       shared.adopt(local.pages, local.tags);
       sharedSessions.set(projectId, shared);
       await shared.connect();
+      if (server && ["owner", "editor"].includes(shared.role)) await fileStore?.publish(projectId, shared.listPages(true).map((page) => shared.readPage(page.id).page));
       if (store && shared.status === "offline") throw new Error("Project storeを読み込めません。保存場所を確認してください。");
       return shared;
     })();
@@ -318,9 +321,11 @@ export function createKnowledgeClient({ desktop = false, getProfileId = () => LO
 
 /** Optional repair must not block record reads during an in-place Surface update. */
 export async function readPageWithRecordLinks(client, projectId, pageId) {
-  try { await client.invoke("knowledge.record.links.v1", { projectId, pageId }); }
-  catch (error) {
-    if (!["OPERATION_NOT_FOUND", "PROJECT_ROLE_REQUIRED"].includes(error?.code)) throw error;
+  for (const operation of ["knowledge.library.flatten.v1", "knowledge.record.links.v1"]) {
+    try { await client.invoke(operation, { projectId, pageId }); }
+    catch (error) {
+      if (!["OPERATION_NOT_FOUND", "PROJECT_ROLE_REQUIRED"].includes(error?.code)) throw error;
+    }
   }
   return client.readPage(projectId, pageId);
 }

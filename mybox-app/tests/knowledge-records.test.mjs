@@ -1,3 +1,4 @@
+import { createFolder, moveToFolder, importFile, verifyFile, flattenLibrary } from "../src/knowledge/library.js";
 import { reloadHostDefinitions } from "../vite.config.mjs";
 import { reconcileRecordLinks, recordPageLinks, isRecordLinkBlock } from "../src/knowledge/record-links.js";
 import { getBacklinks, movePageToTrash, restorePage } from "../src/knowledge/domain.js";
@@ -298,7 +299,7 @@ test("sync refuses a legacy server before applying or transmitting record state"
   const doc = createProjectDoc();
   const writes = [], errors = [];
   const socket = { readyState: 1, send: (v) => writes.push(v), close() {} };
-  const client = createSyncClient({ doc, endpoint: "https://example.test", projectId: "p", token: "test", openSocket: (url) => { assert.equal(new URL(url).searchParams.get("records"), "2"); return socket; }, onError: (e) => errors.push(e), reconnect: false });
+  const client = createSyncClient({ doc, endpoint: "https://example.test", projectId: "p", token: "test", openSocket: (url) => { assert.equal(new URL(url).searchParams.get("records"), "3"); return socket; }, onError: (e) => errors.push(e), reconnect: false });
   client.connect();
   socket.onmessage({ data: JSON.stringify({ type: "sync", role: "owner", update: Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64") }) });
   assert.equal(writes.length, 0); assert.equal(client.status, "incompatible"); assert.equal(errors.length, 1);
@@ -381,7 +382,7 @@ test("opening a Page tolerates a retained older Host but does not hide persisten
   await assert.rejects(readPageWithRecordLinks({ invoke: async () => {}, readPage: async () => { throw denied; } }, "project", "existing"), denied);
   const calls = [];
   assert.equal(await readPageWithRecordLinks({ invoke: async (id) => calls.push(id), readPage: async () => { calls.push("read"); return result; } }, "project", "existing"), result);
-  assert.deepEqual(calls, ["knowledge.record.links.v1", "read"]);
+  assert.deepEqual(calls, ["knowledge.library.flatten.v1", "knowledge.record.links.v1", "read"]);
 });
 
 
@@ -396,4 +397,83 @@ test("development updates reload retained Host definitions while UI-only refresh
   assert.deepEqual(sent[0], { type: "full-reload", path: "*" });
   for (const file of ["/workspace/src/knowledge/KnowledgeView.jsx", "/workspace/src/styles.css"]) assert.equal(plugin.handleHotUpdate({ file, server }), undefined);
   assert.equal(sent.length, 4);
+});
+
+
+test("Folders preserve Page IDs and enforce hierarchy, Project boundaries and empty Trash", () => {
+  let { state, projectId, page } = fixture();
+  const parent = createFolder(state, { projectId, title: "資料" }, "local-user"); state = parent.state;
+  const child = createFolder(state, { projectId, title: "下書き", folderId: parent.page.id }, "local-user"); state = child.state;
+  state = moveToFolder(state, { projectId, pageId: page.id, folderId: child.page.id }, "local-user").state;
+  assert.equal(state.pages.find((p) => p.id === page.id).folderId, child.page.id);
+  assert.throws(() => moveToFolder(state, { projectId, pageId: parent.page.id, folderId: child.page.id }, "local-user"), /自身/);
+  assert.throws(() => movePageToTrash(state, { projectId, pageId: parent.page.id, expectedRevision: parent.page.revision }), /Folder内/);
+  const other = createProject(state, { name: "Other" });
+  assert.throws(() => moveToFolder(other.state, { projectId: other.project.id, pageId: page.id, folderId: parent.page.id }, "local-user"), /Page/);
+  state.projects[0].members[0].role = "viewer";
+  assert.throws(() => moveToFolder(state, { projectId, pageId: page.id }, "local-user"), /Editor/);
+});
+
+test("File import verifies originals, remains immutable, retries without duplication and survives restart", async () => {
+  const driver = new MemoryStorageDriver();
+  const make = () => createKnowledgeClient({ appRuntime: { host: new AppHost({ storageDriver: driver }), sharedSessions: new Map() } });
+  let client = make();
+  const { projects } = await client.listProjects(); const projectId = projects[0].id;
+  const input = { projectId, fileId: "file-test", name: "資料.pdf", base64: btoa("%PDF-1.7 sample original") };
+  const { page } = await client.invoke("knowledge.file.import.v1", input);
+  assert.equal(page.file.mediaType, "application/pdf");
+  assert.equal((await client.invoke("knowledge.file.import.v1", input)).page.id, page.id);
+  client = make();
+  assert.equal((await client.invoke("knowledge.file.read.v1", { projectId, pageId: page.id })).base64, input.base64);
+  assert.equal((await client.search({ query: "資料" })).results[0].pageId, page.id);
+  await assert.rejects(client.updatePage(projectId, page.id, page.revision, { type: "block-add", text: "replacement" }), /変更できません/);
+  await assert.rejects(client.invoke("knowledge.file.import.v1", { ...input, base64: btoa("other") }), /ID/);
+  await assert.rejects(verifyFile(input.base64, "wrong"), /照合/);
+  const doc = createProjectDoc(); commitRecordPage(doc, { ...page, folderId: "folder" });
+  assert.equal(readDocumentPage(doc, page.id).file.hash, page.file.hash);
+  assert.equal(readDocumentPage(doc, page.id).folderId, "folder");
+  const storage = createAppStorage("knowledge", driver); const state = await storage.readJson("state.json"); state.projects[0].members[0].role = "viewer"; await storage.writeJson("state.json", state);
+  await assert.rejects(client.invoke("knowledge.file.import.v1", { ...input, fileId: "other" }), /Editor/);
+  assert.equal((await client.invoke("knowledge.file.read.v1", { projectId, pageId: page.id })).base64, input.base64);
+});
+
+test("failed original persistence never creates File metadata and magic bytes override the filename", async () => {
+  const { state, projectId } = fixture();
+  const input = { projectId, fileId: "file", name: "pretend.png", base64: btoa("not an image") };
+  await assert.rejects(importFile(state, input, "local-user", null, { put: async () => { throw new Error("disk full"); } }), /disk full/);
+  assert.equal(state.pages.some((p) => p.id === input.fileId), false);
+  assert.equal((await verifyFile(input.base64)).mediaType, "application/octet-stream");
+});
+
+
+test("retired Folders become link Notes without losing children and repeat migration is a no-op", () => {
+  let { state, projectId, page } = fixture();
+  const folder = createFolder(state, { projectId, title: "Legacy folder" }, "local-user"); state = folder.state;
+  state = moveToFolder(state, { projectId, pageId: page.id, folderId: folder.page.id }, "local-user").state;
+  const input = { projectId, pageId: page.id };
+  const result = flattenLibrary(state, input, "local-user");
+  const converted = result.state.pages.find((p) => p.id === folder.page.id);
+  assert.equal(converted.kind, "note");
+  assert.equal(converted.blocks[0].links[0].targetPageId, page.id);
+  assert.equal(result.page.folderId, null);
+  assert.deepEqual(result.page.blocks, page.blocks);
+  assert.deepEqual(flattenLibrary(result.state, input, "local-user").state, result.state);
+  const doc = createProjectDoc(); commitRecordPage(doc, folder.page); commitRecordPage(doc, converted);
+  assert.equal(readDocumentPage(doc, converted.id).kind, "note");
+  assert.equal(readDocumentPage(doc, converted.id).blocks[0].links[0].targetPageId, page.id);
+});
+
+test("multi-term search ranks exact titles first and retains matching Block identity", () => {
+  let { state, projectId } = fixture();
+  const exact = createPage(state, { projectId, title: "設計 AI" }); state = exact.state;
+  const body = createPage(state, { projectId, title: "別の記録" }); state = body.state;
+  state = updatePage(state, { projectId, pageId: body.page.id, expectedRevision: body.page.revision, mutation: { type: "block-update", blockId: body.page.blocks[0].id, text: "AIを使った設計について" } }).state;
+  const found = searchPages(state, { projectIds: [projectId], query: "設計 AI" });
+  assert.equal(found[0].pageId, exact.page.id);
+  assert.equal(found.find((r) => r.pageId === body.page.id).blockId, body.page.blocks[0].id);
+});
+
+test("outline preserves heading IDs, levels and duplicate titles without indexing code", async () => {
+  const { pageHeadings } = await import("../src/knowledge/page-outline.js");
+  assert.deepEqual(pageHeadings([{ id: "a", type: "heading-1", text: "同じ見出し" }, { id: "b", type: "code", text: "# not a heading" }, { id: "c", type: "heading-3", text: "同じ見出し" }]), [{ id: "a", level: 1, title: "同じ見出し" }, { id: "c", level: 3, title: "同じ見出し" }]);
 });

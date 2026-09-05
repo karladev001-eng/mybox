@@ -6,9 +6,9 @@ Read it before changing layout, controls, styling, icons, motion, or interaction
 
 ## Direction
 
-MyBox is a calm, precise knowledge workspace: dark, content-first, icon-led, and
-compact without feeling crowded. Keep the existing graphite surfaces and mint
-accent. Prefer flat layered surfaces, subtle borders, and restrained elevation;
+MyBox is a calm, precise knowledge workspace: content-first, icon-led, and
+compact without feeling crowded. Keep Graphite as the default; Light, Sepia and Midnight use the same semantic
+roles with palette-specific contrast. Prefer flat layered surfaces, subtle borders, and restrained elevation;
 avoid decorative gradients, oversized cards, glass effects, and bright color
 used without meaning.
 
@@ -35,6 +35,10 @@ The interface should explain itself through placement, familiar controls, and
 immediate feedback. Keep persistent explanatory copy to the minimum needed to
 make a decision, recover from an error, or understand an unfamiliar consequence.
 Do not restate what a heading, label, icon, or current state already makes clear.
+Prefer controls and state over persistent instructions: do not show keyboard
+tutorials below fields or prose explaining a zero count. Keep shortcut discovery
+in tooltips/shortcut menus and accessibility descriptions. An empty backlink list
+is communicated by its count alone.
 
 - Prefer a semantically precise icon by itself for repeated secondary actions
   such as add, edit, retry, history, export, and remove. Give every icon-only
@@ -157,7 +161,7 @@ Correct it with asymmetric vertical padding, which keeps the control's height.
 
 ## Review workflow
 
-Before handoff, verify all affected states in the actual dark desktop surface:
+Before handoff, verify all affected states in the actual desktop surface in both light and dark themes:
 
 - no white, square, blue, or 3D OS-default popup/control is exposed;
 - popups, context menus, scrollbars, and long lists are opened and inspected;
@@ -175,3 +179,40 @@ Before handoff, verify all affected states in the actual dark desktop surface:
 A UI change is complete only when it is functional, visually part of MyBox,
 state-complete, keyboard accessible, responsive, and free of default-rendering
 leakage.
+
+## Search-centered knowledge navigation
+
+The two left navigation columns start hidden. Header search, Project selection,
+Page creation and File import must remain usable with both columns closed.
+Search shows recent Pages on focus, exposes scope and kind filters, and preserves
+IME composition. Use quiet 16 px action icons with 40 px hit targets. Opening a
+File Page displays images or PDF immediately; do not add a separate preview button.
+
+Dropdown triggers follow the same quiet hierarchy as buttons: 12–13 px labels,
+transparent resting backgrounds, no permanent prominent border, and 40 px hit
+targets. Open menus remain themed, with clear selected, hover and focus states.
+
+## Workspace home
+
+Home prioritizes search, writing, recent records and Project access. Image and AI
+conversation entry points are secondary. Avoid an app launcher grid, permanent
+bottom navigation, visible version badges and duplicate AI entry fields. Refined
+visual quality comes from restrained graphite surfaces, mint focus, typography
+and generous grouped spacing rather than decoration or stronger buttons.
+
+## Restrained color roles
+
+Use mint for records and primary focus, muted blue for conversations, and soft
+amber for Context and image tools. Use `--tone-conversation`, `--tone-context`
+and the shared `--tint-*` tokens. Color belongs on small icons, selected markers
+and low-opacity surfaces; keep reading text neutral. Pair every color with a
+label or icon. Settings, chat, Note, image tools and dialogs share the home
+screen's typography, fine separators and quiet control states.
+
+## Theme palettes
+
+Settings selects Graphite, Light, Sepia or Midnight, persisted in Host preferences.
+Use semantic tokens for every UI surface, foreground and state; do not hardcode
+dark colors inside components. `--on-accent` is the foreground on primary fills.
+Image and PDF content retain their original colors. Theme selection is compact,
+keyboard-operable and shared by popups, chat, Knowledge and Image.

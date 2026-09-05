@@ -353,3 +353,13 @@ It is not an editing identity or an authoritative record. Retrieval is a later p
   synchronized adapter path rather than direct access to App internals.
 
 Automatic record PageLinks connect Conversation, Context and actual source Pages. Cross-Project reverse navigation uses permission-filtered backlinks without publishing private Record metadata into source Projects (ADR 0046).
+
+**Former Folder** — A retired schema-4 container. Writable legacy containers become ordinary Notes linking their former children, retaining IDs. Navigation uses search, tags and PageLinks (ADR 0048).
+
+**File** — An immutable imported original and a discoverable File Page with name, media type, byte size and SHA-256. Bytes live in the Project store, outside Yjs, and follow Project membership when shared. Importing an edited file creates a new record. PDF extraction/OCR are later work.
+
+**Workspace home** — The record-centered Host entry for search, new Pages, recent
+records and Projects (ADR 0049). Workflow surfaces and execution are retired from
+the desktop Host; old definitions/history remain stored for compatibility.
+
+**Theme** — A local Host appearance preference (Graphite, Light, Sepia or Midnight) shared by all surfaces, independent of Project content and sharing.

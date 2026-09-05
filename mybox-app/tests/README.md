@@ -58,3 +58,7 @@ because the Sites test checks generated package files.
   and implicit remote media. The Context preview also shows rich message rendering.
 
 The Context preview supports `?workspace&sameProject` for reciprocal PageLink verification and `?workspace` for cross-Project backlink navigation using the actual KnowledgeView and in-memory records.
+
+The Context preview also accepts `?workspace&library` for Folder and File UI checks. Record tests cover hierarchy, immutable originals, persistence failures and access checks; sync live tests cover original upload/read and hash failures.
+
+`themes.test.mjs` checks preference restart/concurrency/failure behavior and palette text contrast.

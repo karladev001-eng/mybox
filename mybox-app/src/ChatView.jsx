@@ -195,7 +195,7 @@ export function ChatView({
   onSelectConfirmationLevel,
   variant = "full",
   contextLabel = "MyBox",
-  chatProjects = [], newChatProject = "", onNewChatProject,
+  chatProjects = [], defaultChatProjectId = null, newChatProject = "", onNewChatProject,
   onReadImage,
   contextSources = [],
   onClearContext,
@@ -334,10 +334,6 @@ export function ChatView({
   return (
     <section id={panel ? "assistant-panel" : undefined} className={`chat-view${sidebarOpen ? "" : " sidebar-closed"}${panel ? " assistant-panel" : ""}`} aria-label={panel ? "AIアシスタント" : "AIチャット"}>
       {!panel && <aside className="chat-sidebar" id="chat-session-sidebar" aria-label="チャット履歴">
-        <div className="chat-sidebar-heading">
-          <div><Robot size={25} weight="duotone" aria-hidden="true" /><strong>AIチャット</strong></div>
-          <ChatIconButton label="履歴を閉じる" onClick={() => setSidebarOpen(false)}><X size={20} /></ChatIconButton>
-        </div>
         <button type="button" className="new-chat-button" onClick={onNewSession}>
           <NotePencil size={20} aria-hidden="true" /><span>新しいチャット</span><Plus size={17} aria-hidden="true" />
         </button>
@@ -415,7 +411,7 @@ export function ChatView({
               <span><span className={`provider-dot${providerReady ? "" : " disconnected"}`} aria-hidden="true" />{providerName}{providerReady ? "" : "・未接続"}</span>
             </div>
           </div>
-          <div className="chat-header-actions">{onNewChatProject && <div className="record-destination"><ThemedSelect placement="bottom" id="conversation-destination" label="新しい会話の保存先（共有Projectでは会話とContextも共有）" value={newChatProject} onChange={onNewChatProject} options={[{ id: "", label: "個人の記録（既定）" }, ...chatProjects.filter((p) => p.role !== "viewer").map((p) => ({ id: p.id, label: p.name }))]} /></div>}<button type="button" className="new-chat-compact" aria-label="新しいチャット" title="新しいチャット" onClick={onNewSession}><Plus size={19} aria-hidden="true" /><span>新規</span></button></div>
+          <div className="chat-header-actions">{onNewChatProject && <div className="record-destination"><ThemedSelect placement="bottom" id="conversation-destination" label="新しい会話の保存先（共有Projectでは会話とContextも共有）" value={newChatProject} onChange={onNewChatProject} options={[{ id: "", label: `${chatProjects.find((p) => p.id === defaultChatProjectId)?.name ?? "保存先を確認中…"}${defaultChatProjectId ? "（既定）" : ""}` }, ...chatProjects.filter((p) => p.role !== "viewer" && (p.id !== defaultChatProjectId || newChatProject === p.id)).map((p) => ({ id: p.id, label: p.name }))]} /></div>}</div>
         </header>}
 
         <div ref={messageListRef} className="chat-messages" role="log" aria-live="polite" aria-relevant="additions text">

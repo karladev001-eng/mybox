@@ -18,3 +18,10 @@ remain canonical, and Markdown is an interchange and AI-readable representation.
 
 The `.agents/` directory is tool-managed reference material and is not part of the
 product source.
+
+Search, tags and PageLinks organize the workspace. Both navigation columns start hidden; search, Project selection, Page creation and File import remain available in the header. File originals are immutable records with automatic image/PDF display.
+
+The home screen now opens recent records and Projects directly. Workflow UI and
+automatic execution are retired; existing definitions/history remain stored (ADR 0049).
+
+Settings offers Graphite, Light, Sepia and Midnight themes across the workspace (ADR 0050).

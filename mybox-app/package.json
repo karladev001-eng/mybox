@@ -1,6 +1,6 @@
 {
   "name": "mybox-app",
-  "version": "0.8.7",
+  "version": "0.9.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -12,7 +12,7 @@
     "build": "vite build && node scripts/prepare-sites-build.mjs",
     "preview": "vite preview",
     "test": "npm run test:core",
-    "test:core": "node --test tests/app-host.test.mjs tests/agent-runtime.test.mjs tests/agent-host-registry.test.mjs tests/app-registry.test.mjs tests/chat-history.test.mjs tests/message-markdown.test.mjs tests/knowledge-records.test.mjs tests/knowledge-app.test.mjs tests/knowledge-connectors.test.mjs tests/image-studio.test.mjs tests/connections.test.mjs tests/workflows.test.mjs tests/text-storage.test.mjs tests/account-identity.test.mjs tests/yjs-document.test.mjs tests/shared-project.test.mjs tests/project-store-client.test.mjs tests/keyboard-shortcuts.test.mjs tests/host-session.test.mjs tests/tag-behavior.test.mjs tests/search-behavior.test.mjs",
+    "test:core": "node --test tests/themes.test.mjs tests/app-host.test.mjs tests/agent-runtime.test.mjs tests/agent-host-registry.test.mjs tests/app-registry.test.mjs tests/chat-history.test.mjs tests/message-markdown.test.mjs tests/knowledge-records.test.mjs tests/knowledge-app.test.mjs tests/knowledge-connectors.test.mjs tests/image-studio.test.mjs tests/connections.test.mjs tests/workflows.test.mjs tests/text-storage.test.mjs tests/account-identity.test.mjs tests/yjs-document.test.mjs tests/shared-project.test.mjs tests/project-store-client.test.mjs tests/keyboard-shortcuts.test.mjs tests/host-session.test.mjs tests/tag-behavior.test.mjs tests/search-behavior.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs",
     "test:sync": "node tests/sync-live.mjs"
   },
@@ -29,6 +29,7 @@
     "@vitejs/plugin-react": "5.0.4",
     "ajv": "^8.20.0",
     "katex": "^0.16.47",
+    "pdfjs-dist": "^6.3.289",
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "react-markdown": "^10.1.0",

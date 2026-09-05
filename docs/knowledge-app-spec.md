@@ -5,7 +5,7 @@
 > role checks, storage ports and public Operations remain. The current store is
 > append-only Yjs (ADR 0040); SQLite and raw Markdown are not being introduced.
 > Conversations preserve immutable message Blocks; each model call is recorded
-> before sending when recording is enabled. Folders, files, graph UI and semantic
+> before sending when recording is enabled. Graph UI and semantic
 > retrieval are later stages.
 >
 > ADR 0044 groups Context into one notebook per conversation in a private Record
@@ -557,3 +557,27 @@ demonstrate at least the following scenarios:
 ### Automatic record PageLinks
 
 Conversation and Context receive persisted reciprocal PageLinks within a Project. Context also links its actual source Pages and legacy Context. Across Projects, reverse navigation uses authorized backlinks. Opening existing records repairs missing links through `knowledge.record.links.v1`; message and input text remain unchanged. See ADR 0046.
+
+### Folder and File migration (ADR 0047)
+
+Schema 4 adds `folder` and `file` Page kinds plus `folderId`. Existing Pages remain at the root. Folder create/move and File import/read use versioned public Operations. Folder cycles and cross-Project moves are refused. Nonempty Folders cannot be trashed or purged. File originals are limited to 20 MB, copied into Project storage, hash checked, and published to shared storage before new metadata. Files are searchable by title/tag, linkable, immutable, and use Page Trash/restore. Images have a safe raster preview; other files download without executing in MyBox. Native manifests are version 4; sync record protocol is 3.
+
+### Search navigation and inline File display (ADR 0048)
+
+This replaces the Folder behavior in ADR 0047. Folder creation/move Operations
+are removed. The Host-authorized `knowledge.library.flatten.v1` converts legacy
+Folders into Notes with child PageLinks, retaining IDs and content and clearing
+parent assignments. It is repeatable, commits to Yjs, and never rewrites Viewer data.
+Both left columns default hidden; the header retains essential actions. Search
+supports recent Pages, multiple terms, title/tag/body ranking and matching Block
+navigation, with scope/kind/Trash controls and IME-safe keyboard handling.
+File Pages automatically show raster images or a PDF.js canvas. Only the current
+PDF page is rendered, with bounded dimensions and cancellation. Extraction/OCR
+remains deferred; original downloads remain available.
+
+### Record-centered Host home (ADR 0049)
+
+Home reads recent Pages and accessible Projects through Knowledge Operations.
+Search and creation hand off to the loaded Knowledge surface once; opening an
+existing record must clear any previous creation command. Workflow screens and
+automatic startup are retired without deleting stored definitions or history.

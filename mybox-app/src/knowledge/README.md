@@ -112,3 +112,18 @@ Context notebook reads automatically resolve the session-conversation link with
 current title and source access checks, including existing Context records.
 
 - `record-links.js`: idempotent automatic PageLinks for Conversation, Context, legacy records and actual sources; authorized cross-Project backlinks.
+
+- `library.js`: legacy Folder conversion, immutable File metadata and hash verification.
+- `LibraryControls.jsx`: header File import, download and automatic raster/PDF display. Originals pass through Host Operations; extraction is deferred.
+- `PdfPreview.jsx`: lazy PDF.js canvas rendering with bounded dimensions and page navigation.
+
+Ctrl+P searches Pages and Project names. A completed unmatched query offers a
+new Page with that title in the current writable Project. Ctrl+B toggles the
+left navigation columns.
+
+Ctrl+N creates a Page and Ctrl+Delete moves the active Page to Trash. The Page
+header shows its persisted latest update time.
+
+- `PageOutline.jsx` / `page-outline.js`: heading navigation using stable Block IDs.
+New Pages focus title (Ctrl+N) or Tags (search creation); Enter advances to Tags
+and then the first editable body Block.

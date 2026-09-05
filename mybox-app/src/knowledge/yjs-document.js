@@ -105,7 +105,7 @@ function blockIndex(blocks, blockId) {
 export function seedPage(doc, page) {
   doc.transact(() => {
     const map = new Y.Map();
-    for (const key of ["kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"]) if (page[key] !== undefined) map.set(key, structuredClone(page[key]));
+    for (const key of ["folderId", "file", "kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"]) if (page[key] !== undefined) map.set(key, structuredClone(page[key]));
     map.set("title", page.title);
     map.set("state", page.state ?? "active");
     if (page.createdBy) map.set("createdBy", page.createdBy);
@@ -170,7 +170,7 @@ export function readPage(doc, pageId) {
   if (!page) return null;
   return {
     id: pageId,
-    ...Object.fromEntries(["kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"].filter((key) => page.has(key)).map((key) => [key, structuredClone(page.get(key))])),
+    ...Object.fromEntries(["folderId", "file", "kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"].filter((key) => page.has(key)).map((key) => [key, structuredClone(page.get(key))])),
     title: page.get("title"),
     state: page.get("state"),
     ...(page.get("createdBy") ? { createdBy: page.get("createdBy") } : {}),
@@ -380,7 +380,7 @@ export function commitRecordPage(doc, value) {
   const existing = pagesOf(doc).get(value.id);
   if (!existing) { seedPage(doc, value); return; }
   doc.transact(() => {
-    for (const key of ["title", "kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"]) if (value[key] !== undefined) existing.set(key, structuredClone(value[key]));
+    for (const key of ["folderId", "file", "title", "kind", "recordVersion", "context", "provenance", "legacyContextUnavailable", "sessionMetadata", "createdAt", "updatedAt"]) if (value[key] !== undefined) existing.set(key, structuredClone(value[key]));
     const blocks = existing.get("blocks");
     for (const incoming of value.blocks.filter((b) => b.turn)) {
       const current = blocks.toArray().find((b) => b.get("id") === incoming.id);

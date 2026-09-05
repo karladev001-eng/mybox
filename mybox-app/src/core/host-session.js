@@ -23,7 +23,7 @@ export function validateHostSession(value) {
   ) {
     throw new TypeError("Host session is invalid");
   }
-  return value.view === "connections" ? { ...value, view: "workflows" } : value;
+  return ["connections", "workflows", "history"].includes(value.view) ? { ...value, view: "apps", appId: null } : value;
 }
 
 export function resolveHostSession(value, installedAppIds = []) {

@@ -269,6 +269,7 @@ export function createSharedProject({
           projectId,
           title: page.title,
           kind: page.kind ?? "note",
+      folderId: page.folderId ?? null,
           updatedAt: page.updatedAt ?? "",
           state: page.state,
           tagIds: page.tagIds,

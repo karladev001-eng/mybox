@@ -32,5 +32,13 @@ export async function routeRequest(request, env) {
   // open to whoever found the URL.
   if (!env.SERVER_SECRET) return json({ error: "SERVER_SECRET_UNSET" }, 503);
 
+  if (route.subpath === "/files") {
+    const headers = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Authorization, Content-Type", "Access-Control-Allow-Methods": "GET, POST, OPTIONS" };
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers });
+    const response = await env.PROJECT_ROOM.getByName(route.projectId).fetch(request);
+    const result = new Response(response.body, response);
+    for (const [key, value] of Object.entries(headers)) result.headers.set(key, value);
+    return result;
+  }
   return env.PROJECT_ROOM.getByName(route.projectId).fetch(request);
 }

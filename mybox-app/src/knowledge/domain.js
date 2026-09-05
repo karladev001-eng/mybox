@@ -2,7 +2,7 @@ import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { parseMarkdownBlocks, splitPastedBlock } from "./editor-behavior.js";
 import { authorColorFor, isAuthorColor } from "./author-color.js";
 
-export const KNOWLEDGE_SCHEMA_VERSION = 3;
+export const KNOWLEDGE_SCHEMA_VERSION = 4;
 export const PAGE_STATES = Object.freeze(["active", "trash"]);
 export const PROJECT_ROLES = Object.freeze(["viewer", "editor", "owner"]);
 // `url-embed` and `image` reuse `text` for their payload (a URL, or an opaque
@@ -237,7 +237,7 @@ export function createKnowledgeState({
 }
 
 export function validateKnowledgeState(state) {
-  if ([1, 2].includes(state?.schemaVersion)) state = { ...state, schemaVersion: KNOWLEDGE_SCHEMA_VERSION };
+  if ([1, 2, 3].includes(state?.schemaVersion)) state = { ...state, schemaVersion: KNOWLEDGE_SCHEMA_VERSION };
   if (!state || state.schemaVersion !== KNOWLEDGE_SCHEMA_VERSION) {
     throw new KnowledgeDomainError("INVALID_KNOWLEDGE_STATE", "Knowledge state schema is unsupported");
   }
@@ -403,6 +403,7 @@ export function listPages(state, {
       projectId: page.projectId,
       title: page.title,
       kind: page.kind ?? "note",
+      folderId: page.folderId ?? null,
       state: page.state,
       revision: page.revision,
       updatedAt: page.updatedAt,
@@ -775,6 +776,7 @@ export function movePageToTrash(state, {
   const project = findProject(next, projectId);
   assertRole(project, profileId, "editor");
   const page = findPage(next, projectId, pageId);
+  if (page.kind === "folder" && next.pages.some((p) => p.projectId === projectId && p.folderId === page.id)) throw new KnowledgeDomainError("FOLDER_NOT_EMPTY", "Folder内のPageを移動してから削除してください（Trash内も含みます）");
   assertRevision(page, expectedRevision);
   if (page.state === "trash") return { state: next, page: copy(page) };
   const context = { actorId, now, idFactory };
@@ -819,6 +821,7 @@ export function purgePage(state, {
   const project = findProject(next, projectId);
   assertRole(project, profileId, "owner");
   const page = findPage(next, projectId, pageId);
+  if (page.kind === "folder" && next.pages.some((p) => p.projectId === projectId && p.folderId === page.id)) throw new KnowledgeDomainError("FOLDER_NOT_EMPTY", "Folder内のPageを移動してから削除してください（Trash内も含みます）");
   assertRevision(page, expectedRevision);
   convertLinksToText(next, page, { actorId, now, idFactory, deferTouchPageId: page.id });
   next.pages = next.pages.filter((item) => item.id !== page.id);
@@ -917,6 +920,7 @@ export function searchPages(state, {
       }
     });
   const needle = query.trim().normalize("NFKC").toLocaleLowerCase("ja-JP");
+  const terms = needle.split(/\s+/).filter(Boolean);
   const allowedStates = includeTrash ? PAGE_STATES : ["active"];
   const results = [];
   for (const page of state.pages) {
@@ -924,7 +928,8 @@ export function searchPages(state, {
     const tagLabels = page.tagIds
       .map((tagId) => state.tags.find((tag) => tag.id === tagId)?.label)
       .filter(Boolean);
-    const titleMatch = !needle || page.normalizedTitle.includes(needle) || tagLabels.some((label) => normalizeTagLabel(label).includes(needle));
+    const titleAndTags = `${page.normalizedTitle} ${tagLabels.map(normalizeTagLabel).join(" ")}`;
+    const titleMatch = terms.every((term) => titleAndTags.includes(term));
     if (titleMatch) {
       results.push({
         projectId: page.projectId,
@@ -937,13 +942,14 @@ export function searchPages(state, {
         blockRevision: page.blocks[0]?.revision ?? null,
         excerpt: page.blocks.find((block) => block.text.trim())?.text.slice(0, 180) ?? "",
         reason: needle ? "title-or-tag" : "recent",
+        score: !needle ? 0 : page.normalizedTitle === needle ? 100 : page.normalizedTitle.startsWith(needle) ? 90 : 70,
       });
     }
     if (!needle) continue;
     for (const block of page.blocks) {
       const normalizedText = block.text.normalize("NFKC").toLocaleLowerCase("ja-JP");
-      const index = normalizedText.indexOf(needle);
-      if (index < 0) continue;
+      if (!terms.every((term) => `${titleAndTags} ${normalizedText}`.includes(term))) continue;
+      const index = Math.max(0, normalizedText.indexOf(terms.find((term) => normalizedText.includes(term)) ?? needle));
       results.push({
         projectId: page.projectId,
         pageId: page.id,
@@ -955,6 +961,7 @@ export function searchPages(state, {
         blockRevision: block.revision,
         excerpt: block.text.slice(Math.max(0, index - 48), index + needle.length + 96),
         reason: "block-text",
+        score: 40,
       });
     }
   }
@@ -962,9 +969,9 @@ export function searchPages(state, {
     .sort((a, b) => {
       const aPage = state.pages.find((page) => page.id === a.pageId);
       const bPage = state.pages.find((page) => page.id === b.pageId);
-      return bPage.updatedAt.localeCompare(aPage.updatedAt);
+      return b.score - a.score || bPage.updatedAt.localeCompare(aPage.updatedAt);
     })
-    .slice(0, 100);
+    .slice(0, 100).map(({ score, ...result }) => result);
 }
 
 /**

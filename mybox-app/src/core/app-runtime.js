@@ -1,3 +1,4 @@
+import { createProjectFileStore } from "../desktop/knowledge-files.js";
 import { registerAgentHost } from "./agent-host-registry.js";
 import { AppHost } from "./app-host.js";
 import { WorkflowManager } from "./workflow-manager.js";
@@ -16,16 +17,17 @@ const webDriver = new MemoryStorageDriver();
 
 function payload(dataUri) { return String(dataUri).replace(/^data:image\/(?:png|jpeg|webp);base64,/, ""); }
 
-export function createSharedAppRuntime({ desktop = false, getConfirmationLevel = () => "review", getUserId = () => "local-user" } = {}) {
+export function createSharedAppRuntime({ desktop = false, enableWorkflows = true, getConfirmationLevel = () => "review", getUserId = () => "local-user" } = {}) {
   const storageDriver = desktop ? new TauriStorageDriver() : webDriver;
   const resources = new ResourceBroker();
   let workflows;
+  const requestWorkflow = async (...args) => { if (!enableWorkflows) throw new Error("Workflow is retired in this workspace"); return workflows.request(...args); };
   const host = new AppHost({
     requiredAppIds: ["knowledge"],
     storageDriver,
     resources,
-    workflows: { request: (...args) => workflows.request(...args) },
-    connections: { pull: (...args) => workflows.request(...args) },
+    workflows: { request: (...args) => requestWorkflow(...args) },
+    connections: { pull: (...args) => requestWorkflow(...args) },
   });
   workflows = new WorkflowManager({
     host,
@@ -40,7 +42,7 @@ export function createSharedAppRuntime({ desktop = false, getConfirmationLevel =
   const sharedSessions = new Map();
   const sharedSessionPreparations = new Map();
   const definitions = new Map([
-    ["knowledge", () => createKnowledgeApp({ sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } })],
+    ["knowledge", () => createKnowledgeApp({ fileStore: desktop ? createProjectFileStore() : null, sharedSessions: { get: (projectId) => sharedSessions.get(projectId) ?? null } })],
     ["image-studio", () => createImageStudioApp({ generator: { generate: generateImageStudio, purge: deleteImageStudioResource } })],
   ]);
 
@@ -77,7 +79,7 @@ export function createSharedAppRuntime({ desktop = false, getConfirmationLevel =
     sharedSessionPreparations,
     prepareKnowledgeProject: (projectId) => prepareKnowledgeProject(projectId),
     syncInstalled,
-    start: () => workflows.load(),
+    start: () => enableWorkflows ? workflows.load() : Promise.resolve(),
     stop: () => workflows.stop(),
   };
   if (desktop) {

@@ -1,3 +1,6 @@
+import { THEMES } from "./core/themes.js";
+import { WorkspaceHome } from "./WorkspaceHome.jsx";
+import { AssistantResizeHandle } from "./AssistantResizeHandle.jsx";
 import providerInstructions from "./core/provider-instructions.json";
 import { createKnowledgeChatStore } from "./core/knowledge-chat-store.js";
 import { createKnowledgeClient } from "./knowledge/client.js";
@@ -6,7 +9,6 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { chooseWorkspace, getCurrentWorkspace, isDesktopRuntime } from "./desktop/workspace.js";
 import { ChatView } from "./ChatView.jsx";
 import { ThemedSelect } from "./ThemedSelect.jsx";
-import { WorkflowHistoryView, WorkflowView } from "./WorkflowView.jsx";
 import {
   appendChatMessage,
   buildConversationInput,
@@ -679,7 +681,7 @@ function HostUpdateRow({ desktop, updater }) {
 }
 
 function SettingsView({
-  contextAutoRecord, contextSettingBusy, onContextAutoRecord,
+  contextAutoRecord, contextSettingBusy, onContextAutoRecord, theme, themeBusy, onTheme,
   desktop,
   workspace,
   workspaceBusy,
@@ -708,9 +710,10 @@ function SettingsView({
       ? "ChatGPTへの切替が必要"
       : agentStatus?.error ?? (desktop ? "未接続" : "デスクトップのみ");
   return (
-    <section className="secondary-view" aria-labelledby="settings-heading">
-      <div className="view-title"><GearSix size={24} aria-hidden="true" /><h1 id="settings-heading">設定</h1></div>
+    <section className="secondary-view settings-view" aria-labelledby="settings-heading">
+      <header className="workspace-intro settings-intro"><span className="workspace-eyebrow">MYBOX / PREFERENCES</span><h1 id="settings-heading">設定</h1></header>
       <div className="settings-list">
+        <h2 className="settings-group-label">アカウントとAI</h2>
         <AccountRow
           desktop={desktop}
           session={accountSession}
@@ -747,6 +750,7 @@ function SettingsView({
           onSelect={providerSettings.localLlm.configured ? () => onSelectProvider(LOCAL_LLM_PROVIDER_ID) : onConfigureLocal}
           onConfigure={onConfigureLocal}
         />
+        <h2 className="settings-group-label">記録と保存</h2>
         <HostUpdateRow desktop={desktop} updater={hostUpdater} />
         <button className="workspace-action" onClick={onChooseWorkspace} disabled={!desktop || workspaceBusy} title={workspace?.path ?? ""}>
           <span className="settings-row-icon"><FolderSimple size={22} aria-hidden="true" /></span>
@@ -754,10 +758,14 @@ function SettingsView({
           <span className="settings-row-control">{workspaceBusy ? "確認中…" : workspace ? "変更" : desktop ? "選択" : "Desktop"}</span>
         </button>
         <button type="button" role="switch" aria-checked={contextAutoRecord} disabled={contextSettingBusy || !workspace && desktop} onClick={() => onContextAutoRecord(!contextAutoRecord)}><span className="settings-row-icon"><FileText size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>Contextを自動記録</strong><small>AIへ送信した情報をRecordに保存</small></span><span className="settings-row-control"><span className={contextAutoRecord ? "switch on" : "switch"}><span /></span></span></button>
+        <h2 className="settings-group-label">操作と表示</h2>
+        <div className="settings-theme-row">
+          <span className="settings-row-icon"><SlidersHorizontal size={22} aria-hidden="true" /></span>
+          <span className="settings-row-copy"><strong>テーマ</strong></span>
+          <ThemedSelect id="workspace-theme" label="テーマ" options={THEMES} value={theme} onChange={onTheme} disabled={themeBusy} compact placement="top" />
+        </div>
         <button role="switch" aria-checked={confirmDelete} onClick={() => setConfirmDelete(!confirmDelete)}><span className="settings-row-icon"><Trash size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>削除前に確認</strong></span><span className="settings-row-control"><span className={confirmDelete ? "switch on" : "switch"}><span /></span></span></button>
         <button role="switch" aria-checked={reduceMotion} onClick={() => setReduceMotion(!reduceMotion)}><span className="settings-row-icon"><SlidersHorizontal size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>動きを抑える</strong></span><span className="settings-row-control"><span className={reduceMotion ? "switch on" : "switch"}><span /></span></span></button>
-        <button role="switch" aria-checked={workflowBackground.background} disabled={!desktop} onClick={() => onWorkflowBackgroundChange({ background: !workflowBackground.background, autostart: workflowBackground.background ? false : workflowBackground.autostart })}><span className="settings-row-icon"><FlowArrow size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>バックグラウンド実行</strong><small>{workflowBackground.background ? "ウィンドウを閉じても実行" : "MyBox起動中のみ"}</small></span><span className="settings-row-control"><span className={workflowBackground.background ? "switch on" : "switch"}><span /></span></span></button>
-        <button role="switch" aria-checked={workflowBackground.autostart} disabled={!desktop || !workflowBackground.background} onClick={() => onWorkflowBackgroundChange({ background: true, autostart: !workflowBackground.autostart })}><span className="settings-row-icon"><Power size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>PC起動時に開始</strong></span><span className="settings-row-control"><span className={workflowBackground.autostart ? "switch on" : "switch"}><span /></span></span></button>
         <button className="text-danger" disabled={!desktop} onClick={onExit}><span className="settings-row-icon"><Power size={22} aria-hidden="true" /></span><span className="settings-row-copy"><strong>MyBoxを終了</strong></span><span className="settings-row-control">終了</span></button>
       </div>
     </section>
@@ -839,7 +847,7 @@ export function App() {
   const confirmationLevelRef = useRef("review");
   const activeUserIdRef = useRef("local-user");
   const [appRuntime] = useState(() => createSharedAppRuntime({
-    desktop,
+    desktop, enableWorkflows: false,
     getConfirmationLevel: () => confirmationLevelRef.current,
     getUserId: () => activeUserIdRef.current,
   }));
@@ -857,6 +865,7 @@ export function App() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantWidth, setAssistantWidth] = useState(420);
   const [shortcutMenuOpen, setShortcutMenuOpen] = useState(false);
   const [appShortcutCommand, setAppShortcutCommand] = useState(null);
   const [surfaceContext, setSurfaceContext] = useState(null);
@@ -904,6 +913,7 @@ export function App() {
   }));
   const [contextSources, setContextSources] = useState([]);
   const [chatProjects, setChatProjects] = useState([]);
+  const [defaultChatProjectId, setDefaultChatProjectId] = useState(null);
   const [newChatProject, setNewChatProject] = useState("");
   const [recordTarget, setRecordTarget] = useState(null);
   const hostUpdater = useHostUpdater(desktop);
@@ -911,7 +921,7 @@ export function App() {
   confirmationLevelRef.current = profilePreferences.confirmationLevel;
   activeUserIdRef.current = activeProfile.profileId;
 
-  const pageTitle = useMemo(() => view === "apps" ? "アプリ" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
+  const pageTitle = useMemo(() => view === "apps" ? "ホーム" : view === "chat" ? "AIチャット" : navItems.find((item) => item.id === view)?.label, [view]);
   const assistantContextLabel = surfaceContext?.label || selectedApp?.name || pageTitle || "MyBox";
   const activeProviderId = providerSettings.activeProviderId;
   const activeProvider = nativeAgentProviders[activeProviderId] ?? codexSubscriptionProvider;
@@ -995,7 +1005,7 @@ export function App() {
     listenWorkflowNotifications((extra) => {
       setSelectedApp(null);
       setNotificationRunId(extra.runId ?? null);
-      setView("history");
+      setView("apps");
     }).then((listener) => { if (active) stop = listener; else listener(); }).catch(() => {});
     return () => { active = false; stop(); };
   }, [desktop]);
@@ -1035,6 +1045,19 @@ export function App() {
       .catch(() => {});
     return () => { active = false; };
   }, [desktop, workspace]);
+
+  const [themeBusy, setThemeBusy] = useState(false);
+  useEffect(() => {
+    document.documentElement.dataset.theme = profilePreferences.theme;
+  }, [profilePreferences.theme]);
+
+  const changeTheme = async (theme) => {
+    setThemeBusy(true);
+    try {
+      setProfilePreferences(await getProfilePreferencesStore().setTheme(profilePreferences, theme));
+    } catch (error) { setToast(`テーマを保存できません：${String(error.message || error)}`); }
+    finally { setThemeBusy(false); }
+  };
 
   const changeContextAutoRecord = async (enabled) => {
     setContextSettingBusy(true);
@@ -1078,7 +1101,11 @@ export function App() {
         if (!active) return;
         setChatHistory(history);
         if (history.unavailableProjects?.length) setToast(`利用できないProject：${history.unavailableProjects.map((p) => p.name).join("、")}`);
-        chatStore.client.listProjects().then(({ projects }) => setChatProjects(projects));
+        const defaultProjectId = await chatStore.defaultProject();
+        const { projects } = await chatStore.client.listProjects();
+        if (!active) return;
+        setDefaultChatProjectId(defaultProjectId);
+        setChatProjects(projects);
         setActiveChatId((current) => history.sessions.some((session) => session.id === current)
           ? current
           : history.sessions.find((s) => s.id === savedPosition.pageId)?.id ?? history.sessions[0]?.id ?? null);
@@ -1699,6 +1726,11 @@ export function App() {
     setView(nextView);
   };
 
+  const openKnowledgeHome = (shortcutId) => {
+    setRecordTarget(null); setSelectedApp(appRegistry.get("knowledge")); setView("apps");
+    setAppShortcutCommand({ appId: "knowledge", shortcutId, sequence: ++appShortcutSequence.current });
+  };
+
   const dispatchAppShortcut = (appId, shortcutId) => {
     if (selectedApp?.id !== appId) return;
     appShortcutSequence.current += 1;
@@ -1727,8 +1759,8 @@ export function App() {
         break;
       case "apps": navigateWithKeyboard("apps"); break;
       case "home": navigateWithKeyboard("apps"); break;
-      case "connections": navigateWithKeyboard("workflows"); break;
-      case "history": navigateWithKeyboard("history"); break;
+      case "connections": navigateWithKeyboard("apps"); break;
+      case "history": navigateWithKeyboard("apps"); break;
       case "settings": navigateWithKeyboard("settings"); break;
       case "chat": navigateWithKeyboard("chat"); break;
       case "add-app":
@@ -1779,7 +1811,13 @@ export function App() {
         runHostShortcut(hostShortcut.id);
         return;
       }
-      if (shortcutMenuOpen || blockingModalOpen || !selectedApp) return;
+      if (shortcutMenuOpen || blockingModalOpen) return;
+      if (!selectedApp && view === "apps") {
+        const command = resolveAppKeyboardShortcut(appRegistry.get("knowledge").shortcuts, event);
+        if (["page-search", "new-page"].includes(command?.id)) { event.preventDefault(); openKnowledgeHome(command.id); }
+        return;
+      }
+      if (!selectedApp) return;
       const appShortcut = resolveAppKeyboardShortcut(selectedApp.shortcuts, event);
       if (!appShortcut) return;
       event.preventDefault();
@@ -1795,11 +1833,12 @@ export function App() {
   };
 
   const openRecord = (projectId, pageId, blockId = null) => {
+    setAppShortcutCommand(null);
     setRecordTarget({ projectId, pageId, blockId, nonce: Date.now() });
     setSelectedApp(appRegistry.get("knowledge")); setView("apps");
   };
   const sharedChatProps = {
-    chatProjects, newChatProject, onNewChatProject: setNewChatProject,
+    chatProjects, defaultChatProjectId, newChatProject, onNewChatProject: setNewChatProject,
     onReadImage: (image) => image.appId === "knowledge" ? chatStore.client.readImage(image.resourceId) : readLegacyChatImage(image.resourceId),
     contextSources,
     onClearContext: () => setContextSources([]),
@@ -1851,13 +1890,13 @@ export function App() {
   };
 
   return (
-    <div className={`app-shell${view === "chat" ? " chat-mode" : ""}${assistantOpen && view !== "chat" ? " assistant-panel-open" : ""}${selectedApp ? " app-surface-mode" : ""}`} onClick={(e) => !e.target.closest(".context-menu, .tile-actions, .launcher-menu-button") && setMenuOpen(null)}>
+    <div style={{ "--assistant-panel-width": `min(${assistantWidth}px, calc(100vw - 360px))` }} className={`app-shell${view === "chat" ? " chat-mode" : ""}${assistantOpen && view !== "chat" ? " assistant-panel-open" : ""}${selectedApp ? " app-surface-mode" : ""}`} onClick={(e) => !e.target.closest(".context-menu, .tile-actions, .launcher-menu-button") && setMenuOpen(null)}>
       <header className="topbar">
-        <button className="brand" aria-label="アプリ一覧へ" aria-keyshortcuts="Control+1" onClick={() => setView("apps")}><img className="brand-mark" src="/assets/mybox-mark.png" alt="" width="34" height="34" /><span>MyBox</span></button>
+        <button className="brand" aria-label="ホームへ" aria-keyshortcuts="Control+1" onClick={() => { setSelectedApp(null); setView("apps"); }}><img className="brand-mark" src="/assets/mybox-mark.png" alt="" width="34" height="34" /><span>MyBox</span></button>
         <div className="topbar-actions">
           <IconButton label={`${assistantOpen ? "AIアシスタントを閉じる" : "AIアシスタントを開く"} (Ctrl+J)`} className={assistantOpen ? "assistant-toggle active" : "assistant-toggle"} aria-keyshortcuts="Control+J" aria-pressed={assistantOpen} aria-controls="assistant-panel" onClick={() => setAssistantOpen((open) => !open)}><Robot size={23} weight={assistantOpen ? "fill" : "regular"} /></IconButton>
           <IconButton label="コマンドパレット (Ctrl+K)" className={shortcutMenuOpen ? "shortcut-toggle active" : "shortcut-toggle"} aria-keyshortcuts="Control+K" aria-expanded={shortcutMenuOpen} onClick={() => setShortcutMenuOpen(true)}><Keyboard size={23} /></IconButton>
-          <IconButton label="アプリを追加 (Ctrl+Shift+A)" aria-keyshortcuts="Control+Shift+A" onClick={() => setAddOpen(true)}><Plus size={22} /></IconButton>
+          <IconButton label="設定" onClick={() => { setSelectedApp(null); setView("settings"); }}><GearSix size={18} /></IconButton>
           {accountSession.signedIn && (
             <IconButton label={`${accountSession.displayName}・アカウント設定`} className="profile-button" onClick={() => setView("settings")}>
               {accountSession.avatarUrl
@@ -1869,23 +1908,12 @@ export function App() {
       </header>
 
       <main className={`main-content${view === "chat" ? " chat-content" : ""}`}>
-        {view !== "chat" && <form className={aiOpen ? "ai-command open" : "ai-command"} onSubmit={runAi} aria-busy={agentBusy}>
-          <button type="button" className="ai-trigger" aria-label="AIアシスタントを開く" aria-controls="assistant-panel" aria-expanded={assistantOpen} onClick={() => setAssistantOpen(true)}><Robot size={30} weight="duotone" /></button>
-          <input ref={aiInput} aria-label="AIへの依頼" value={aiText} onChange={(e) => setAiText(e.target.value)} onFocus={() => setAiOpen(true)} placeholder={agentBusy ? "考えています…" : "AIに頼む"} disabled={agentBusy} />
-          {agentBusy ? <span className="ai-busy spinner" aria-label="AIが処理中" /> : aiOpen ? <button className="ai-send" type="submit" aria-label="依頼を送信"><PaperPlaneTilt size={21} /></button> : null}
-        </form>}
-
-        {view === "apps" && (
-          <section className="apps-view" aria-labelledby="apps-heading">
-            <h1 id="apps-heading">アプリ</h1>
-            <div className="app-grid">
-              {apps.map((app) => <AppTile key={app.id} app={app} installedVersion={installedVersions[app.id] ?? app.version} updating={updatingAppId === app.id} onUpdate={updateApp} onOpen={setSelectedApp} menuOpen={menuOpen === app.id} onMenu={(id) => setMenuOpen((current) => current === id ? null : id)} onDelete={(app) => app.id !== "knowledge" && setPendingDelete(app)} onFavorite={(item) => { setToast(`${item.name}を固定しました`); setMenuOpen(null); }} />)}
-            </div>
-          </section>
-        )}
-        {view === "workflows" && <WorkflowView runtime={appRuntime} onToast={setToast} backgroundSettings={workflowBackground} onScheduleEnabled={() => desktop && !workflowBackground.background && setBackgroundPromptOpen(true)} />}
-        {view === "history" && <WorkflowHistoryView runtime={appRuntime} onToast={setToast} targetRunId={notificationRunId} />}
-        {view === "settings" && <SettingsView contextAutoRecord={profilePreferences.contextAutoRecord} contextSettingBusy={contextSettingBusy} onContextAutoRecord={changeContextAutoRecord} desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} workflowBackground={workflowBackground} onWorkflowBackgroundChange={changeWorkflowBackground} onExit={exitMyBox} />}
+        {view === "apps" && !selectedApp && <WorkspaceHome desktop={desktop} appRuntime={appRuntime} profileId={activeUserIdRef.current} ready={!desktop || Boolean(workspace)}
+          onSearch={() => openKnowledgeHome("page-search")} onCreate={() => openKnowledgeHome("new-page")} onOpenPage={openRecord}
+          onOpenProject={(projectId) => openRecord(projectId, null)} onChat={() => setView("chat")}
+          onImage={apps.some((app) => app.id === "image-studio") ? () => setSelectedApp(appRegistry.get("image-studio")) : null}
+          onSettings={() => setView("settings")} />}
+        {view === "settings" && <SettingsView theme={profilePreferences.theme} themeBusy={themeBusy} onTheme={changeTheme} contextAutoRecord={profilePreferences.contextAutoRecord} contextSettingBusy={contextSettingBusy} onContextAutoRecord={changeContextAutoRecord} desktop={desktop} workspace={workspace} workspaceBusy={workspaceBusy} onChooseWorkspace={selectWorkspace} agentStatus={agentStatus} agentBusy={agentBusy} onConnectAgent={connectAgent} providerSettings={providerSettings} onSelectProvider={chooseAgentProvider} onConfigureOpenAi={() => setProviderModal("openai")} onConfigureLocal={() => setProviderModal("local")} accountSession={accountSession} accountBusy={accountBusy} onSignIn={startSignIn} onSignOut={signOut} hostUpdater={hostUpdater} workflowBackground={workflowBackground} onWorkflowBackgroundChange={changeWorkflowBackground} onExit={exitMyBox} />}
         {view === "chat" && <ChatView
           {...sharedChatProps}
           onBack={() => setView("apps")}
@@ -1895,11 +1923,6 @@ export function App() {
           onSend={(text) => sendChatMessage(text)}
         />}
       </main>
-
-      {view !== "chat" && <nav className="bottom-nav" aria-label="メインナビゲーション">
-        {view !== "apps" && <button className="back-to-apps" onClick={() => setView("apps")} aria-label="アプリに戻る" aria-keyshortcuts="Control+1"><ArrowLeft size={22} /><span>アプリ</span></button>}
-        {navItems.map(({ id, label, icon: Icon }, index) => <button key={id} className={view === id ? "active" : ""} aria-keyshortcuts={`Control+${index + 2}`} aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}><Icon size={32} weight={view === id ? "fill" : "regular"} /><span>{label}</span></button>)}
-      </nav>}
 
       {shortcutMenuOpen && <CommandPalette apps={apps} activeApp={selectedApp} onClose={() => setShortcutMenuOpen(false)} onRun={runShortcutMenuCommand} />}
       {addOpen && <AddAppModal catalog={appRegistry.list()} installedVersions={installedVersions} updatingAppId={updatingAppId} onClose={() => setAddOpen(false)} onAdd={addApp} onUpdate={updateApp} />}
@@ -1931,7 +1954,7 @@ export function App() {
           assistantOpen={assistantOpen}
           onToggleAssistant={() => setAssistantOpen((open) => !open)}
           onContextChange={setSurfaceContext}
-          onClose={() => setSelectedApp(null)}
+          onClose={() => { setAppShortcutCommand(null); setSelectedApp(null); }}
           onOpenSettings={() => {
             setSelectedApp(null);
             setView("settings");
@@ -1939,6 +1962,7 @@ export function App() {
           onDone={setToast}
         />
       )}
+      {assistantOpen && view !== "chat" && <AssistantResizeHandle width={assistantWidth} onChange={setAssistantWidth} />}
       {assistantOpen && view !== "chat" && <ChatView
         {...sharedChatProps}
         variant="panel"
