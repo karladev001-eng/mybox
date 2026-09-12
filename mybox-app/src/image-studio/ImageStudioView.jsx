@@ -2,7 +2,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } f
 import { ArrowLeft, ArrowsClockwise, CaretDown, CaretLeft, CaretRight, Check, ClipboardText, ClockCounterClockwise, DownloadSimple, FileText, Image as ImageIcon, MagicWand, MagnifyingGlass, MagnifyingGlassPlus, Notebook, PencilSimple, Plus, Robot, Trash, UploadSimple, X } from "@phosphor-icons/react";
 import { ThemedSelect } from "../ThemedSelect.jsx";
 import { createImageStudioClient } from "./client.js";
-import { compilePrompt, MAX_PROMPT_LENGTH, normalizeFinalPrompt, RATIOS, resolveGenerationSelection, serializeTemplateMarkdown, TEMPLATE_CATEGORIES } from "./domain.js";
+import { BUILT_IN_TEMPLATES, compilePrompt, MAX_PROMPT_LENGTH, normalizeFinalPrompt, RATIOS, resolveGenerationSelection, serializeTemplateMarkdown, TEMPLATE_CATEGORIES } from "./domain.js";
 import { filterNotePageChoices } from "./note-page-search.js";
 import { previewFrameLayout } from "./preview-layout.js";
 import templateSamples from "./template-samples.webp";
@@ -210,7 +210,7 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
   const clientRef = useRef(null);
   if (!clientRef.current) clientRef.current = createImageStudioClient({ desktop, appRuntime, getUserId: () => profileRef.current });
   const client = clientRef.current;
-  const [templates, setTemplates] = useState([]);
+  const [templates, setTemplates] = useState([...BUILT_IN_TEMPLATES]);
   const [generations, setGenerations] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [subject, setSubject] = useState("");

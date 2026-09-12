@@ -1,3 +1,4 @@
+import { jsonValueEqual } from "../core/json-value.js";
 import { recordPage, authorize } from "./records.js";
 import { KnowledgeDomainError } from "./domain.js";
 const fail = (code, message) => { throw new KnowledgeDomainError(code, message); };
@@ -11,11 +12,11 @@ export function saveImageRecord(state, input, profileId) {
   let next = structuredClone(state), page = next.pages.find((p) => p.id === pageId);
   if (page && (page.projectId !== input.projectId || page.kind !== kind || page.imageRecord?.id !== record.id)) fail("RECORD_ID_CONFLICT", "Page IDが使用されています");
   // Idempotent retries never create an extra revision.
-  if (page && JSON.stringify(page.imageRecord) === JSON.stringify(record)) return { state, page };
+  if (page && jsonValueEqual(page.imageRecord, record)) return { state, page };
   if (page?.state === "trash") fail("PAGE_IN_TRASH", "記録を復元してください");
   if ((page?.revision ?? 0) !== expectedRevision) fail("REVISION_CONFLICT", "記録が更新されています。開き直してください");
   if (kind === "generation" && page && !["generating", "prepared"].includes(page.imageRecord.state)) fail("IMMUTABLE_RECORD", "完了した生成記録は変更できません");
-  if (kind === "generation" && page && (record.finalPrompt !== page.imageRecord.finalPrompt || JSON.stringify(record.input) !== JSON.stringify(page.imageRecord.input))) fail("IMMUTABLE_RECORD", "送信済みの入力は変更できません");
+  if (kind === "generation" && page && (record.finalPrompt !== page.imageRecord.finalPrompt || !jsonValueEqual(record.input, page.imageRecord.input))) fail("IMMUTABLE_RECORD", "送信済みの入力は変更できません");
   if (!page) ({state: next, page} = recordPage(next, {projectId: input.projectId, id: pageId, title: kind === "prompt" ? record.name : (record.input.subject || record.finalPrompt).slice(0, 100)}, kind, profileId));
   page.imageRecord = structuredClone(record);
   page.state = record.state === "trash" ? "trash" : "active";

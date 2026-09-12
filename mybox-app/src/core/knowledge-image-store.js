@@ -1,3 +1,4 @@
+import { jsonValueEqual } from "./json-value.js";
 /** Host orchestration: legacy owner ports and Knowledge Operations only. */
 export function createKnowledgeImageStore({ client, readLegacyImage, materializeImage, getDefaultProject, desktop = false }) {
   let migration = null;
@@ -112,7 +113,7 @@ export function createKnowledgeImageStore({ client, readLegacyImage, materialize
           actual.input.references = source.input.references ?? [];
           source.input.references ??= [];
         }
-        if (JSON.stringify(source) !== JSON.stringify(actual)) throw new Error("移行した記録の照合に失敗しました");
+        if (!jsonValueEqual(source, actual)) throw new Error("移行した記録の照合に失敗しました");
         mapping.revision = saved.knowledge.revision;
         await port.writeCheckpoint(checkpoint);
       }

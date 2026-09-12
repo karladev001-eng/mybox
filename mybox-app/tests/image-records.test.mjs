@@ -124,3 +124,16 @@ test("migration lists identities once and never reads prior generations individu
  assert.equal(list.pages.length,1);assert.equal(list.pages[0].kind,"prompt");
  await assert.rejects(f.host.invoke("knowledge.image-record.list.v1",{projectId:f.project.id},{actor:{type:"user",id:"outsider"}}),/role/);
 });
+
+
+test("restart accepts native JSON key reordering without rewriting immutable image records", async () => {
+ const f=await setup(); await f.store.load(f.owner);
+ const original=f.owner.readCheckpoint;
+ const sort=value=>Array.isArray(value)?value.map(sort):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,sort(value[key])])):value;
+ f.owner.readCheckpoint=async()=>sort({...await original(),phase:'pending'});
+ const result=await f.store.load(f.owner);
+ assert.equal(result.generations.length,1);
+ assert.equal(result.generations[0].finalPrompt,generation.finalPrompt);
+ const stored=result.generations[0];
+ await assert.rejects(f.client.invoke('knowledge.image-record.save.v1',{projectId:f.project.id,pageId:stored.knowledge.pageId,kind:'generation',expectedRevision:0,record:{...sort(generation),finalPrompt:'different input'}}),/更新|変更/);
+});

@@ -69,3 +69,5 @@ stored definitions; runtime compatibility tests may opt in (ADR 0049).
 
 Image preparation uses one shared migration attempt for concurrent readers. Its
 Project-scoped record list avoids loading old generations to resolve Prompt links.
+
+`json-value.js` compares persisted JSON by value, independent of object key order.

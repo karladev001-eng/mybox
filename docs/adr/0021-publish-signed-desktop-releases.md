@@ -182,3 +182,11 @@ Release 0.10.1 was published on 2026-09-13 (JST) from e63fb71 after
 CI run 34701072191 succeeded. Windows MSI/NSIS artifacts and signatures are
 published; updater version, artifact URLs and signature-file correspondence
 were verified. The public latest updater endpoint returns 0.10.1.
+
+Release 0.10.2 corrects Image migration restart comparisons after native JSON
+property reordering (ADR 0051). Knowledge 1.26.10 compares JSON content while
+retaining revision and immutable-record guards; Image 0.6.3 initializes built-in
+templates independently of history readiness. Schema and sync protocol stay
+unchanged. All 225 core and 4 packaging tests pass and the package build succeeds
+with the existing chunk-size warning. Copy-based native data replay and browser
+Image history/sample checks passed; native provider generation was not repeated.

@@ -73,3 +73,8 @@ The Context preview also accepts `?workspace&library` for Folder and File UI che
 runtime. Run the Vite dev server and open `/tests/interaction-preview.html` for
 manual delayed-save, failed-save, keyboard navigation and theme verification.
 This fixture never calls native providers or production storage.
+
+`image-history-preview.html` mounts the actual Image view to verify built-in
+sample shelves during a history failure and reopening a migrated history copy.
+An optional local JSON snapshot is read into browser memory only; record writes
+and provider calls are disabled. Never commit real snapshots or originals.

@@ -94,3 +94,16 @@ Server rendering confirms that initial preparation is announced and generation
 is disabled. Interactive browser/native checks were unavailable because the UI
 automation kernel failed during sandbox startup; no exhaustive pointer/IME/DPI
 validation is claimed.
+
+Desktop restart correction: native checkpoint JSON can reorder object keys.
+Image retry/idempotency, immutable input and migration verification compare JSON
+values independent of object key order, preserving array order and conflict
+checks for actual changes. Built-in templates initialize independently of
+history loading, so migration errors do not hide the offline catalog.
+
+Verification for the restart correction uses an isolated copy of a pending
+native checkpoint and its existing Yjs destination, preserving original IDs
+and validating original reads, completion and a fresh-session restart. Private
+snapshots and instance metadata remain outside the repository. The actual Image
+view also verifies history selection/original rendering and built-in samples
+during a simulated read failure through the local Image history QA fixture.
