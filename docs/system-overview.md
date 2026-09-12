@@ -1,90 +1,68 @@
 # MyBox system overview
 
-> ADR 0043 supersedes independent Knowledge/chat ownership below. Knowledge is now
-> mandatory and owns note, conversation and context Pages. Project boundaries,
-> role checks, storage ports and public Operations remain. The current store is
-> append-only Yjs (ADR 0040); SQLite and raw Markdown are not being introduced.
-> Conversations preserve immutable message Blocks; each model call is recorded
-> before sending when recording is enabled. Folders, files, graph UI and semantic
-> retrieval are later stages.
->
-> ADR 0044 groups Context into one notebook per conversation in a private Record
-> Project. Recording defaults on; authorized sources may cross Project boundaries.
-> Selected completed turns are previewed and copied with questions, answers and
-> raster media into a shared Project as fixed records. Ordinary PageLinks retain
-> their same-Project rule; Context provenance uses explicit authorized source IDs.
+Knowledge is the mandatory shared record foundation. Optional tools keep private
+execution state and use Host-authorized Operations for records. This overview
+reflects ADRs 0040–0054; historical ADRs retain their original implementation notes.
 
-
-![MyBox system overview](assets/mybox-system-overview.png)
-
-The generated overview distinguishes current paths with solid mint lines and
-planned paths with dashed violet lines. The exact architecture is defined below;
-this Mermaid diagram is authoritative when a raster label or connector is
-ambiguous.
+## Current architecture
 
 ```mermaid
 flowchart LR
-  User["User"]
-  Agent["AI Agent"]
-  Flow["Saved Flow"]
-
-  subgraph Host["MyBox Desktop Host"]
-    Shell["React Shell"]
-    Registry["App Registry<br/>validate · install · resolve Surface"]
-    Router["Operation + Event Router"]
-    Auth["Authorization + Audit"]
-    StoragePort["Host Storage Ports"]
-    ProviderPort["Agent Provider Port"]
-    Shell --> Registry
-    Router --> Auth
-  end
-
-  subgraph Apps["Independent Apps"]
-    Knowledge["Knowledge App<br/>Pages · Blocks · Links · Search"]
-    Chat["AI Chat App<br/>Sessions · Provider-neutral history"]
-    Future["Future App package"]
-  end
-
-  subgraph Local["Authoritative local data"]
-    Common["apps/<app-id>/"]
-    ProjectStore["Project Stores<br/>(planned scoped SQLite/FTS)"]
-  end
-
-  subgraph Adapters["Constrained adapters"]
-    Providers["AI Providers<br/>ChatGPT · OpenAI API · Local LLM"]
-    Obsidian["Obsidian Exchange<br/>(planned)"]
-    Cloud["Cloud Sync / Sharing<br/>(planned)"]
-  end
-
-  User --> Shell
-  Agent --> Router
-  Flow --> Router
-  Registry --> Knowledge
-  Registry --> Chat
-  Registry -.-> Future
-  Knowledge --> Router
-  Chat --> Router
-  Future -.-> Router
-  Auth --> Knowledge
-  Auth --> Chat
-  Auth -.-> Future
-  Knowledge --> StoragePort
-  Chat --> StoragePort
-  StoragePort --> Common
-  StoragePort -.-> ProjectStore
-  Chat --> ProviderPort --> Providers
-  Knowledge -.-> Obsidian
-  ProjectStore -.-> Cloud
+  User[User] --> Shell[Desktop workspace]
+  Shell --> Registry[App Registry]
+  Shell --> Router[Host Operation router]
+  Agent[AI Agent] --> Router
+  Image[Optional Image tool] --> Router
+  Router --> Auth[Authorization and metadata audit]
+  Auth --> Knowledge[Mandatory Knowledge foundation]
+  Knowledge --> Records[Notes / Conversations / Context / Files / Prompts / Generations]
+  Knowledge --> Store[Native Project-store port]
+  Store --> Yjs[Append-only Yjs updates]
+  Store --> Files[Immutable File originals]
+  Yjs <--> Sync[Group-operated Cloudflare sync]
+  Files <--> Sync
+  Yjs <--> Folder[Cloud-folder delivery]
+  Shell --> Provider[Constrained native provider adapter]
+  Provider --> Staging[Private media staging]
+  Staging --> Router
 ```
+
+The diagram describes ownership and transport boundaries, not an alternative
+call path: all App record operations require authorization. Provider adapters
+receive explicit inputs and never receive an App storage port or workspace path.
 
 ## Current implementation boundary
 
-- The App Registry validates stable IDs and Surface contracts and resolves the
-  Knowledge Surface lazily. Registered Apps can be removed and added again from
-  the launcher without introducing another App-specific render branch. Installed
-  IDs and custom generic metadata persist in the current device's Host namespace.
-- Apps still declare Operations and events separately. Registry membership does
-  not grant storage, caller, provider, or Project access.
-- App-common local state currently uses `apps/<app-id>/`. The Knowledge vertical
-  slice still uses App-scoped JSON while Project stores, SQLite/FTS, Obsidian
-  exchange, cloud synchronization, and realtime collaboration remain planned.
+- Knowledge is required; optional App removal does not remove shared records.
+  Registry versions control installed Surface availability, not permissions.
+- Notes, Conversations, Context notebooks, Files, user Prompts and Generation
+  Pages share stable Project/Page identities and authorized search. Immutable
+  records are extracted into Notes when editable derivatives are needed.
+- Context recording defaults on. One notebook per conversation lives in a private
+  Record Project; source references may span authorized Projects. Selected turns
+  can be copied explicitly to a shared Project as fixed records.
+- Project stores contain append-only Yjs updates and immutable File originals.
+  The Host validates paths and manifests. Cloud-folder delivery and Cloudflare
+  collaboration operate on the same document, independently of one another.
+- The current Knowledge schema/native manifest is 5; record sync protocol is 4.
+  Earlier endpoints must be updated before these clients reconnect.
+- Search, tags, stored PageLinks and the workspace graph provide navigation.
+  Graph affinities are temporary lexical/tag relationships, not semantic
+  retrieval or newly persisted links. Former Folders become ordinary link Notes.
+- Image migrates user templates and generation records into Knowledge with
+  backups, restartable mappings and verified originals. Provider caches, drafts
+  and resume state remain private. Chat history uses its own Host migration
+  adapter; neither legacy content store receives new record writes after cutover.
+- Desktop Workflow UI and execution are retired. Saved definitions/history and
+  opt-in compatibility tests remain; hidden schedules do not run.
+- Web preview uses memory storage. It does not verify native persistence, IME,
+  Windows DPI or actual provider execution.
+
+## Remaining extensions
+
+PDF text extraction/OCR, Chunks and semantic retrieval, Obsidian interchange,
+change-proposal application and richer grant constraints remain future work.
+Safe Yjs log compaction and unreferenced-resource collection need retention
+policies; migration does not delete old backups or resources automatically.
+
+See [migration status](migration-status.md) for release and workspace verification.

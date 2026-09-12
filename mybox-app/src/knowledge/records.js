@@ -1,7 +1,7 @@
 import { createPage, readPage, normalizePageTitle, KnowledgeDomainError } from "./domain.js";
 
 export const RECORD_VERSION = 1;
-export const PAGE_KINDS = Object.freeze(["note", "conversation", "context", "folder", "file"]);
+export const PAGE_KINDS = Object.freeze(["note", "conversation", "context", "folder", "file", "prompt", "generation"]);
 const clone = (value) => structuredClone(value);
 const fail = (code, message) => { throw new KnowledgeDomainError(code, message); };
 const id = (prefix) => `${prefix}-${crypto.randomUUID()}`;

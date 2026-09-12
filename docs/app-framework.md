@@ -1,18 +1,16 @@
 # MyBox App Framework
 
-> ADR 0043 supersedes independent Knowledge/chat ownership below. Knowledge is now
-> mandatory and owns note, conversation and context Pages. Project boundaries,
-> role checks, storage ports and public Operations remain. The current store is
-> append-only Yjs (ADR 0040); SQLite and raw Markdown are not being introduced.
-> Conversations preserve immutable message Blocks; each model call is recorded
-> before sending when recording is enabled. Folders, files, graph UI and semantic
-> retrieval are later stages.
->
-> ADR 0044 groups Context into one notebook per conversation in a private Record
-> Project. Recording defaults on; authorized sources may cross Project boundaries.
-> Selected completed turns are previewed and copied with questions, answers and
-> raster media into a shared Project as fixed records. Ordinary PageLinks retain
-> their same-Project rule; Context provenance uses explicit authorized source IDs.
+Knowledge is the mandatory record foundation (ADRs 0043–0051). It owns Notes,
+Conversations, Context notebooks, Files, user Prompts and Generation Pages.
+Project stores persist append-only Yjs updates and immutable File originals
+(ADR 0040); Markdown is interchange and SQLite is not the local record format.
+Schema/manifest 5 and sync record protocol 4 protect the current records.
+
+Context recording defaults on in a private Record Project; authorized sources
+may cross Projects. Original snapshots and selective shared copies are fixed
+records. Search, tags, PageLinks and the workspace graph provide navigation.
+Folder navigation and desktop Workflows are retired. Semantic retrieval, PDF
+text/OCR indexing and Obsidian interchange remain future work.
 
 
 ## Package contract
@@ -31,7 +29,8 @@ Operation and event IDs are globally namespaced with the app ID, such as
 `notes.read` and `notes.created`. Contract changes are backward compatible within
 a major version. Breaking changes use a new major contract or a new ID.
 
-An app may be disabled or unregistered at runtime. The host then removes its
+An optional App may be disabled or unregistered at runtime. Knowledge is required
+and cannot be removed. The host then removes its
 operations and event declarations. Consumers must treat `not found`, `disabled`,
 `permission denied`, schema failure, timeout, and cancellation as normal outcomes.
 
@@ -106,13 +105,17 @@ The target desktop layout is:
 
 The JavaScript memory driver is for tests and the Web prototype. The current Tauri
 driver implements App-scoped JSON reads and atomic replacement in the selected
-Workspace; Project-store ports and App-private database support are extension
-points. The native provider adapter stores API secrets in the OS credential store.
+Workspace. Native Project-store ports persist append-only Yjs updates and
+immutable originals; cloud-folder delivery and Cloudflare share that document. The native provider adapter stores API secrets in the OS credential store.
 Google Cloud and other providers are opt-in adapters for import, export, backup,
 or synchronization. They exchange versioned changes and do not become a direct
 shared database or alternate access path into App internals.
 
-## Agent and Workflow access
+## Agent and retained Workflow contracts
+
+The desktop passes `enableWorkflows: false`: it neither loads old definitions nor
+executes schedules, Events or connector requests. The Workflow contract below
+is retained for compatibility and opt-in tests, not a current desktop feature.
 
 Agents and Workflows discover only manifest operations that list their caller
 type. The internal caller value remains `flow` for contract compatibility.
@@ -183,13 +186,13 @@ API has no delivery ID, interrupted non-read Commands stop with an uncertain
 outcome instead of being replayed automatically; Apps use an explicit Workflow
 Action for typed output or idempotent recovery.
 
-## Example: note to slide
+## Illustrative future integration: note to slide
 
 1. The agent invokes `notes.read` with a note ID.
 2. The host checks the note read grant and returns validated Markdown.
 3. The agent invokes `slides.generate` with the content and a source reference.
-4. The slide app stores the result in its own namespace and emits
-   `slides.generated`.
+4. The slide tool preserves the shared result through Knowledge Operations and
+   emits `slides.generated`; only private execution state belongs to the tool.
 5. The generated document keeps the source note ID and revision so staleness can
    be detected without reading note internals.
 

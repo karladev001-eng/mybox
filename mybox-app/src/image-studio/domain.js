@@ -166,7 +166,8 @@ export function finishGeneration(state, id, result, { now = () => new Date() } =
 export function failGeneration(state, id, error, { now = () => new Date() } = {}) {
   const copy = structuredClone(validateImageStudioState(state)); const generation = copy.generations.find((item) => item.id === id);
   if (!generation) throw new ImageStudioError("GENERATION_NOT_FOUND", "Generation was not found");
-  Object.assign(generation, { state: "error", updatedAt: nowIso(now), error: { code: error.code ?? "GENERATION_FAILED", message: error.message } }); copy.revision += 1; return { state: copy, generation };
+  const message = typeof error === "string" ? error : error?.message;
+  Object.assign(generation, { state: "error", updatedAt: nowIso(now), error: { code: error?.code ?? "GENERATION_FAILED", message: message || "生成に失敗しました" } }); copy.revision += 1; return { state: copy, generation };
 }
 
 export function setGenerationState(state, id, nextState) {

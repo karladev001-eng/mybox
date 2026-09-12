@@ -33,6 +33,8 @@ Implements the mandatory Knowledge record foundation described in
   expose the optional resume-position Operations, it treats that state as empty
   and continues loading Projects instead of presenting a false empty workspace.
 - `KnowledgeView.jsx`: accessible desktop knowledge workspace.
+  `RecordGraph.jsx`, `record-graph.js` and `record-graph.css` provide the
+  expandable workspace graph with force layout, search, pan and zoom (ADR 0053).
   On open it restores the current profile's last accessible Project and Page;
   a shared Project session is prepared before the saved Page is validated.
   It receives Host-dispatched App shortcut commands, focuses Page search for
@@ -127,3 +129,9 @@ header shows its persisted latest update time.
 - `PageOutline.jsx` / `page-outline.js`: heading navigation using stable Block IDs.
 New Pages focus title (Ctrl+N) or Tags (search creation); Enter advances to Tags
 and then the first editable body Block.
+
+- `image-records.js`: versioned Prompt/Generation Page mutations; exact input immutability and Project authorization.
+
+Graph affinities and pinned-node simulation live in record-graph.js. RecordGraph renders alongside the Page and runs bounded relaxation during/after node dragging (ADR 0054).
+
+Ctrl+G toggles the graph while retaining its positions. Hidden graphs restore the centered Page layout. Drag relaxation cools and bounds neighbor displacement.

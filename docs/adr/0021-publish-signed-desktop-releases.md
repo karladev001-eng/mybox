@@ -132,3 +132,27 @@ individual implementation ADRs.
 Verification for 0.9.0: 199 core, 4 packaging, 16 sync unit, 18 server integration,
 7 live client and 37 native Rust tests passed (7 existing Rust tests ignored).
 Frontend and embedded sync-server bundles built successfully.
+
+
+## Release 0.10.0 preparation
+
+The 0.10.0 candidate includes Knowledge 1.26.6 and Image 0.6.1: user Prompts,
+generation records and immutable originals move into Knowledge; the workspace
+graph adds side-by-side navigation and temporary lexical/tag affinities.
+Knowledge/native schema 5 and record sync protocol 4 require a coordinated
+client/group-server update. Existing backups remain retained. Package, Tauri and
+Rust versions are aligned; signing continues through the existing CI workflow.
+
+The current framework, specification, vocabulary and system overview now reflect
+these accepted decisions and retired Workflows/Folders. The implementation and
+rollout checklist lives in [migration status](../migration-status.md), separating
+user-confirmed image generation from workspace-specific migration verification.
+
+
+## Automated verification — 2026-09-12
+
+214 core tests, 4 Sites packaging tests, 16 sync unit tests, 19 local server
+integration checks, 7 live client checks and 37 native Rust tests passed. The
+7 pre-existing authenticated provider tests remain ignored; real image generation
+was separately confirmed by the user. Frontend/package and embedded sync-server
+builds passed. Vite reports the existing large-chunk warning.

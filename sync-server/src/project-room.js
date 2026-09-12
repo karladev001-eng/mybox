@@ -233,7 +233,7 @@ export class ProjectRoom extends DurableObject {
   }
 
   async #sync(request) {
-    if (new URL(request.url).searchParams.get("records") !== "3") return json({ error: "CLIENT_UPDATE_REQUIRED" }, 426);
+    if (new URL(request.url).searchParams.get("records") !== "4") return json({ error: "CLIENT_UPDATE_REQUIRED" }, 426);
     if (request.headers.get("Upgrade") !== "websocket") return json({ error: "UPGRADE_REQUIRED" }, 426);
     const auth = await this.#requireRole(request, null);
     if (auth.error) return auth.error;
@@ -242,10 +242,10 @@ export class ProjectRoom extends DurableObject {
     const [client, server] = Object.values(pair);
     // Hibernation keeps an idle room from billing duration while connected.
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ records: 3, profileId: auth.member.profile_id, role: auth.member.role });
+    server.serializeAttachment({ records: 4, profileId: auth.member.profile_id, role: auth.member.role });
     server.send(JSON.stringify({
       type: "sync",
-      records: 3,
+      records: 4,
       update: encodeUpdate(Y.encodeStateAsUpdate(this.#doc)),
       role: auth.member.role,
     }));
@@ -263,7 +263,7 @@ export class ProjectRoom extends DurableObject {
 
   async webSocketMessage(ws, raw) {
     const attachment = ws.deserializeAttachment() ?? {};
-    if (attachment.records !== 3) { ws.close(1008, "CLIENT_UPDATE_REQUIRED"); return; }
+    if (attachment.records !== 4) { ws.close(1008, "CLIENT_UPDATE_REQUIRED"); return; }
     const message = parseClientMessage(raw);
     if (message.error) {
       ws.send(JSON.stringify({ type: "error", error: message.error }));
@@ -302,7 +302,7 @@ export class ProjectRoom extends DurableObject {
 
   #broadcast(sender, payload) {
     for (const socket of this.ctx.getWebSockets()) {
-      if (socket.deserializeAttachment()?.records !== 3) { socket.close(1008, "CLIENT_UPDATE_REQUIRED"); continue; }
+      if (socket.deserializeAttachment()?.records !== 4) { socket.close(1008, "CLIENT_UPDATE_REQUIRED"); continue; }
       if (socket !== sender) socket.send(payload);
     }
   }

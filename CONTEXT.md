@@ -23,7 +23,9 @@ Events may trigger follow-up work but do not expose the app's private state.
 **Workflow** — A Host-owned, saved automation that starts from an Event, User
 action, schedule, or App request and passes typed Operation output to ordered
 later Steps. Workflows use no privileged integration path. The serialized caller
-type remains `flow` for App contract compatibility.
+type remains `flow` for App contract compatibility. Desktop Workflow surfaces and
+execution are retired (ADR 0049); the following Workflow terms describe retained
+compatibility data and opt-in runtime tests.
 _Avoid_: direct App integration, script
 
 **Workflow Command** — A visual pass-through Step projected by the Host from a
@@ -52,8 +54,8 @@ Operation a Workflow may use; it is not itself a grant.
 _Avoid_: direct App integration, storage adapter
 
 **Connection** — The legacy saved pairing of one source and one target Connector.
-Connections migrate to Workflows; the term remains only for the compatibility
-storage and API bridge during migration.
+The opt-in compatibility runtime can migrate Connections to Workflows. Desktop
+startup does not run that migration or execute either automation type.
 _Avoid_: current automation, unrestricted App permission
 
 **Agent** — An AI-controlled caller that can discover and invoke only operations
@@ -153,8 +155,9 @@ operations, tools, storage, or network access beyond the capabilities separately
 authorized for that turn.
 
 **Generated media** — A provider-created image or future media artifact copied
-into the owning app's private workspace storage. Conversation state stores an
-opaque resource reference rather than provider bytes or a filesystem path.
+into a private provider staging area, then preserved by Knowledge for saved
+records. Image generation originals become Project Files; conversation media
+uses Knowledge resource references. Records carry opaque references, not native paths.
 
 **App Registry** — The Host-owned catalog of validated, installable App Surface
 definitions. Registry membership controls launcher discovery and Surface loading
@@ -272,9 +275,9 @@ passing large files between apps without copying their bytes into operation
 payloads.
 
 **Prompt template** — A named, axis-specific Markdown fragment that Image
-combines into a final image-generation Prompt. A local Prompt template is owned
-by Image; a connected Note Page remains owned by Note and is read at its current
-revision.
+combines into a final image-generation Prompt. User templates are versioned
+Knowledge Prompt Pages; built-in templates remain bundled assets. An imported
+Note Page remains Knowledge-owned and is read through its public Operation.
 _Avoid_: complete generated Prompt, synced file
 
 **Final Prompt** — The complete text Image submits for one generation. It may be
@@ -316,11 +319,11 @@ retain their identity and Blocks but not their incoming Page links, and are
 excluded from discovery unless the Search scope explicitly includes Trash.
 _Avoid_: Deleted Pages
 
-**Page kind** — The renderer and behavior of a record: note, conversation, or
-context. Existing Pages default to note. All kinds belong to exactly one Project.
+**Page kind** — The renderer and behavior of a record: note, conversation,
+context, file, prompt, or generation. Folder is a legacy kind converted to Note. Existing Pages default to note. All kinds belong to exactly one Project.
 
-**Record Project** — The non-shared default destination for automatic Context
-recording. Its stable Project ID is retained from My Records. If it becomes shared,
+**Record Project** — The non-shared default destination for conversations,
+automatic Context recording, user Prompts and image generation records. Its stable Project ID is retained from My Records. If it becomes shared,
 a new private destination is created for future records; old Pages remain in place.
 
 **Context notebook** — One Context Page per conversation in Record, with append-only
@@ -363,3 +366,11 @@ records and Projects (ADR 0049). Workflow surfaces and execution are retired fro
 the desktop Host; old definitions/history remain stored for compatibility.
 
 **Theme** — A local Host appearance preference (Graphite, Light, Sepia or Midnight) shared by all surfaces, independent of Project content and sharing.
+
+**Prompt Page** — A versioned user template in Knowledge, reused by Image. Built-in templates stay bundled.
+
+**Generation Page** — One immutable image attempt, with its exact Prompt, template snapshots, state and links to Project File originals.
+
+**Record graph** — An overview of all authorized Active Pages and their stored PageLinks, including isolated Pages. Zoom, pan and search expose the workspace structure without inferred relationships.
+
+**Graph affinity** — A temporary layout relationship from a shared Tag or local lexical similarity. It helps group Pages visually and is not a stored PageLink.

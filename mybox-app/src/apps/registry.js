@@ -125,7 +125,7 @@ export class AppRegistry {
 const builtInDefinitions = [
   {
     id: "knowledge",
-    version: "1.22.10",
+    version: "1.26.6",
     name: "Note",
     icon: "note",
     color: "#ff796f",
@@ -133,9 +133,10 @@ const builtInDefinitions = [
     builtIn: true,
     defaultInstalled: true,
     shortcuts: [
-      { id: "new-page", group: "Note", label: "新しいPageを作成", key: "n", code: "KeyN", displayKeys: ["Ctrl", "N"] },
-      { id: "trash-page", group: "Note", label: "PageをTrashへ移動", key: "delete", code: "Delete", displayKeys: ["Ctrl", "Delete"] },
-      { id: "toggle-navigation", group: "Note", label: "左バーの表示を切り替え", key: "b", code: "KeyB", displayKeys: ["Ctrl", "B"] },
+      { id: "toggle-graph", searchText: "graph toggle show hide グラフ 表示 非表示", group: "Note", label: "グラフの表示を切り替え", key: "g", code: "KeyG", displayKeys: ["Ctrl", "G"] },
+      { id: "new-page", searchText: "new page create note 新規 ページ ノート 作成", group: "Note", label: "新しいPageを作成", key: "n", code: "KeyN", displayKeys: ["Ctrl", "N"] },
+      { id: "trash-page", searchText: "trash page delete remove ページ 削除 ゴミ箱", group: "Note", label: "PageをTrashへ移動", key: "delete", code: "Delete", displayKeys: ["Ctrl", "Delete"] },
+      { id: "toggle-navigation", searchText: "sidebar navigation menu toggle show hide サイドバー 左バー メニュー 表示 非表示", group: "Note", label: "左バーの表示を切り替え", key: "b", code: "KeyB", displayKeys: ["Ctrl", "B"] },
       {
         id: "page-search",
         group: "Note",
@@ -143,7 +144,7 @@ const builtInDefinitions = [
         key: "p",
         code: "KeyP",
         displayKeys: ["Ctrl", "P"],
-        searchText: "Note Page Project ページ プロジェクト 検索",
+        searchText: "Note Page Project search find ページ プロジェクト ノート 検索",
       },
     ],
     surface: {
@@ -154,7 +155,7 @@ const builtInDefinitions = [
   },
   {
     id: "image-studio",
-    version: "0.5.8",
+    version: "0.6.1",
     name: "Image",
     icon: "image",
     color: "#67d7c4",

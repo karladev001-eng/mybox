@@ -1,23 +1,21 @@
 # MyBox Knowledge App Specification
 
-> ADR 0043 supersedes independent Knowledge/chat ownership below. Knowledge is now
-> mandatory and owns note, conversation and context Pages. Project boundaries,
-> role checks, storage ports and public Operations remain. The current store is
-> append-only Yjs (ADR 0040); SQLite and raw Markdown are not being introduced.
-> Conversations preserve immutable message Blocks; each model call is recorded
-> before sending when recording is enabled. Graph UI and semantic
-> retrieval are later stages.
->
-> ADR 0044 groups Context into one notebook per conversation in a private Record
-> Project. Recording defaults on; authorized sources may cross Project boundaries.
-> Selected completed turns are previewed and copied with questions, answers and
-> raster media into a shared Project as fixed records. Ordinary PageLinks retain
-> their same-Project rule; Context provenance uses explicit authorized source IDs.
+Knowledge is the mandatory record foundation (ADRs 0043–0051). It owns Notes,
+Conversations, Context notebooks, Files, user Prompts and Generation Pages.
+Project stores persist append-only Yjs updates and immutable File originals
+(ADR 0040); Markdown is interchange and SQLite is not the local record format.
+Schema/manifest 5 and sync record protocol 4 protect the current records.
+
+Context recording defaults on in a private Record Project; authorized sources
+may cross Projects. Original snapshots and selective shared copies are fixed
+records. Search, tags, PageLinks and the workspace graph provide navigation.
+Folder navigation and desktop Workflows are retired. Semantic retrieval, PDF
+text/OCR indexing and Obsidian interchange remain future work.
 
 
 - Status: Accepted implementation baseline
 - Date: 2026-08-16
-- Planned App ID: `knowledge`
+- Required App ID: `knowledge`
 
 ## 1. Purpose
 
@@ -46,33 +44,34 @@ The App MUST provide:
    Project stores.
 5. Reversible ordinary editing and deletion, durable history, and explicit
    treatment of destructive actions.
-6. A data and mutation model that can later support cloud sharing and real-time
-   simultaneous editing without replacing Page or Block identities.
+6. A shared Yjs model supporting cloud sharing and simultaneous editing without
+   replacing Page or Block identities.
 
-## 3. Initial non-goals
+## 3. Current non-goals
 
-The initial release does not include:
+The current implementation does not include:
 
 - continuous or bidirectional Obsidian synchronization;
-- cross-Project PageLinks;
+- unrestricted user-authored cross-Project PageLinks (record provenance is supported);
 - nested Pages, nested Projects, nested Tags, or folder semantics;
-- real-time collaboration, presence, live cursors, or a CRDT;
+- live text cursors (Yjs collaboration and account presence are implemented);
 - embedding-based retrieval or provider-hosted indexing;
-- tables, images, attachments, embeds, or arbitrary plugin Blocks;
+- arbitrary plugin Blocks or executable embedded content;
 - a cloud database that bypasses the owning App's Operations;
 - multi-writer use of a SQLite file through a generic file-sync folder.
 
-These are deferred capabilities, not alternate initial implementations.
+Images and immutable File originals, including canvas PDF display, are implemented.
+The remaining capabilities are future work, not prerequisites for record migration.
 
 ## 4. App and authority boundary
 
-`knowledge` is an independent MyBox App. It owns its Project catalog, Pages,
+`knowledge` is the mandatory MyBox record foundation. It owns its Project catalog, Pages,
 Blocks, Tags, PageLinks, history, search projection, and interchange metadata.
 Other Apps, Flows, and Agents MUST use Host-mediated, versioned Operations and
 events. They MUST NOT read a Project database or App-common state directly.
 
-Local Workspace and Project-store data are authoritative. Cloud storage, future
-sharing, backup providers, and Obsidian Vaults are adapters that exchange
+Local Workspace and Project-store data are authoritative. Cloudflare sharing,
+cloud-folder delivery, backup providers, and future Obsidian adapters exchange
 validated data or versioned changes. None is a second writable source of truth.
 
 ## 5. Domain model
@@ -362,10 +361,12 @@ The Workspace stores App-common state under `apps/knowledge/`, including the
 Project catalog, App settings, and non-content device metadata. It MUST NOT contain
 a second authoritative Page copy or a searchable Page-content cache.
 
-Each Project uses one User-selected Project store containing its authoritative
-Pages, Blocks, Tags, PageLinks, Page history, resources, App-private SQLite
-database, and local full-text index. The Host exposes it through a Project-scoped
-storage port. The App does not receive an unrestricted filesystem path.
+Each Project uses one Project store in the workspace or a User-selected directory.
+Append-only Yjs updates preserve Pages, Blocks, Tags, PageLinks and history; File
+originals live separately under `files/`. Search is a derived lexical projection.
+The Host exposes opaque update/resource operations, never unrestricted filesystem
+paths to App Operations. Legacy common JSON is retained during migration but is
+not the authoritative write path once a Project store is connected.
 
 ### 12.2 Project store manifest
 
@@ -407,12 +408,16 @@ Project-scoped.
 
 ### 12.5 Cloud and backup boundary
 
-A cloud or future multi-user adapter exchanges versioned Project changes through
-Host and App contracts. It never exposes the App-private SQLite file as a shared
-database. A generic synchronized folder is supported only as a single-writer
-backup location until a concurrency-safe adapter exists.
+Cloudflare and cloud-folder delivery exchange updates on the same Yjs document
+through Host and App contracts. Globally unique append-only update files allow
+offline writers without replacing a shared database file. File originals transfer
+separately under Project membership and hash checks. Safe update-log compaction
+and unreferenced-resource cleanup remain deferred (ADRs 0040 and 0047).
 
-## 13. Obsidian interchange
+## 13. Obsidian interchange (planned)
+
+This section specifies future import/export behavior; it is not an implemented
+migration path or a release requirement for the current record workspace.
 
 One MyBox Project maps to one Obsidian-compatible Vault. Export defaults to Active
 Pages; Trash is included only by explicit selection. A multi-Project Workspace is
@@ -540,25 +545,29 @@ demonstrate at least the following scenarios:
 14. The affected UI passes the interaction, accessibility, popup, dark-theme, and
     Windows scaling checks required by `FRONTEND.md`.
 
-## 18. Delivery sequence
+## 18. Delivery status
 
 1. Extend the Host contract for Confirmation classes, Project roles, constrained
    grants, Project-scoped storage ports, and required audit fields.
-2. Implement the Knowledge App domain model, SQLite persistence, migrations,
+2. Maintain the implemented Knowledge domain model, append-only Yjs persistence, migrations,
    title invariants, revisions, and lexical search projection.
 3. Implement Page, Block, PageLink, Tag, Trash, history, proposal, and authorization
    Operations with focused domain tests.
 4. Build and verify the accessible Notion-style desktop editor and required user
    surfaces.
 5. Add Agent retrieval/change-proposal flows and Obsidian import/export.
-6. Design cloud sharing and real-time collaboration in separate ADRs before adding
-   a synchronization provider or CRDT.
+6. Maintain the implemented Cloudflare/Yjs collaboration and Project-store
+   transports (ADRs 0023, 0024 and 0040).
+
+Items 1–5 include the original requirements; constrained grants, Change-proposal
+application and Obsidian exchange remain future extensions. Record migration and
+release checks are tracked in `migration-status.md`.
 
 ### Automatic record PageLinks
 
 Conversation and Context receive persisted reciprocal PageLinks within a Project. Context also links its actual source Pages and legacy Context. Across Projects, reverse navigation uses authorized backlinks. Opening existing records repairs missing links through `knowledge.record.links.v1`; message and input text remain unchanged. See ADR 0046.
 
-### Folder and File migration (ADR 0047)
+### Historical Folder and File migration (ADR 0047, Folder superseded by 0048)
 
 Schema 4 adds `folder` and `file` Page kinds plus `folderId`. Existing Pages remain at the root. Folder create/move and File import/read use versioned public Operations. Folder cycles and cross-Project moves are refused. Nonempty Folders cannot be trashed or purged. File originals are limited to 20 MB, copied into Project storage, hash checked, and published to shared storage before new metadata. Files are searchable by title/tag, linkable, immutable, and use Page Trash/restore. Images have a safe raster preview; other files download without executing in MyBox. Native manifests are version 4; sync record protocol is 3.
 
@@ -581,3 +590,16 @@ Home reads recent Pages and accessible Projects through Knowledge Operations.
 Search and creation hand off to the loaded Knowledge surface once; opening an
 existing record must clear any previous creation command. Workflow screens and
 automatic startup are retired without deleting stored definitions or history.
+
+## Prompt and Generation records
+
+Schema 5 adds Prompt and Generation Pages. Image reads and writes through public
+`knowledge.image-record.save.v1` and existing Page/File Operations. Generation
+inputs are immutable, original images are Project Files, and source links expose
+no extra permissions. Record is private by default; shared sync uses protocol 4.
+
+## Record graph
+
+The workspace graph shows all authorized Active Pages and their stored PageLinks, including isolated Pages. It supports search, pointer/keyboard pan and zoom in a resizable side panel. Selecting a node opens its Page. Public reads remain authoritative; no independent graph store is introduced (ADR 0053).
+
+ADR 0054 places the graph beside the Page. Shared Tag labels and local title/body similarity add temporary layout affinities, drawn with dashed lines. Node dragging pins the selected Page while connected neighbors follow; releasing relaxes the arrangement. These affinities are never saved as PageLinks.

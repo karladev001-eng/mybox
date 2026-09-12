@@ -12,6 +12,15 @@ import { createKnowledgeApp } from "../src/knowledge/app.js";
 const user = { type: "user", id: "local-user" };
 const reference = { appId: "image-studio", resourceId: "reference.png", mediaType: "image/png", revision: 1 };
 
+test("persists native string errors without losing the provider failure detail", async () => {
+  const host = new AppHost({ workflows: { request: async () => ({ items: [] }) } });
+  host.register(createImageStudioApp({ generator: { generate: async () => { throw "Codexエラー：接続が切断されました"; } } }));
+  const result = await host.invoke("image-studio.generation.create", { subject: "test", ratio: "1:1" }, { actor: user });
+  assert.equal(result.generation.error.message, "Codexエラー：接続が切断されました");
+  const read = await host.invoke("image-studio.generation.read", { id: result.generation.id }, { actor: user });
+  assert.equal(read.generation.error.message, result.generation.error.message);
+});
+
 test("filters Note Page choices by normalized title and Tag text", () => {
   const pages = [
     { id: "page-1", title: "静かな海", tagIds: ["tag-world", "tag-blue"] },

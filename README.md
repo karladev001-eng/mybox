@@ -25,3 +25,6 @@ The home screen now opens recent records and Projects directly. Workflow UI and
 automatic execution are retired; existing definitions/history remain stored (ADR 0049).
 
 Settings offers Graphite, Light, Sepia and Midnight themes across the workspace (ADR 0050).
+
+User Prompt templates and Image generation history are Knowledge Pages; originals
+are verified Project Files with source links (ADR 0051).

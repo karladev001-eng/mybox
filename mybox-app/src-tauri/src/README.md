@@ -64,3 +64,5 @@ opaque resource ID.
 ADR 0044 raises the Project manifest to 3 for Context notebooks and shared copies.
 
 Project stores now use manifest 4 and retain immutable File originals under `files/`. Project moves copy those resources with the update log. File commands accept Project IDs and lowercase SHA-256 IDs, never caller-provided paths.
+
+Project manifest version 5 protects Prompt/Generation records from older writers (ADR 0051).

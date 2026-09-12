@@ -1,7 +1,8 @@
 # Image App
 
-`image-studio` is MyBox's local-first image generation App. It owns prompt
-templates, generation history, reference resources, and generated images.
+`image-studio` is MyBox's local-first image generation App. Knowledge owns user Prompt templates, generation history and image originals.
+Image retains its UI, draft/resume state, migration backups and provider caches.
+The Host record adapter migrates legacy data through public Operations (ADR 0051).
 
 Read `domain.js` for prompt/template rules, `app.js` for public Operations,
 Workflow Actions, and Connectors, `client.js` for the host/native boundary, and `ImageStudioView.jsx`

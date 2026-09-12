@@ -41,8 +41,6 @@ const workflowGenerateInput = (configSchema) => ({
   },
 });
 
-async function load(storage) { const stored = await storage.readJson(STATE_KEY); if (stored) return validateImageStudioState(stored); const state = createImageStudioState(); await storage.writeJson(STATE_KEY, state); return state; }
-async function save(storage, mutation) { await storage.writeJson(STATE_KEY, mutation.state); return mutation; }
 async function readViewState(storage, profileId) {
   const stored = await storage.readJson(VIEW_STATE_KEY);
   const generationId = stored?.schemaVersion === 1 ? stored.profiles?.[profileId]?.generationId : null;
@@ -56,17 +54,40 @@ async function writeViewState(storage, profileId, viewState) {
   return viewState;
 }
 
-export function createImageStudioApp({ generator = null } = {}) {
+export function createImageStudioApp({ generator = null, recordStore = null } = {}) {
+  const ownerPort = (storage) => ({
+    readRaw: () => storage.readJson(STATE_KEY),
+    complete: async () => {
+      if ((await storage.readJson(STATE_KEY))?.recordStore !== "knowledge") await storage.writeJson(STATE_KEY, {schemaVersion: 2, recordStore: "knowledge"});
+    },
+    readBackup: () => storage.readJson("migration/records-backup.json"),
+    writeBackup: async (raw) => { if (!await storage.readJson("migration/records-backup.json")) await storage.writeJson("migration/records-backup.json", raw); },
+    readCheckpoint: () => storage.readJson("migration/records-checkpoint.json"),
+    writeCheckpoint: (value) => storage.writeJson("migration/records-checkpoint.json", value),
+  });
+  const load = async (storage) => {
+    if (recordStore) return recordStore.load(ownerPort(storage));
+    const stored = await storage.readJson(STATE_KEY);
+    return stored ? validateImageStudioState(stored) : createImageStudioState();
+  };
+  const save = async (storage, mutation) => {
+    if (recordStore) return recordStore.save(mutation);
+    await storage.writeJson(STATE_KEY, mutation.state); return mutation;
+  };
   const performGeneration = async (input, context, { throwOnFailure = false } = {}) => {
     const state = await load(context.storage);
     const locals = state.templates.filter((item) => item.state === "active");
-    const connected = await context.workflows.request("image-studio.prompt-library").catch(() => ({ items: [] }));
+    const connected = await Promise.resolve().then(() => context.workflows.request("image-studio.prompt-library")).catch(() => ({ items: [] }));
     const compiled = compilePrompt({ ...input, templates: [...locals, ...connected.items] });
-    const pending = await save(context.storage, createPendingGeneration(state, input, compiled));
+    const selectedIds = new Set(Object.values(input.selections ?? {}));
+    const recordedInput = {...input, templateSnapshots: [...BUILT_IN_TEMPLATES, ...locals, ...connected.items].filter((t) => selectedIds.has(t.id)).map((t) => ({id:t.id, revision:t.revision ?? 0, name:t.name, prompt:t.prompt}))};
+    const pending = await save(context.storage, createPendingGeneration(state, recordedInput, compiled));
+    let modelStarted = false;
     try {
       if (!generator?.generate) { const error = new Error("ChatGPT画像生成はデスクトップ版で接続してください"); error.code = "PROVIDER_UNAVAILABLE"; throw error; }
-      const result = await generator.generate({ prompt: compiled.prompt, references: input.references ?? [], generationId: pending.generation.id });
-      const completed = await save(context.storage, finishGeneration(pending.state, pending.generation.id, result));
+      modelStarted = true;
+      const result = await generator.generate({ prompt: compiled.prompt, references: pending.generation.input.references ?? [], generationId: pending.generation.id });
+      const completed = await save(context.storage, finishGeneration(await load(context.storage), pending.generation.id, result));
       const item = {
         generationId: completed.generation.id, finalPrompt: completed.generation.finalPrompt, selections: input.selections ?? {}, ratio: input.ratio,
         resource: completed.generation.resource, width: completed.generation.actual.width, height: completed.generation.actual.height, createdAt: completed.generation.updatedAt,
@@ -74,10 +95,12 @@ export function createImageStudioApp({ generator = null } = {}) {
       await context.emit("image-studio.generation.completed", item);
       return { generation: completed.generation, item };
     } catch (error) {
-      const failed = await save(context.storage, failGeneration(pending.state, pending.generation.id, error));
+      const failure = failGeneration(await load(context.storage), pending.generation.id, error);
+      if (recordStore && modelStarted) failure.generation.state = "unknown";
+      const failed = await save(context.storage, failure);
       if (throwOnFailure) {
-        const workflowError = new Error(error.message);
-        workflowError.code = error.code ?? "GENERATION_FAILED";
+        const workflowError = new Error(failed.generation.error.message);
+        workflowError.code = failed.generation.error.code;
         workflowError.generationId = failed.generation.id;
         throw workflowError;
       }
@@ -85,9 +108,9 @@ export function createImageStudioApp({ generator = null } = {}) {
     }
   };
 
-  return defineApp({
+  const definition = {
     manifest: {
-      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.5.5", hostCapabilities: ["app-storage", "workflows", "connections", "resources", "codex-image-generation"],
+      schemaVersion: APP_SCHEMA_VERSION, id: "image-studio", name: "Image", version: "0.6.1", hostCapabilities: ["app-storage", "workflows", "connections", "resources", "codex-image-generation"],
       operations: [
         op("image-studio.template.list", "Prompt templateを一覧", "read", "review"), op("image-studio.template.read", "Prompt templateを読む", "read", "review", idInput),
         op("image-studio.template.create", "Prompt templateを作成", "write", "recoverable", { type: "object", required: ["markdown"], properties: { markdown: { type: "string", minLength: 1, maxLength: 262144 } } }),
@@ -126,10 +149,10 @@ export function createImageStudioApp({ generator = null } = {}) {
       ],
     },
     handlers: {
-      async "image-studio.template.list"(_, { storage, workflows }) { const state = await load(storage); const connected = await workflows.request("image-studio.prompt-library").catch(() => ({ items: [], failures: [] })); return { templates: [...BUILT_IN_TEMPLATES, ...state.templates, ...connected.items], failures: connected.failures }; },
-      async "image-studio.template.read"({ id }, { storage }) { const state = await load(storage); const template = [...BUILT_IN_TEMPLATES, ...state.templates].find((item) => item.id === id); if (!template) throw new Error("Template was not found"); const markdown = template.source === "local" ? await storage.readText(`templates/${id}.md`) : serializeTemplateMarkdown(template); return { template, markdown }; },
-      async "image-studio.template.create"({ markdown }, { storage }) { const parsed = parseTemplateMarkdown(markdown); const mutation = await save(storage, addTemplate(await load(storage), parsed)); await storage.writeText(`templates/${mutation.template.id}.md`, markdown); return { template: mutation.template }; },
-      async "image-studio.template.update"({ id, markdown }, { storage }) { const parsed = parseTemplateMarkdown(markdown); const mutation = await save(storage, updateTemplate(await load(storage), id, parsed)); await storage.writeText(`templates/${id}.md`, markdown); return { template: mutation.template }; },
+      async "image-studio.template.list"(_, { storage, workflows }) { const state = await load(storage); const connected = await Promise.resolve().then(() => workflows.request("image-studio.prompt-library")).catch(() => ({ items: [], failures: [] })); return { templates: [...BUILT_IN_TEMPLATES, ...state.templates, ...connected.items], failures: connected.failures }; },
+      async "image-studio.template.read"({ id }, { storage }) { const state = await load(storage); const template = [...BUILT_IN_TEMPLATES, ...state.templates].find((item) => item.id === id); if (!template) throw new Error("Template was not found"); const markdown = template.source === "local" && !recordStore ? await storage.readText(`templates/${id}.md`) : serializeTemplateMarkdown(template); return { template, markdown }; },
+      async "image-studio.template.create"({ markdown }, { storage }) { const parsed = parseTemplateMarkdown(markdown); const mutation = await save(storage, addTemplate(await load(storage), parsed)); if (!recordStore) await storage.writeText(`templates/${mutation.template.id}.md`, markdown); return { template: mutation.template }; },
+      async "image-studio.template.update"({ id, markdown }, { storage }) { const parsed = parseTemplateMarkdown(markdown); const mutation = await save(storage, updateTemplate(await load(storage), id, parsed)); if (!recordStore) await storage.writeText(`templates/${id}.md`, markdown); return { template: mutation.template }; },
       async "image-studio.template.trash"({ id }, { storage }) { const mutation = await save(storage, setTemplateState(await load(storage), id, "trash")); return { template: mutation.template }; },
       async "image-studio.template.restore"({ id }, { storage }) { const mutation = await save(storage, setTemplateState(await load(storage), id, "active")); return { template: mutation.template }; },
       async "image-studio.generation.list"({ includeTrash = false }, { storage }) { const state = await load(storage); return { generations: state.generations.filter((item) => includeTrash || item.state !== "trash") }; },
@@ -151,10 +174,19 @@ export function createImageStudioApp({ generator = null } = {}) {
       async "image-studio.generation.purge"({ id }, { storage }) {
         const state = await load(storage);
         const generation = state.generations.find((item) => item.id === id);
-        if (generation?.resource?.resourceId && generator?.purge) await generator.purge(generation.resource.resourceId);
+        if (!recordStore && generation?.resource?.resourceId && generator?.purge) await generator.purge(generation.resource.resourceId);
         const mutation = await save(storage, purgeGeneration(state, id));
         return { id: mutation.id };
       },
     },
-  });
+  };
+  if (recordStore?.assertActor) {
+    for (const [id, handler] of Object.entries(definition.handlers)) {
+      definition.handlers[id] = (input, context) => {
+        recordStore.assertActor(context.actor);
+        return handler(input, context);
+      };
+    }
+  }
+  return defineApp(definition);
 }

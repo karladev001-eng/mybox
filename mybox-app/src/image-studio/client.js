@@ -37,6 +37,6 @@ export function createImageStudioClient({ desktop = false, appRuntime = null, ho
     listNotePages: async (projectId) => { await prepareNoteProject(projectId); return invoke("knowledge.page.list", { projectId }); },
     listNoteTags: async (projectId) => { await prepareNoteProject(projectId); return invoke("knowledge.tag.list", { projectId }); },
     readNotePageMarkdown: async (projectId, pageId) => { await prepareNoteProject(projectId); return invoke("knowledge.page.markdown.read", { projectId, pageId }); },
-    pickReference: () => pickImageStudioReference(), storeReference: (file) => storeImageStudioReferenceBytes(file), readResource: (id) => readImageStudioResource(id), subscribe: (eventId, handler) => host.subscribe(eventId, handler),
+    pickReference: () => pickImageStudioReference(), storeReference: (file) => storeImageStudioReferenceBytes(file), readResource: (id) => id.startsWith("knowledge-file:") ? appRuntime.readImageRecordResource(id) : readImageStudioResource(id), subscribe: (eventId, handler) => host.subscribe(eventId, handler),
   });
 }

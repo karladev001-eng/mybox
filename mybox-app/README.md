@@ -80,8 +80,8 @@ become metered API use.
 When the installed Codex version advertises the capabilities, chat can list
 enabled user/system skills and attach up to four of them to a single turn. It can
 also generate one image through the ChatGPT/Codex image tool. Generated images
-are validated and copied into private `ai-chat` storage; the WebView receives an
-opaque resource ID rather than a filesystem path. Image generation is mutually
+are validated in private `ai-chat` staging, then copied into Knowledge when
+conversation records are saved; the WebView receives opaque resource IDs. Image generation is mutually
 exclusive with Web search for a turn and may consume subscription allowance or
 credits.
 
@@ -125,9 +125,10 @@ later without changing chat history or UI ownership.
 ADRs 0043/0044 make Knowledge mandatory. Notes, conversations and Context
 notebooks share the record model and search. Settings defaults Context recording
 on. Each conversation gets one notebook in private Record; authorized source
-Projects may differ. Completed turns can be previewed and copied to a shared
+Projects may differ. Image user templates, history and originals are also Knowledge
+records; provider caches and migration backups remain private to the tool. Completed turns can be previewed and copied to a shared
 Project with questions, answers and images, without following later changes. New chats default to an unshared
 My Records Project. Existing sessions migrate with restartable backups and media
-verification. Update group sync servers before using the new record protocol.
+verification. Update group sync servers to record protocol 4 before reconnecting shared Projects.
 
 During development, changes to Host/Knowledge JavaScript definitions reload the document so registered Operations match the UI. JSX and CSS retain fast refresh.

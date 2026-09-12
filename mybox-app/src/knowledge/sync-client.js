@@ -29,7 +29,7 @@ export function syncUrl(endpoint, projectId, token) {
   base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
   base.pathname = `${base.pathname.replace(/\/$/, "")}/projects/${encodeURIComponent(projectId)}/sync`;
   base.searchParams.set("token", token);
-  base.searchParams.set("records", "3");
+  base.searchParams.set("records", "4");
   return base.toString();
 }
 
@@ -102,7 +102,7 @@ export function createSyncClient({
     }
 
     if (message.type === "sync") {
-      if (message.records !== 3) {
+      if (message.records !== 4) {
         closed = true; role = null; socket?.close();
         setStatus("incompatible"); onError(new Error("同期サーバーの更新が必要です（記録形式 v1）。")); return;
       }

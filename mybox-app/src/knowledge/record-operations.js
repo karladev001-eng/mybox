@@ -1,3 +1,4 @@
+import { saveImageRecord } from "./image-records.js";
 import { flattenLibrary, importFile, verifyFile } from "./library.js";
 import { reconcileRecordLinks } from "./record-links.js";
 import { authorize, saveConversation, captureContext, finishContext, extractRecord, conversationSession } from "./records.js";
@@ -6,8 +7,9 @@ import { contextConversationLink, ensureNotebook, captureNotebook, finishNoteboo
 
 const schema = (required, properties = {}) => ({ type: "object", required, properties });
 const string = { type: "string", minLength: 1 };
-const inputs = { title: string, fileId: string, name: string, base64: string, folderId: { type: ["string", "null"] }, folderIdToCreate: string, projectId: string, pageId: string, conversationId: string, messageId: string, contextId: string, callId: string, prompt: string, status: string, session: { type: "object" }, sources: { type: "array", items: { type: "object" } }, settings: { type: "object" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 } };
+const inputs = { kind: { type: "string", enum: ["prompt", "generation"] }, record: { type: "object" }, expectedRevision: { type: "integer", minimum: 0 }, links: { type: "array", items: { type: "object" } }, title: string, fileId: string, name: string, base64: string, folderId: { type: ["string", "null"] }, folderIdToCreate: string, projectId: string, pageId: string, conversationId: string, messageId: string, contextId: string, callId: string, prompt: string, status: string, session: { type: "object" }, sources: { type: "array", items: { type: "object" } }, settings: { type: "object" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 200 } };
 export const recordOperations = [
+  ["image-record.save", "Prompt・生成記録を保存", "write", ["projectId", "pageId", "kind", "record"]],
   ["conversation.save", "会話を保存", "write", ["projectId", "session"]],
   ["conversation.create", "会話を作成", "write", ["projectId", "session"]],
   ["conversation.append", "会話に発言を追加", "write", ["projectId", "session"]],
@@ -56,7 +58,7 @@ export function withProjectSessions(state, sharedSessions, profileId) {
 
 export function createRecordHandlers({ loadState, sharedSessions, fileStore }) {
   let queue = Promise.resolve();
-  const mutations = { "library.flatten": flattenLibrary, "file.import": importFile, "conversation.save": saveConversation, "conversation.create": saveConversation, "conversation.append": saveConversation, "context.capture": captureContext, "context.finish": finishContext, "record.links": reconcileRecordLinks, "record.extract": extractRecord };
+  const mutations = { "image-record.save": saveImageRecord, "library.flatten": flattenLibrary, "file.import": importFile, "conversation.save": saveConversation, "conversation.create": saveConversation, "conversation.append": saveConversation, "context.capture": captureContext, "context.finish": finishContext, "record.links": reconcileRecordLinks, "record.extract": extractRecord };
   Object.assign(mutations, { "context.ensure.v2": ensureNotebook, "context.capture.v2": captureNotebook, "context.finish.v2": finishNotebookTurn, "context.share-copy.v2": copySharedRecord });
   const handlers = {};
   for (const [name, mutate] of Object.entries(mutations)) {

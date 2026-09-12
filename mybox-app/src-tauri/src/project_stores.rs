@@ -11,7 +11,7 @@ use tempfile::NamedTempFile;
 use uuid::Uuid;
 
 const SETTINGS_VERSION: u32 = 1;
-const MANIFEST_VERSION: u32 = 4;
+const MANIFEST_VERSION: u32 = 5;
 const MANIFEST_KIND: &str = "mybox-note-project-store";
 const LEGACY_PROJECTS_DIRECTORY: &str = "MyBox Projects";
 const MAX_UPDATE_BYTES: usize = 10 * 1024 * 1024;

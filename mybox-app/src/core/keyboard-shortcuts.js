@@ -1,11 +1,11 @@
 /** Host-owned shortcuts stay data-driven so the help menu and key handler agree. */
 export const HOST_KEYBOARD_SHORTCUTS = Object.freeze([
-  Object.freeze({ id: "toggle-assistant", group: "AI", label: "AIアシスタントを開く／閉じる", key: "j", code: "KeyJ", displayKeys: ["Ctrl", "J"] }),
+  Object.freeze({ id: "toggle-assistant", searchText: "assistant toggle open close アシスタント 表示 非表示", group: "AI", label: "AIアシスタントを開く／閉じる", key: "j", code: "KeyJ", displayKeys: ["Ctrl", "J"] }),
   Object.freeze({ id: "command-palette", group: "操作", label: "コマンドパレットを開く", key: "k", code: "KeyK", displayKeys: ["Ctrl", "K"] }),
-  Object.freeze({ id: "new-chat", group: "AI", label: "新しいチャット", key: "n", code: "KeyN", shiftKey: true, displayKeys: ["Ctrl", "Shift", "N"] }),
-  Object.freeze({ id: "apps", group: "移動", label: "ホームを開く", key: "1", code: "Digit1", displayKeys: ["Ctrl", "1"] }),
-  Object.freeze({ id: "settings", group: "移動", label: "設定を開く", key: "4", code: "Digit4", displayKeys: ["Ctrl", "4"] }),
-  Object.freeze({ id: "chat", group: "移動", label: "AIチャットを開く", key: "5", code: "Digit5", displayKeys: ["Ctrl", "5"] }),
+  Object.freeze({ id: "new-chat", searchText: "new chat conversation 新規 会話", group: "AI", label: "新しいチャット", key: "n", code: "KeyN", shiftKey: true, displayKeys: ["Ctrl", "Shift", "N"] }),
+  Object.freeze({ id: "apps", searchText: "open home ホーム", group: "移動", label: "ホームを開く", key: "1", code: "Digit1", displayKeys: ["Ctrl", "1"] }),
+  Object.freeze({ id: "settings", searchText: "open settings preferences 設定", group: "移動", label: "設定を開く", key: "4", code: "Digit4", displayKeys: ["Ctrl", "4"] }),
+  Object.freeze({ id: "chat", searchText: "open AI chat conversation チャット 会話", group: "移動", label: "AIチャットを開く", key: "5", code: "Digit5", displayKeys: ["Ctrl", "5"] }),
   Object.freeze({ id: "add-app", group: "操作", label: "アプリを追加", key: "a", code: "KeyA", shiftKey: true, displayKeys: ["Ctrl", "Shift", "A"] }),
   Object.freeze({ id: "shortcut-menu", group: "操作", label: "コマンドパレットを開く", key: "/", code: "Slash", displayKeys: ["Ctrl", "/"] }),
 ]);
@@ -13,7 +13,7 @@ export const HOST_KEYBOARD_SHORTCUTS = Object.freeze([
 /** Command-palette-only destinations do not claim global key combinations. */
 export function buildCommandPaletteCommands(apps = [], activeApp = null) {
   const hostCommands = HOST_KEYBOARD_SHORTCUTS.filter((shortcut) => (
-    shortcut.id !== "command-palette" && shortcut.id !== "shortcut-menu"
+    shortcut.id !== "command-palette" && shortcut.id !== "shortcut-menu" && shortcut.id !== "add-app"
   ));
   const appCommands = (apps ?? [])
     .filter((app) => app?.id && app?.name)
@@ -23,7 +23,7 @@ export function buildCommandPaletteCommands(apps = [], activeApp = null) {
       appIcon: app.icon,
       group: `${app.name} App`,
       label: `Open ${app.name} App`,
-      searchText: `${app.name} アプリを開く`,
+      searchText: `${app.name} ${app.id} open app アプリを開く ${app.id === "knowledge" ? "ノート ページ ナレッジ" : app.id === "image-studio" ? "画像 画像生成 イメージ" : ""}`,
       displayKeys: [],
     }));
   const activeAppCommands = (activeApp?.shortcuts ?? []).map((shortcut) => ({
@@ -69,4 +69,11 @@ export function resolveAppKeyboardShortcut(shortcuts, event) {
     (candidate.key === key || candidate.code === code)
       && Boolean(candidate.shiftKey) === Boolean(event.shiftKey)
   )) ?? null;
+}
+
+/** Match words independently so Japanese/English aliases can be mixed. */
+export function matchesCommandPaletteQuery(command, query) {
+  const normalize = (value) => String(value ?? "").normalize("NFKC").toLocaleLowerCase("ja-JP");
+  const text = normalize([command.label, command.group, command.searchText ?? "", ...(command.displayKeys ?? [])].join(" "));
+  return normalize(query).trim().split(/\s+/u).every((word) => text.includes(word));
 }

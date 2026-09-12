@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   buildCommandPaletteCommands,
+  matchesCommandPaletteQuery,
   HOST_KEYBOARD_SHORTCUTS,
   resolveAppKeyboardShortcut,
   resolveHostKeyboardShortcut,
@@ -99,4 +100,32 @@ test("Knowledge declares Ctrl+B for its left navigation", async () => {
   assert.equal(resolveHostKeyboardShortcut(event("n")), null);
   assert.equal(resolveHostKeyboardShortcut(event("n", { shiftKey: true }))?.id, "new-chat");
   assert.equal(resolveAppKeyboardShortcut(shortcuts, event("Delete"))?.id, "trash-page");
+});
+
+test("palette excludes installation and searches commands in both languages", async () => {
+  const { createMyBoxAppRegistry } = await import("../src/apps/registry.js");
+  const registry = createMyBoxAppRegistry();
+  const commands = buildCommandPaletteCommands(registry.list(), registry.get("knowledge"));
+  assert.equal(commands.some((command) => command.id === "add-app"), false);
+  for (const [id, queries] of Object.entries({
+    settings: ["設定", "SETTINGS", "ｓｅｔｔｉｎｇｓ"],
+    "toggle-assistant": ["アシスタント", "assistant"],
+    "new-chat": ["新しいチャット", "new chat"],
+    apps: ["ホーム", "home"],
+    chat: ["チャット", "open chat"],
+    home: ["ホーム", "home"],
+    "open-app:knowledge": ["ノート", "open note"],
+    "open-app:image-studio": ["画像", "open image"],
+    "app-command:knowledge:new-page": ["新規 ページ", "new page", "new ページ"],
+    "app-command:knowledge:trash-page": ["ゴミ箱", "delete page"],
+    "app-command:knowledge:toggle-navigation": ["左バー", "sidebar"],
+    "app-command:knowledge:toggle-graph": ["グラフ", "graph"],
+    "app-command:knowledge:page-search": ["検索", "search project"],
+  })) {
+    const command = commands.find((entry) => entry.id === id);
+    assert.ok(command, id);
+    for (const query of queries) assert.ok(matchesCommandPaletteQuery(command, query), id + ": " + query);
+    assert.equal(matchesCommandPaletteQuery(command, "no-such-command"), false);
+    assert.equal(matchesCommandPaletteQuery(command, "  "), true);
+  }
 });

@@ -62,3 +62,11 @@ notes of the ADR it realizes.
 - [0049 — Record-centered home](0049-record-centered-home.md)
 
 - [0050 — Switchable workspace themes](0050-switchable-workspace-themes.md)
+
+- [0051 — Unify Prompts and image generation records](0051-unify-prompts-and-image-records.md)
+
+- [0052 — Explore record links as a graph](0052-explore-record-links-as-a-graph.md)
+
+- [0053 — Show the whole workspace graph](0053-show-the-whole-workspace-graph.md)
+
+- [0054 — Group and drag the side graph](0054-group-and-drag-the-side-graph.md)

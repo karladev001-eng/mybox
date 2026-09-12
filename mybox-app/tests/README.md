@@ -62,3 +62,7 @@ The Context preview supports `?workspace&sameProject` for reciprocal PageLink ve
 The Context preview also accepts `?workspace&library` for Folder and File UI checks. Record tests cover hierarchy, immutable originals, persistence failures and access checks; sync live tests cover original upload/read and hash failures.
 
 `themes.test.mjs` checks preference restart/concurrency/failure behavior and palette text contrast.
+
+- `image-records.test.mjs`: Image record migration, original verification, restart, input-before-provider persistence and permissions.
+
+- `record-graph.test.mjs` checks cross-Project identity, direction, duplicate links, access denial, Trash, storage failure and multi-page neighborhoods.

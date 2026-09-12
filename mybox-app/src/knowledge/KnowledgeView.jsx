@@ -1,4 +1,5 @@
 import { PageOutline } from "./PageOutline.jsx";
+import { RecordGraph } from "./RecordGraph.jsx";
 import { LibraryToolbar, LibraryDetails } from "./LibraryControls.jsx";
 import { RecordAction } from "../RecordAction.jsx";
 import { ContextNotebook } from "./ContextNotebook.jsx";
@@ -7,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   Brain,
+  Graph,
   NotePencil,
   ArrowSquareOut,
   ArrowUDownLeft,
@@ -1442,6 +1444,8 @@ export function KnowledgeView({
   const restoredProfileRef = useRef(null);
   const [kindFilter, setKindFilter] = useState("all");
   const [navigationOpen, setNavigationOpen] = useState(false);
+  const [graphVisible, setGraphVisible] = useState(true);
+  const [graphPageWidth, setGraphPageWidth] = useState(56);
   const searchRequest = useRef(0);
   const [settledSearch, setSettledSearch] = useState(null);
   const [query, setQuery] = useState("");
@@ -1524,6 +1528,7 @@ export function KnowledgeView({
       return;
     }
     if (shortcutCommand?.shortcutId === "toggle-navigation") { setNavigationOpen((open) => !open); return; }
+    if (shortcutCommand?.shortcutId === "toggle-graph") { setGraphVisible(open => !open); return; }
     if (shortcutCommand?.shortcutId !== "page-search") return;
     searchInputRef.current?.focus();
     searchInputRef.current?.select();
@@ -2543,7 +2548,7 @@ export function KnowledgeView({
             <div className="knowledge-search-panel">
               <div className="knowledge-search-filters">
                 <ThemedSelect id="search-project-scope" label="検索範囲" value={searchScope} onChange={setSearchScope} placement="bottom" options={scopeOptions} />
-                <ThemedSelect id="search-kind" label="検索する記録" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "Context" }, { id: "file", label: "File" }]} />
+                <ThemedSelect id="search-kind" label="検索する記録" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "Context" }, { id: "file", label: "File" }, { id: "prompt", label: "Prompt" }, { id: "generation", label: "生成" }]} />
                 <button type="button" aria-pressed={includeTrash} onClick={() => setIncludeTrash(!includeTrash)}>Trashを含む</button>
               </div>
               {!query.trim() && <p className="knowledge-recent-label">PageとProject</p>}
@@ -2584,6 +2589,7 @@ export function KnowledgeView({
         {/* One grid track holds every trailing control, so adding or removing an
             action never rewrites the topbar's responsive column lists. */}
         <div className="knowledge-topbar-actions">
+        <button type="button" className="knowledge-icon-button" aria-label="グラフを表示・非表示" aria-keyshortcuts="Control+G" data-tooltip="グラフを表示・非表示（Ctrl+G）" aria-pressed={graphVisible} onClick={() => setGraphVisible(open => !open)}><Graph size={18} /></button>
         <button type="button" className="knowledge-icon-button" aria-label="左のバーを表示・非表示" aria-keyshortcuts="Control+B" data-tooltip="左のバーを表示・非表示（Ctrl+B）" aria-pressed={navigationOpen} onClick={() => setNavigationOpen((open) => !open)}><SidebarSimple size={18} /></button>
         <RecordAction label="新しいPage（Ctrl+N）" icon={Plus} disabled={!currentProject || currentProject.role === "viewer"} onClick={createUntitledPage} />
         <LibraryToolbar projectId={projectId} client={client} readOnly={!currentProject || currentProject.role === "viewer"} onError={setError} onCreated={async (page) => { await loadPageLists(); await selectPage(page.projectId, page.id); }} />
@@ -2674,7 +2680,7 @@ export function KnowledgeView({
       </aside>
 
       <section className="knowledge-page-list" aria-labelledby="knowledge-pages-title">
-        <ThemedSelect id="record-kind" label="記録の種類" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "コンテキスト" }, { id: "file", label: "File" }]} />
+        <ThemedSelect id="record-kind" label="記録の種類" value={kindFilter} onChange={setKindFilter} placement="bottom" options={[{ id: "all", label: "すべて" }, { id: "note", label: "ノート" }, { id: "conversation", label: "会話" }, { id: "context", label: "コンテキスト" }, { id: "file", label: "File" }, { id: "prompt", label: "Prompt" }, { id: "generation", label: "生成" }]} />
 
         <div className="knowledge-page-list-header">
           <div><h1 id="knowledge-pages-title">{query ? "検索結果" : includeTrash ? "Active + Trash" : "Pages"}</h1><span>{visibleRecords.length}</span></div>
@@ -2697,7 +2703,7 @@ export function KnowledgeView({
         )}
       </section>
 
-      <main className="knowledge-editor" id="knowledge-editor" tabIndex={-1}>
+      <main className="knowledge-editor" id="knowledge-editor" tabIndex={-1} style={{ "--graph-page-width": `${graphPageWidth}%` }}>
         {error && <div className="knowledge-error" role="alert"><span>{error}</span><button type="button" aria-label="エラーを閉じる" onClick={() => setError("")}><X size={17} /></button></div>}
         {pageData ? (
           <>
@@ -2823,14 +2829,19 @@ export function KnowledgeView({
                   try { await selectPage(nextProjectId, pageId); setRecordFocus({ pageId, blockId }); if (blockId) requestAnimationFrame(() => document.getElementById(`record-${blockId}`)?.scrollIntoView({ block: "center" })); }
                   catch { setError("参照先は削除済み、または閲覧権限がありません。"); }
                 }} />}
+                {pageData.page.kind === "generation" && <section className="generation-details" aria-label="生成記録">
+                  <small>{({complete:"完了",generating:"生成中",unknown:"結果不明",error:"失敗",trash:"Trash"})[pageData.page.imageRecord?.state] || "記録"}</small>
+                  {pageData.page.imageRecord?.resource?.pageId && <LibraryDetails key={pageData.page.imageRecord.resource.pageId} client={client} page={{kind:"file", id:pageData.page.imageRecord.resource.pageId, projectId:pageData.page.imageRecord.resource.projectId}} />}
+                </section>}
                 <LibraryDetails key={pageData.page.id} page={pageData.page} pages={linkCandidates} client={client} readOnly={readOnly} onError={setError} onChanged={async () => { await loadPageLists(); await loadPage(projectId, pageData.page.id); }} onNavigate={(id) => selectPage(projectId, id)} />
                 {pageData.page.legacyContextUnavailable && <p className="record-notice">移行前の送信Contextは記録されていません。</p>}
                 {pageData.page.kind !== "context" && pageData.page.blocks.map((block, index) => {
                   if (block.links?.some((link) => link.recordRelation)) return null;
+                  if (pageData.page.kind === "generation" && block.id.endsWith("-settings")) return <details key={block.id} className="record-block"><summary>生成条件</summary><pre>{block.text}</pre></details>;
                   if (pageData.page.kind && pageData.page.kind !== "note") return <section key={block.id} id={`record-${block.id}`} className="record-block">
-                    <header>{block.message ? (block.message.role === "user" ? "あなた" : "MyBox AI") : `送信 ${index + 1}`}</header>
+                    <header>{block.message ? (block.message.role === "user" ? "あなた" : "MyBox AI") : ["prompt", "generation"].includes(pageData.page.kind) ? "Prompt" : `送信 ${index + 1}`}</header>
                     {block.message ? <RecordedMessageBody message={{ ...block.message, content: block.text }} onReadImage={(image) => client.readImage(image.resourceId)} /> : <>
-                      <pre>{block.text}</pre>
+                      {["prompt", "generation"].includes(pageData.page.kind) ? <RecordedMessageBody message={{role:"assistant", content:block.text}} /> : <pre>{block.text}</pre>}
                       {block.call && <details><summary>送信時の設定と指示</summary><pre>{JSON.stringify(block.call.settings, null, 2)}</pre></details>}
                     </>}
                     <div className="record-actions">
@@ -2908,6 +2919,7 @@ export function KnowledgeView({
                 ))}
               </section>
             </article>
+            <RecordGraph client={client} projectId={projectId} data={pageData} onOpen={selectPage} visible={graphVisible} pageWidth={graphPageWidth} onPageWidthChange={setGraphPageWidth} />
           </>
         ) : (
           <div className="knowledge-editor-empty">

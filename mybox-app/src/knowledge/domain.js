@@ -2,7 +2,7 @@ import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { parseMarkdownBlocks, splitPastedBlock } from "./editor-behavior.js";
 import { authorColorFor, isAuthorColor } from "./author-color.js";
 
-export const KNOWLEDGE_SCHEMA_VERSION = 4;
+export const KNOWLEDGE_SCHEMA_VERSION = 5;
 export const PAGE_STATES = Object.freeze(["active", "trash"]);
 export const PROJECT_ROLES = Object.freeze(["viewer", "editor", "owner"]);
 // `url-embed` and `image` reuse `text` for their payload (a URL, or an opaque
@@ -237,7 +237,7 @@ export function createKnowledgeState({
 }
 
 export function validateKnowledgeState(state) {
-  if ([1, 2, 3].includes(state?.schemaVersion)) state = { ...state, schemaVersion: KNOWLEDGE_SCHEMA_VERSION };
+  if ([1, 2, 3, 4].includes(state?.schemaVersion)) state = { ...state, schemaVersion: KNOWLEDGE_SCHEMA_VERSION };
   if (!state || state.schemaVersion !== KNOWLEDGE_SCHEMA_VERSION) {
     throw new KnowledgeDomainError("INVALID_KNOWLEDGE_STATE", "Knowledge state schema is unsupported");
   }

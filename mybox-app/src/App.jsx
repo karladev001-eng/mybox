@@ -34,7 +34,7 @@ import { beginGitHubSignIn, completeGitHubSignIn, getAccountSession, signOutAcco
 import { resolveProfilePresentation, signedOutSession } from "./core/account-identity.js";
 import { openExternalUrl } from "./desktop/open-url.js";
 import { compareAppVersions, isAppUpdateAvailable } from "./core/app-version.js";
-import { buildCommandPaletteCommands, resolveAppKeyboardShortcut, resolveHostKeyboardShortcut } from "./core/keyboard-shortcuts.js";
+import { buildCommandPaletteCommands, matchesCommandPaletteQuery, resolveAppKeyboardShortcut, resolveHostKeyboardShortcut } from "./core/keyboard-shortcuts.js";
 import {
   CODEX_SUBSCRIPTION_PROVIDER_ID,
   LOCAL_LLM_PROVIDER_ID,
@@ -258,13 +258,8 @@ const shortcutIcons = {
 
 function CommandPalette({ apps, activeApp, onClose, onRun }) {
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLocaleLowerCase("ja-JP");
-  const commands = buildCommandPaletteCommands(apps, activeApp).filter((command) => (
-    !normalizedQuery
-    || `${command.label} ${command.group} ${command.searchText ?? ""} ${command.displayKeys.join(" ")}`
-      .toLocaleLowerCase("ja-JP")
-      .includes(normalizedQuery)
-  ));
+  const commands = buildCommandPaletteCommands(apps, activeApp)
+    .filter((command) => matchesCommandPaletteQuery(command, query));
   const groups = [...new Set(commands.map((shortcut) => shortcut.group))];
   return (
     <Modal title="コマンドパレット" onClose={onClose} className="shortcut-modal" backdropClassName="shortcut-backdrop">
@@ -416,7 +411,7 @@ function AppWorkspace({ app, onClose, onDone }) {
   );
 }
 
-function RegisteredAppWorkspace({ onOpenRecordContext, recordTarget, onOpenConversation, onAddContext, app, desktop, profile, appRuntime, shortcutCommand, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
+function RegisteredAppWorkspace({ onOpenPage, onOpenRecordContext, recordTarget, onOpenConversation, onAddContext, app, desktop, profile, appRuntime, shortcutCommand, persistenceReady, assistantOpen, onToggleAssistant, onContextChange, onClose, onOpenSettings, onDone }) {
   const Surface = resolveLazyAppSurface(app);
   if (!Surface) return <AppWorkspace app={app} onClose={onClose} onDone={onDone} />;
   return (
@@ -424,6 +419,7 @@ function RegisteredAppWorkspace({ onOpenRecordContext, recordTarget, onOpenConve
       <Surface
         desktop={desktop}
         appRuntime={appRuntime}
+        onOpenPage={onOpenPage}
         onOpenRecordContext={onOpenRecordContext}
         recordTarget={recordTarget}
         onOpenConversation={onOpenConversation}
@@ -911,6 +907,7 @@ export function App() {
     client: createKnowledgeClient({ desktop, appRuntime, getProfileId: () => activeUserIdRef.current }),
     legacy: getChatHistoryStore(), desktop, readLegacyImage: readLegacyChatImage,
   }));
+  useEffect(() => { appRuntime.setRecordProjectResolver(async () => { await chatStore.load(); return chatStore.defaultProject(); }); }, [appRuntime, chatStore]);
   const [contextSources, setContextSources] = useState([]);
   const [chatProjects, setChatProjects] = useState([]);
   const [defaultChatProjectId, setDefaultChatProjectId] = useState(null);
@@ -1928,6 +1925,7 @@ export function App() {
       {addOpen && <AddAppModal catalog={appRegistry.list()} installedVersions={installedVersions} updatingAppId={updatingAppId} onClose={() => setAddOpen(false)} onAdd={addApp} onUpdate={updateApp} />}
       {selectedApp && (
         <RegisteredAppWorkspace
+          onOpenPage={openRecord}
           onOpenRecordContext={async (page, message) => {
             try {
               const previous = page.blocks.slice(0, page.blocks.findIndex((b) => b.id === message.id)).findLast((b) => b.message?.role === "user");

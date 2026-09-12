@@ -80,3 +80,12 @@ sets WebView2 `AreBrowserAcceleratorKeysEnabled` to false during Tauri setup,
 before the first interactive page. Tauri, `webview2-com`, and `windows` are pinned
 to the compatible versions recorded by the desktop lockfile because the
 platform-webview handle is explicitly version-sensitive.
+
+### 2026-09-08: bilingual palette discovery
+
+The palette omits App installation (add-app); its existing direct shortcut is
+unchanged. Host commands, installed App launchers and Note commands expose
+Japanese and English search aliases without adding bilingual labels to the UI.
+Search normalizes Unicode width and case and matches all whitespace-separated
+words, including mixed-language queries. Command IDs, authorization and execution
+remain unchanged. Note's bundled version is 1.26.6.

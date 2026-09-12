@@ -12,6 +12,7 @@ This directory records durable architecture and product decisions.
   authorization, interchange, and delivery requirements for the Knowledge App.
 - `system-overview.md` provides the project-wide architecture diagram and marks
   current versus planned paths.
+- `migration-status.md` tracks record migration, release compatibility and remaining verification.
 - `adr/README.md` is the decision-record index.
 
 Read the framework document for implementation work involving apps, storage,

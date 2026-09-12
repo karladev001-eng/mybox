@@ -16,7 +16,7 @@ contract described in `../../../docs/app-framework.md`.
 - `workflow-json.js`: parses the restricted Workflow JSON path language, applies
   safe input/output mappings, and bounds each Workflow's single working document.
 - `connections.js`: the one-release legacy Connection implementation retained
-  for compatibility tests; the shared runtime routes new work through Workflows.
+  for compatibility tests; only opt-in runtimes route work through Workflows.
 - `resource-broker.js`: validates opaque resource references and transfers bytes
   only through registered App providers/importers.
 - `agent-provider.js`: provider descriptor validation and replaceable provider
@@ -31,8 +31,8 @@ contract described in `../../../docs/app-framework.md`.
   `createAggregateAgentHost()` unions every registered host's Operations and
   routes a call by its ID's App-prefix, so all of them are available from any
   screen rather than only while that App's own View is open.
-- `chat-history.js`: provider-neutral AI chat sessions, bounded context building,
-  and the app-scoped persistence contract.
+- `chat-history.js`: provider-neutral session utilities, bounded context building,
+  and legacy owner backup/checkpoint ports. Knowledge owns current history.
 - `profile-preferences.js`: validated device-local profile preferences, including
   the confirmation level retained across app restarts.
 - `app-version.js`: SemVer validation, precedence comparison, and update checks.
@@ -64,3 +64,5 @@ skips legacy Workflow loading and refuses connector execution while retaining
 stored definitions; runtime compatibility tests may opt in (ADR 0049).
 
 - `themes.js`: stable appearance IDs and safe fallback for old/unknown preferences.
+
+- `knowledge-image-store.js`: Host-owned Image migration and record adapter, using owner backup ports and authorized Knowledge Operations.

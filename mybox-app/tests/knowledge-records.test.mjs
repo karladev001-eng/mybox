@@ -299,7 +299,7 @@ test("sync refuses a legacy server before applying or transmitting record state"
   const doc = createProjectDoc();
   const writes = [], errors = [];
   const socket = { readyState: 1, send: (v) => writes.push(v), close() {} };
-  const client = createSyncClient({ doc, endpoint: "https://example.test", projectId: "p", token: "test", openSocket: (url) => { assert.equal(new URL(url).searchParams.get("records"), "3"); return socket; }, onError: (e) => errors.push(e), reconnect: false });
+  const client = createSyncClient({ doc, endpoint: "https://example.test", projectId: "p", token: "test", openSocket: (url) => { assert.equal(new URL(url).searchParams.get("records"), "4"); return socket; }, onError: (e) => errors.push(e), reconnect: false });
   client.connect();
   socket.onmessage({ data: JSON.stringify({ type: "sync", role: "owner", update: Buffer.from(Y.encodeStateAsUpdate(doc)).toString("base64") }) });
   assert.equal(writes.length, 0); assert.equal(client.status, "incompatible"); assert.equal(errors.length, 1);
