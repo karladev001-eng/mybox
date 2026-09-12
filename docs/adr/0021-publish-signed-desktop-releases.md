@@ -177,3 +177,8 @@ editor write ordering, stale-read protection, draft/save feedback and live graph
 refresh (ADR 0056 and ADR 0054). 224 core and 4 packaging tests pass; package
 build and browser interaction checks passed. Native IME and provider generation
 were not repeated for this patch. The existing large-chunk warning remains.
+
+Release 0.10.1 was published on 2026-09-13 (JST) from e63fb71 after
+CI run 34701072191 succeeded. Windows MSI/NSIS artifacts and signatures are
+published; updater version, artifact URLs and signature-file correspondence
+were verified. The public latest updater endpoint returns 0.10.1.
