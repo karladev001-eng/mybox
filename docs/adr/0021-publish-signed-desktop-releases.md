@@ -190,3 +190,7 @@ templates independently of history readiness. Schema and sync protocol stay
 unchanged. All 225 core and 4 packaging tests pass and the package build succeeds
 with the existing chunk-size warning. Copy-based native data replay and browser
 Image history/sample checks passed; native provider generation was not repeated.
+
+Release 0.10.2 was published on 2026-09-13 (JST) from f531194 after CI run
+34702253647 succeeded. MSI/NSIS assets, updater URLs and signature-file
+correspondence were verified. The public latest updater endpoint returns 0.10.2.
