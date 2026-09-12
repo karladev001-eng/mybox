@@ -160,3 +160,8 @@ builds passed. Vite reports the existing large-chunk warning.
 The signed build was requested by pushing `v0.10.0` at `ee69407`. Workspace-specific
 verification results are kept outside the public repository; the migration checklist
 describes the general procedure without publishing instance-level metadata.
+
+CI run 34688057096 completed successfully. Release 0.10.0 was published on
+2026-09-12 with Windows MSI/NSIS installers, their signatures and latest.json.
+The updater manifest version, artifact URLs and attached-signature correspondence
+were checked before publication; the public latest endpoint returns 0.10.0.

@@ -4,12 +4,12 @@ This is the implementation and rollout checklist for ADRs 0040, 0043, 0044,
 0048, 0049 and 0051–0054, not a new architecture decision. Last reviewed:
 2026-09-12. Deployment and real-data results are independent of code completion.
 
-## Release candidate
+## Released version
 
 - Host: 0.10.0; Knowledge: 1.26.6; Image: 0.6.1.
 - Knowledge schema/native manifest: 5. Sync record protocol: 4.
 - Real-provider image generation: user confirmed success on 2026-09-12.
-- Signed desktop artifact: tracked by the tag-triggered release workflow.
+- Signed desktop release: [0.10.0](https://github.com/karladev001-eng/mybox/releases/tag/v0.10.0), published 2026-09-12.
 - Workspace-specific migration and endpoint rollout results are maintained privately.
   This public checklist does not contain instance-level record counts or configuration.
 - Native pointer-state, IME/DPI and dense real-workspace graph checks: not verified.
