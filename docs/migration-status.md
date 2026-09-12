@@ -9,8 +9,9 @@ This is the implementation and rollout checklist for ADRs 0040, 0043, 0044,
 - Host: 0.10.0; Knowledge: 1.26.6; Image: 0.6.1.
 - Knowledge schema/native manifest: 5. Sync record protocol: 4.
 - Real-provider image generation: user confirmed success on 2026-09-12.
-- Signed desktop artifact and target group endpoint rollout: pending.
-- Selected existing workspace migration: pending target selection and copy-based verification.
+- Signed desktop artifact: tracked by the tag-triggered release workflow.
+- Workspace-specific migration and endpoint rollout results are maintained privately.
+  This public checklist does not contain instance-level record counts or configuration.
 - Native pointer-state, IME/DPI and dense real-workspace graph checks: not verified.
 
 ## Implemented migrations

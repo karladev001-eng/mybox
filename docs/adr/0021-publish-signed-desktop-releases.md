@@ -156,3 +156,7 @@ integration checks, 7 live client checks and 37 native Rust tests passed. The
 7 pre-existing authenticated provider tests remain ignored; real image generation
 was separately confirmed by the user. Frontend/package and embedded sync-server
 builds passed. Vite reports the existing large-chunk warning.
+
+The signed build was requested by pushing `v0.10.0` at `ee69407`. Workspace-specific
+verification results are kept outside the public repository; the migration checklist
+describes the general procedure without publishing instance-level metadata.
