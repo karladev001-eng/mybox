@@ -66,3 +66,6 @@ stored definitions; runtime compatibility tests may opt in (ADR 0049).
 - `themes.js`: stable appearance IDs and safe fallback for old/unknown preferences.
 
 - `knowledge-image-store.js`: Host-owned Image migration and record adapter, using owner backup ports and authorized Knowledge Operations.
+
+Image preparation uses one shared migration attempt for concurrent readers. Its
+Project-scoped record list avoids loading old generations to resolve Prompt links.

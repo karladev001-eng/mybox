@@ -98,3 +98,29 @@ test("duplicate legacy identities get durable mappings without dropping records"
  const again=await f.store.load(f.owner);
  assert.deepEqual(again.templates.map((t)=>t.id),first.templates.map((t)=>t.id));
 });
+
+
+test("parallel Image loads share a failed migration without automatic retries", async () => {
+ const f=await setup();let attempts=0;
+ const owner={...f.owner,readRaw:async()=>{attempts++;throw new Error("offline backup");}};
+ const result=await Promise.allSettled([f.store.load(owner),f.store.load(owner),f.store.load(owner)]);
+ assert.equal(attempts,1);
+ assert.ok(result.every(r=>r.status==="rejected"&&r.reason.message==="offline backup"));
+ await assert.rejects(f.store.load(owner),/offline backup/);
+ assert.equal(attempts,2);
+});
+
+test("migration lists identities once and never reads prior generations individually", async () => {
+ const raw={schemaVersion:1,templates:[template],generations:Array.from({length:60},(_,i)=>({...generation,id:`old-${i}`}))};
+ const f=await setup(raw);let pageLists=0,pageReads=0,recordLists=0;
+ const client={...f.client,listPages:async(...args)=>{pageLists++;return f.client.listPages(...args);},readPage:async(...args)=>{pageReads++;return f.client.readPage(...args);},invoke:async(id,...args)=>{if(id==="knowledge.image-record.list.v1")recordLists++;return f.client.invoke(id,...args);}};
+ const store=createKnowledgeImageStore({client,getDefaultProject:async()=>f.project.id,readLegacyImage:async()=>`data:image/png;base64,${png}`});
+ const state=await store.load(f.owner);
+ assert.equal(state.generations.length,60);
+ assert.equal(pageReads,0);
+ assert.equal(pageLists,(await f.client.listProjects()).projects.length);
+ assert.ok(recordLists<=4);
+ const list=await f.client.invoke("knowledge.image-record.list.v1",{projectId:f.project.id,kinds:["prompt"]});
+ assert.equal(list.pages.length,1);assert.equal(list.pages[0].kind,"prompt");
+ await assert.rejects(f.host.invoke("knowledge.image-record.list.v1",{projectId:f.project.id},{actor:{type:"user",id:"outsider"}}),/role/);
+});

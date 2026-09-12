@@ -157,7 +157,7 @@ function NotePageDialog({ client, onImport, onClose }) {
   const filteredPages = useMemo(() => filterNotePageChoices(pages, tags, deferredQuery), [pages, tags, deferredQuery]);
   useEffect(() => {
     let active = true;
-    client.listNoteProjects().then(({ projects: items }) => { if (!active) return; setProjects(items); setProjectId(items[0]?.id ?? ""); setBusy(false); }).catch((next) => { if (active) { setError(next.message); setBusy(false); } });
+    client.listNoteProjects().then(({ projects: items }) => { if (!active) return; setProjects(items); setProjectId(items[0]?.id ?? ""); setBusy(false); }).catch((next) => { if (active) { setError(String(next?.message ?? next)); setBusy(false); } });
     return () => { active = false; };
   }, [client]);
   useEffect(() => {
@@ -165,14 +165,14 @@ function NotePageDialog({ client, onImport, onClose }) {
     let active = true; setBusy(true);
     Promise.all([client.listNotePages(projectId), client.listNoteTags(projectId)]).then(([pageResult, tagResult]) => {
       if (active) { setPages(pageResult.pages); setTags(tagResult.tags); setBusy(false); }
-    }).catch((next) => { if (active) { setError(next.message); setBusy(false); } });
+    }).catch((next) => { if (active) { setError(String(next?.message ?? next)); setBusy(false); } });
     return () => { active = false; };
   }, [client, projectId]);
   useEffect(() => { const escape = (event) => { if (event.key === "Escape") onClose(); }; document.addEventListener("keydown", escape); return () => document.removeEventListener("keydown", escape); }, [onClose]);
   const importPage = async (page) => {
     setBusy(true); setError("");
     try { const result = await client.readNotePageMarkdown(projectId, page.id); onImport(result.markdown, {projectId, pageId:page.id, pageRevision:page.revision, text:result.markdown}); onClose(); }
-    catch (next) { setError(next.message); setBusy(false); }
+    catch (next) { setError(String(next?.message ?? next)); setBusy(false); }
   };
   return <div className="image-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="image-template-dialog image-page-dialog" role="dialog" aria-modal="true" aria-labelledby="image-page-import-title">
@@ -193,7 +193,7 @@ function TemplateEditor({ template, onSave, onClose }) {
   const [markdown, setMarkdown] = useState(() => template?.markdown ?? serializeTemplateMarkdown({ name: "新しいテンプレート", category: "world", prompt: "ここにPrompt断片を入力" }));
   const [error, setError] = useState("");
   useEffect(() => { const escape = (event) => { if (event.key === "Escape") onClose(); }; document.addEventListener("keydown", escape); return () => document.removeEventListener("keydown", escape); }, [onClose]);
-  const submit = async (event) => { event.preventDefault(); setError(""); try { await onSave(markdown); onClose(); } catch (next) { setError(next.message); } };
+  const submit = async (event) => { event.preventDefault(); setError(""); try { await onSave(markdown); onClose(); } catch (next) { setError(String(next?.message ?? next)); } };
   return <div className="image-dialog-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <form className="image-template-dialog" role="dialog" aria-modal="true" aria-labelledby="image-template-title" onSubmit={submit}>
       <header><h2 id="image-template-title">{template ? "テンプレートを編集" : "テンプレートを作成"}</h2><button type="button" aria-label="閉じる" data-tooltip="閉じる" onClick={onClose}><X size={20} /></button></header>
@@ -268,12 +268,12 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
         restoredProfileRef.current = profileId;
         setViewStateReady(true);
       })
-      .catch((next) => active && setError(next.message));
+      .catch((next) => active && setError(String(next?.message ?? next)));
     return () => { active = false; };
   }, [persistenceReady, includeTrash, profileId]);
   useEffect(() => {
     if (!persistenceReady || !viewStateReady || restoredProfileRef.current !== profileId) return;
-    client.saveViewState(selectedId).catch((next) => setError(next.message));
+    client.saveViewState(selectedId).catch((next) => setError(String(next?.message ?? next)));
   }, [client, persistenceReady, profileId, selectedId, viewStateReady]);
   useEffect(() => { onContextChange?.({ label: "Image", appId: "image-studio", operationContext: { generationId: selectedId } }); }, [onContextChange, selectedId]);
   useEffect(() => { setPreviewOpen(false); }, [selectedId]);
@@ -285,7 +285,7 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
   }, [extra]);
 
   const selected = generations.find((item) => item.id === selectedId) ?? null;
-  useEffect(() => { let active = true; if (!selected?.resource?.resourceId) { setPreview(null); return; } client.readResource(selected.resource.resourceId).then((value) => active && setPreview(value)).catch((next) => active && setError(next.message)); return () => { active = false; }; }, [selected?.resource?.resourceId]);
+  useEffect(() => { let active = true; if (!selected?.resource?.resourceId) { setPreview(null); return; } client.readResource(selected.resource.resourceId).then((value) => active && setPreview(value)).catch((next) => active && setError(String(next?.message ?? next))); return () => { active = false; }; }, [selected?.resource?.resourceId]);
   const previewLayout = previewFrameLayout({
     actualWidth: selected?.actual?.width,
     actualHeight: selected?.actual?.height,
@@ -316,7 +316,7 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
   }, [extra, ratio, referenceInstruction, references, selections, subject, templates]);
   const promptPreview = promptOverride ?? compiledPrompt;
   const noteAvailable = client.isNoteAvailable();
-  const importPrompt = (value, source = null) => { try { setPromptOverride(normalizeFinalPrompt(value)); setPromptSource(source); setError(""); onToast("全体Promptをインポートしました"); } catch (next) { setError(next.message); } };
+  const importPrompt = (value, source = null) => { try { setPromptOverride(normalizeFinalPrompt(value)); setPromptSource(source); setError(""); onToast("全体Promptをインポートしました"); } catch (next) { setError(String(next?.message ?? next)); } };
   const rebuildPrompt = () => { setPromptOverride(null); setPromptSource(null); onToast("全体Promptを更新しました"); };
 
   const addReference = async (file = null) => {
@@ -326,7 +326,7 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
       if (!resource) return;
       setReferences((items) => [...items, resource]);
       const uri = await client.readResource(resource.resourceId); setReferencePreviews((items) => ({ ...items, [resource.resourceId]: uri }));
-    } catch (next) { setError(next.message); }
+    } catch (next) { setError(String(next?.message ?? next)); }
   };
 
   useEffect(() => {
@@ -336,14 +336,14 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
 
   const generate = async () => {
     const customPrompt = promptOverride?.trim() ?? "";
-    if ((!subject.trim() && !customPrompt) || busy) return;
+    if ((!subject.trim() && !customPrompt) || busy || !viewStateReady) return;
     setBusy(true); setError("");
     try {
       const result = await client.generate({ ...(promptSource ? {promptSource} : {}), subject: subject.trim(), selections, ratio, references, referenceInstruction, extra, ...(promptOverride !== null ? { promptOverride: customPrompt } : {}) });
       await refresh(); setSelectedId(result.generation.id);
       if (["error", "unknown"].includes(result.generation.state)) setError(result.generation.error?.message ?? "生成に失敗しました");
       else onToast("画像を生成しました");
-    } catch (next) { setError(next.message); } finally { setBusy(false); }
+    } catch (next) { setError(String(next?.message ?? next)); } finally { setBusy(false); }
   };
 
   const selectGeneration = (generation) => { setPromptSource(generation.input?.promptSource ?? null); setReferences(generation.input?.references ?? []); setReferenceInstruction(generation.input?.referenceInstruction ?? "");
@@ -366,19 +366,20 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
 
     <main className="image-preview-pane">
       <div className="image-preview-frame" style={previewLayout}>
-        {busy ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>画像を生成しています</strong><p>ChatGPTが構図と画風を組み立てています。画面を閉じずにお待ちください。</p></div>
+        {!viewStateReady && !error ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>履歴を準備しています</strong><p>初回は保存済みの画像を確認します。</p></div>
+          : busy ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>画像を生成しています</strong><p>ChatGPTが構図と画風を組み立てています。画面を閉じずにお待ちください。</p></div>
           : preview ? <button type="button" className="image-preview-zoom" aria-label="生成画像を拡大表示" aria-haspopup="dialog" onClick={() => setPreviewOpen(true)}><img src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} /><span aria-hidden="true"><MagnifyingGlassPlus size={20} /></span></button>
           : ["error", "unknown"].includes(selected?.state) ? <div className="image-preview-empty error"><ImageIcon size={46} /><strong>生成できませんでした</strong><p>{selected.error?.message}</p><button onClick={generate}><ArrowsClockwise size={18} />再試行</button></div>
           : <div className="image-preview-empty"><MagicWand size={48} weight="duotone" /><strong>イメージを形にする</strong></div>}
       </div>
       {selected?.warning && <p className="image-warning" role="status">{selected.warning}</p>}
-      <div className="image-preview-actions">{selected?.knowledge && onOpenPage && <button aria-label="記録Pageを開く" data-tooltip="記録Page" onClick={() => onOpenPage(selected.knowledge.projectId, selected.knowledge.pageId)}><Notebook size={18} /></button>}<button aria-label="再生成" data-tooltip="再生成" disabled={!selected?.input || busy} onClick={generate}><ArrowsClockwise size={18} /></button><button aria-label="画像を書き出す" data-tooltip="書き出す" disabled={!preview} onClick={download}><DownloadSimple size={18} /></button>{selected?.state === "trash" ? <><button aria-label="画像を復元" data-tooltip="復元" onClick={async () => { await client.restoreGeneration(selected.id); await refresh(); }}><ArrowsClockwise size={18} /></button><button className="image-danger" aria-label="画像を完全削除" data-tooltip="完全削除" onClick={async () => { await client.purgeGeneration(selected.id); setSelectedId(null); await refresh(); }}><Trash size={18} /></button></> : selected && <button className="image-danger" aria-label="画像をTrashへ移動" data-tooltip="Trash" onClick={async () => { await client.trashGeneration(selected.id); await refresh(); }}><Trash size={18} /></button>}</div>
+      <div className="image-preview-actions">{selected?.knowledge && onOpenPage && <button aria-label="記録Pageを開く" data-tooltip="記録Page" onClick={() => onOpenPage(selected.knowledge.projectId, selected.knowledge.pageId)}><Notebook size={18} /></button>}<button aria-label="再生成" data-tooltip="再生成" disabled={!selected?.input || busy || !viewStateReady} onClick={generate}><ArrowsClockwise size={18} /></button><button aria-label="画像を書き出す" data-tooltip="書き出す" disabled={!preview} onClick={download}><DownloadSimple size={18} /></button>{selected?.state === "trash" ? <><button aria-label="画像を復元" data-tooltip="復元" onClick={async () => { await client.restoreGeneration(selected.id); await refresh(); }}><ArrowsClockwise size={18} /></button><button className="image-danger" aria-label="画像を完全削除" data-tooltip="完全削除" onClick={async () => { await client.purgeGeneration(selected.id); setSelectedId(null); await refresh(); }}><Trash size={18} /></button></> : selected && <button className="image-danger" aria-label="画像をTrashへ移動" data-tooltip="Trash" onClick={async () => { await client.trashGeneration(selected.id); await refresh(); }}><Trash size={18} /></button>}</div>
       {error && <p className="image-error" role="alert">{error}</p>}
     </main>
 
     <aside className="image-controls" aria-label="生成条件">
       <div className="image-controls-heading"><h2>生成条件</h2><button aria-label="ローカルテンプレートを作成" data-tooltip="テンプレートを作成" onClick={() => setEditor({})}><Plus size={18} /></button></div>
-      <details className="image-template-tools"><summary><span><strong>マイテンプレート</strong><small>{localTemplates.length}</small></span><CaretDown size={16} aria-hidden="true" /></summary><div className="image-template-import"><button type="button" aria-label="テンプレートを新規作成" data-tooltip="新規作成" onClick={() => setEditor({})}><Plus size={16} /></button><label aria-label="Markdownテンプレートをインポート" data-tooltip="インポート" tabIndex="0" onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.currentTarget.querySelector("input")?.click(); } }}><UploadSimple size={16} /><input type="file" accept=".md,.markdown,text/markdown" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { try { await client.createTemplate(await file.text()); await refresh(); onToast("テンプレートをインポートしました"); } catch (next) { setError(next.message); } event.target.value = ""; }}} /></label></div>{localTemplates.length ? <ul>{localTemplates.map((template) => <li key={template.id}><span><strong>{template.name}</strong><small>{categoryLabels[template.category]}{template.state === "trash" ? " · Trash" : ""}</small></span>{template.knowledge && onOpenPage && <button aria-label={`${template.name}のPageを開く`} data-tooltip="Page" onClick={() => onOpenPage(template.knowledge.projectId, template.knowledge.pageId)}><Notebook size={15} /></button>}<button aria-label={`${template.name}を編集`} data-tooltip="編集" disabled={template.state === "trash"} onClick={async () => { const result = await client.readTemplate(template.id); setEditor({ id: template.id, markdown: result.markdown }); }}><PencilSimple size={15} /></button><button aria-label={`${template.name}をエクスポート`} data-tooltip="書き出す" onClick={() => exportTemplate(template.id)}><DownloadSimple size={15} /></button><button aria-label={template.state === "trash" ? `${template.name}を復元` : `${template.name}をTrashへ移動`} data-tooltip={template.state === "trash" ? "復元" : "Trash"} onClick={async () => { if (template.state === "trash") await client.restoreTemplate(template.id); else await client.trashTemplate(template.id); await refresh(); }}>{template.state === "trash" ? <ArrowsClockwise size={15} /> : <Trash size={15} />}</button></li>)}</ul> : null}</details>
+      <details className="image-template-tools"><summary><span><strong>マイテンプレート</strong><small>{localTemplates.length}</small></span><CaretDown size={16} aria-hidden="true" /></summary><div className="image-template-import"><button type="button" aria-label="テンプレートを新規作成" data-tooltip="新規作成" onClick={() => setEditor({})}><Plus size={16} /></button><label aria-label="Markdownテンプレートをインポート" data-tooltip="インポート" tabIndex="0" onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.currentTarget.querySelector("input")?.click(); } }}><UploadSimple size={16} /><input type="file" accept=".md,.markdown,text/markdown" onChange={async (event) => { const file = event.target.files?.[0]; if (file) { try { await client.createTemplate(await file.text()); await refresh(); onToast("テンプレートをインポートしました"); } catch (next) { setError(String(next?.message ?? next)); } event.target.value = ""; }}} /></label></div>{localTemplates.length ? <ul>{localTemplates.map((template) => <li key={template.id}><span><strong>{template.name}</strong><small>{categoryLabels[template.category]}{template.state === "trash" ? " · Trash" : ""}</small></span>{template.knowledge && onOpenPage && <button aria-label={`${template.name}のPageを開く`} data-tooltip="Page" onClick={() => onOpenPage(template.knowledge.projectId, template.knowledge.pageId)}><Notebook size={15} /></button>}<button aria-label={`${template.name}を編集`} data-tooltip="編集" disabled={template.state === "trash"} onClick={async () => { const result = await client.readTemplate(template.id); setEditor({ id: template.id, markdown: result.markdown }); }}><PencilSimple size={15} /></button><button aria-label={`${template.name}をエクスポート`} data-tooltip="書き出す" onClick={() => exportTemplate(template.id)}><DownloadSimple size={15} /></button><button aria-label={template.state === "trash" ? `${template.name}を復元` : `${template.name}をTrashへ移動`} data-tooltip={template.state === "trash" ? "復元" : "Trash"} onClick={async () => { if (template.state === "trash") await client.restoreTemplate(template.id); else await client.trashTemplate(template.id); await refresh(); }}>{template.state === "trash" ? <ArrowsClockwise size={15} /> : <Trash size={15} />}</button></li>)}</ul> : null}</details>
       <label htmlFor="image-subject">主題</label><textarea id="image-subject" value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="例：雨上がりの東京を歩く白いロボット" maxLength={4000} />
       <fieldset><legend>参照画像 <span>{references.length}/4</span></legend><div className="image-reference-grid">{references.map((reference) => <div key={reference.resourceId}><img src={referencePreviews[reference.resourceId]} alt="参照画像" /><button aria-label="参照画像を外す" data-tooltip="外す" onClick={() => setReferences((items) => items.filter((item) => item.resourceId !== reference.resourceId))}><X size={15} /></button></div>)}{references.length < 4 && <button className="image-reference-add" aria-label="参照画像を追加" data-tooltip="追加・Drop・貼り付け" onClick={() => addReference()}><UploadSimple size={20} /></button>}</div></fieldset>
       {references.length > 0 && <><label htmlFor="reference-instruction">参照画像の扱い</label><input id="reference-instruction" value={referenceInstruction} onChange={(event) => setReferenceInstruction(event.target.value)} placeholder="残す特徴や変えたい点" /></>}
@@ -387,7 +388,7 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
       {TEMPLATE_CATEGORIES.map((category) => <TemplateShelf key={category} category={category} items={templatesFor(category)} value={selections[category]} onChange={(value) => setSelections((items) => ({ ...items, [category]: value }))} />)}
       <RatioShelf value={ratio} onChange={setRatio} />
       <label htmlFor="image-extra">追加入力</label><textarea ref={extraInputRef} id="image-extra" className="image-extra" value={extra} onChange={(event) => setExtra(event.target.value)} placeholder="色、文字を入れない、余白など" maxLength={4000} />
-      <div className="image-generation-actions"><button type="button" className="image-prompt-refresh" aria-label="選択内容から全体Promptを更新" data-tooltip="Promptを更新" disabled={busy} onClick={rebuildPrompt}><ArrowsClockwise size={19} /></button><button className="image-generate" disabled={busy || (!subject.trim() && !promptOverride?.trim())} onClick={generate}>{busy ? <span className="image-spinner" /> : <MagicWand size={21} weight="fill" />}<span>{busy ? "生成中…" : references.length ? "参照画像からアレンジ" : "画像を生成"}</span></button></div>
+      <div className="image-generation-actions"><button type="button" className="image-prompt-refresh" aria-label="選択内容から全体Promptを更新" data-tooltip="Promptを更新" disabled={busy} onClick={rebuildPrompt}><ArrowsClockwise size={19} /></button><button className="image-generate" disabled={busy || !viewStateReady || (!subject.trim() && !promptOverride?.trim())} onClick={generate}>{busy ? <span className="image-spinner" /> : <MagicWand size={21} weight="fill" />}<span>{!viewStateReady ? (error ? "履歴を読み込めません" : "履歴を準備中…") : busy ? "生成中…" : references.length ? "参照画像からアレンジ" : "画像を生成"}</span></button></div>
     </aside>
     {previewOpen && preview && <ImagePreviewDialog src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} onClose={closePreview} />}
     {editor && <TemplateEditor template={editor.id ? editor : null} onClose={() => setEditor(null)} onSave={async (markdown) => { if (editor.id) await client.updateTemplate(editor.id, markdown); else await client.createTemplate(markdown); await refresh(); }} />}

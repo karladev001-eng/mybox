@@ -165,3 +165,9 @@ CI run 34688057096 completed successfully. Release 0.10.0 was published on
 2026-09-12 with Windows MSI/NSIS installers, their signatures and latest.json.
 The updater manifest version, artifact URLs and attached-signature correspondence
 were checked before publication; the public latest endpoint returns 0.10.0.
+
+
+Release 0.10.1 prepares the Image history-loading fix in ADR 0051. Knowledge
+1.26.7 supplies authorized bulk image-record reads; Image 0.6.2 distinguishes
+initial preparation from generation and prevents premature provider requests.
+The storage schema and sync protocol are unchanged.

@@ -135,3 +135,6 @@ and then the first editable body Block.
 Graph affinities and pinned-node simulation live in record-graph.js. RecordGraph renders alongside the Page and runs bounded relaxation during/after node dragging (ADR 0054).
 
 Ctrl+G toggles the graph while retaining its positions. Hidden graphs restore the centered Page layout. Drag relaxation cools and bounds neighbor displacement.
+
+`knowledge.image-record.list.v1` returns authorized Project-scoped Prompt and
+Generation metadata, including Trash, without per-Page hydration in Image.

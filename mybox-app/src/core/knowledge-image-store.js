@@ -1,6 +1,6 @@
 /** Host orchestration: legacy owner ports and Knowledge Operations only. */
 export function createKnowledgeImageStore({ client, readLegacyImage, materializeImage, getDefaultProject, desktop = false }) {
-  let migration = Promise.resolve();
+  let migration = null;
   let port;
   const strip = (value) => { const { knowledge, ...record } = structuredClone(value); return record; };
   const files = new Map();
@@ -35,14 +35,13 @@ export function createKnowledgeImageStore({ client, readLegacyImage, materialize
     files.set(copy.resourceId, copy);
     return copy;
   }
-  async function all() {
+  async function all(kinds = ["prompt", "generation"]) {
     const result = {schemaVersion: 1, revision: 1, templates: [], generations: []};
     const { projects } = await client.listProjects();
     for (const project of projects) {
       await client.prepareProjectSession(project.id);
-      const {pages} = await client.listPages(project.id, true);
-      for (const entry of pages.filter((p) => ["prompt", "generation"].includes(p.kind))) {
-        const {page} = await client.readPage(project.id, entry.id);
+      const {pages} = await client.invoke("knowledge.image-record.list.v1", {projectId: project.id, kinds});
+      for (const page of pages) {
         if (!page.imageRecord) continue;
         const record = {...structuredClone(page.imageRecord), state: page.state === "trash" ? "trash" : page.imageRecord.state === "trash" ? (page.kind === "prompt" ? "active" : page.imageRecord.resource ? "complete" : "unknown") : page.imageRecord.state,
           knowledge: {projectId: project.id, pageId: page.id, revision: page.revision, pageState: page.state, role: project.role}};
@@ -53,7 +52,7 @@ export function createKnowledgeImageStore({ client, readLegacyImage, materialize
     for (const list of [result.templates, result.generations]) list.sort((a,b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     return result;
   }
-  async function write(value, kind, checkpoint, mapping) {
+  async function write(value, kind, checkpoint, mapping, templates) {
     const record = strip(value);
     const projectId = mapping?.projectId ?? value.knowledge?.projectId ?? await destination();
     await client.prepareProjectSession(projectId);
@@ -64,9 +63,9 @@ export function createKnowledgeImageStore({ client, readLegacyImage, materialize
       record.resource = await copyImage(record.resource, projectId, checkpoint);
       record.input.references = await Promise.all((record.input.references ?? []).map((ref) => copyImage(ref, projectId, checkpoint)));
       for (const ref of [record.resource, ...record.input.references]) if (ref?.pageId) links.push({projectId: ref.projectId, pageId: ref.pageId});
-      const state = await all();
       const selected = new Set(Object.values(record.input.selections ?? {}).flat());
-      for (const prompt of state.templates) if (selected.has(prompt.id)) links.push({projectId: prompt.knowledge.projectId, pageId: prompt.knowledge.pageId});
+      const prompts = templates ?? (selected.size ? (await all(["prompt"])).templates : []);
+      for (const prompt of prompts) if (selected.has(prompt.id)) links.push({projectId: prompt.knowledge.projectId, pageId: prompt.knowledge.pageId});
     }
     const {page} = await client.invoke("knowledge.image-record.save.v1", {projectId, pageId, kind, record, links: [...new Map(links.map((ref) => [`${ref.projectId}:${ref.pageId}`, ref])).values()],
       expectedRevision: value.knowledge?.revision ?? mapping?.revision ?? 0});
@@ -81,25 +80,31 @@ export function createKnowledgeImageStore({ client, readLegacyImage, materialize
     await port.writeBackup(raw);
     checkpoint.projectId ??= await destination();
     await port.writeCheckpoint(checkpoint);
+    const existingIds = new Set();
+    for (const project of (await client.listProjects()).projects) {
+      await client.prepareProjectSession(project.id);
+      for (const page of (await client.listPages(project.id, true)).pages) existingIds.add(page.id);
+    }
+    const templates = (await all(["prompt"])).templates;
     for (const [kind, records] of [["prompt", raw.templates], ["generation", raw.generations]]) {
       for (let i=0; i<records.length; i++) {
         const record = records[i], key = `${kind}:${i}`;
         if (!record?.id) throw new Error("旧記録のIDを確認してください");
         let mapping = checkpoint.mappings[key];
         if (!mapping) {
-          const existing = [];
-          for (const project of (await client.listProjects()).projects) {
-            await client.prepareProjectSession(project.id);
-            existing.push(...(await client.listPages(project.id, true)).pages);
-          }
-          mapping = {projectId: checkpoint.projectId, pageId: existing.some((p) => p.id === record.id) ? `${kind}-${crypto.randomUUID()}` : record.id};
+          mapping = {projectId: checkpoint.projectId, pageId: existingIds.has(record.id) ? `${kind}-${crypto.randomUUID()}` : record.id};
           mapping.sourceId = record.id;
           mapping.recordId = records.slice(0, i).some((r) => r.id === record.id) ? mapping.pageId : record.id;
           checkpoint.mappings[key] = mapping;
           await port.writeCheckpoint(checkpoint);
         }
         const mappedRecord = {...record, id: mapping.recordId ?? record.id};
-        const saved = await write(mappedRecord, kind, checkpoint, mapping);
+        const saved = await write(mappedRecord, kind, checkpoint, mapping, templates);
+        existingIds.add(mapping.pageId);
+        if (kind === "prompt") {
+          const index = templates.findIndex((p) => p.knowledge.projectId === saved.knowledge.projectId && p.knowledge.pageId === saved.knowledge.pageId);
+          if (index < 0) templates.push(saved); else templates[index] = saved;
+        }
         // Compare every source field, including provider metadata; media is verified above.
         const source = strip(mappedRecord), actual = strip(saved);
         if (kind === "generation") {
@@ -118,8 +123,8 @@ export function createKnowledgeImageStore({ client, readLegacyImage, materialize
   }
   return {
     async load(owner) {
-      const run = migration.catch(() => {}).then(() => migrate(owner)); migration = run;
-      await run;
+      if (!migration) migration = migrate(owner).finally(() => { migration = null; });
+      await migration;
       const state = await all();
       const servers = desktop ? await client.listSyncEndpoints() : [];
       for (const record of state.generations) {

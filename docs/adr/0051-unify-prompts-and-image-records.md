@@ -73,3 +73,24 @@ implementation. This closes the outstanding generation smoke check; it does not
 establish exhaustive provider, native UI or legacy-data migration coverage.
 Legacy backups remain retained. Workspace-specific migration and endpoint
 deployment are tracked separately in `../migration-status.md`.
+
+
+### Bounded Image preparation
+
+Parallel history/template loads now share one migration attempt, including its
+failure, instead of queuing repeated automatic migration retries. Migration
+indexes existing Page identities once and retains authorized Prompt references
+while importing. A Project-scoped image-record list Operation returns record
+metadata in one read; importing a generation no longer rereads every prior
+generation. Verification and retained source backups remain mandatory.
+
+Image disables generation until initial history preparation succeeds and labels
+that phase separately from provider generation. This fixes the misleading busy
+state while legacy records are still being imported.
+
+Validation: 216 core tests and the package build pass. Regression tests cover
+shared migration failure and bounded metadata reads for a synthetic history.
+Server rendering confirms that initial preparation is announced and generation
+is disabled. Interactive browser/native checks were unavailable because the UI
+automation kernel failed during sandbox startup; no exhaustive pointer/IME/DPI
+validation is claimed.
