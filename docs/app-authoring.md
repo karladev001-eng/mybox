@@ -16,7 +16,16 @@ of handlers, and its own storage namespace. The host (`mybox-app/src/core/`)
 validates the manifest, authorizes every call, and routes it. An App never
 reads or writes another App's storage, imports another App's internal modules,
 or calls Tauri directly. Everything an App exposes to the rest of MyBox — the
-UI shell, Workflows, and Agents — goes through its declared Operations and Events.
+UI shell and Agents — goes through its declared Operations and Events.
+
+Knowledge is the mandatory record foundation (ADR 0043). An optional App owns
+only private tool settings, drafts or execution state; shared records, user
+Prompts and generated originals belong to Knowledge and use its authorized
+Operations (ADR 0051). Removing an optional App does not remove those records.
+
+Desktop Workflows and connector execution are retired (ADR 0049). The Workflow
+contracts below are retained for compatibility and opt-in tests; they are not
+a current integration path for desktop Apps.
 
 Background: `docs/app-framework.md` explains *why* the contract looks like
 this. You do not need to read it to build an App; this document restates
@@ -139,7 +148,7 @@ Every handler receives `(input, ctx)` where `ctx` is:
   storage,        // your app-scoped storage port, see below
   emit,           // (eventId, payload) => Promise<{ envelope, results }>
   invoke,         // (operationId, input, options) => Promise — call another App's Operation
-  workflows,      // request(targetConnectorId) runs a typed App-request Workflow
+  workflows,      // compatibility request(); rejects when desktop Workflows are retired
   connections,    // legacy alias: pull(id) delegates to workflows.request(id)
   resources,      // read/import validated large-resource references
 }
@@ -149,7 +158,7 @@ Call another App only through `ctx.invoke(...)`, never by importing its
 `domain.js` or `app.js`. That call runs as an `app` actor and is subject to
 the same authorization as any other caller.
 
-### Connectors and resources
+### Retained Connector contracts and resources
 
 A Connector ID is App-namespaced. Sources use `mode: "pull"` with an
 `operationId`, or `mode: "push"` with an `eventId`. Targets use
@@ -160,7 +169,7 @@ candidates. A saved Workflow grants only these named Operations. It does not
 bypass caller types, Confirmation, or audit checks. `ctx.connections.pull(id)`
 remains only as a compatibility wrapper while legacy Connection records migrate.
 
-### Workflow Actions
+### Retained Workflow Action contracts
 
 An App can expose an Operation as an ordered Workflow step:
 

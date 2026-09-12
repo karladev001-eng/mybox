@@ -63,3 +63,8 @@ templates remain available without re-enabling Workflows. Image 0.5.7 also uses
 automatic header action tracks so the hidden history button leaves no empty gap.
 
 Verification: all 197 core tests and the package build pass. Browser review confirms populated template shelves, rendered sample images and no retired-Workflow error. Full native pointer-state, IME and OS DPI checks remain unavailable through the current browser-only UI tooling.
+
+
+The self-contained App authoring guide now marks Workflow/Connector execution as
+retired on desktop and distinguishes retained contracts from supported integration.
+It also restates mandatory Knowledge ownership for optional tool authors.
