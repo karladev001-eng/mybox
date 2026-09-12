@@ -45,12 +45,13 @@ export function withProjectSessions(state, sharedSessions, profileId) {
       continue;
     }
     next.pages = next.pages.filter((p) => p.projectId !== project.id);
-    next.pages.push(...session.listPages(true).map((p) => {
-      const page = session.readPage(p.id).page;
+    const snapshot = session.readRecords?.();
+    const pages = snapshot?.pages ?? session.listPages(true).map((p) => session.readPage(p.id).page);
+    next.pages.push(...pages.map((page) => {
       return { ...page, projectId: project.id, normalizedTitle: normalizePageTitle(page.title), createdAt: page.createdAt ?? "", updatedAt: page.updatedAt ?? "" };
     }));
     next.tags = next.tags.filter((tag) => tag.projectId !== project.id);
-    next.tags.push(...session.listTags());
+    next.tags.push(...(snapshot?.tags ?? session.listTags()));
     // A live transport supplies the effective membership (including joined Projects).
     if (session.role) project.members = [{ profileId, role: session.role }];
   }
@@ -85,7 +86,8 @@ export function createRecordHandlers({ loadState, sharedSessions, fileStore }) {
         const result = await mutate(state, input, profileId, ctx.resources, files);
         const linked = reconcileRecordLinks(result.state, { projectId: result.page.projectId, pageId: result.page.id }, profileId);
         result.page = linked.page;
-        const changed = linked.state.pages.filter((page) => JSON.stringify(page) !== JSON.stringify(state.pages.find((p) => p.id === page.id)));
+        const previousPages = new Map(state.pages.map((page) => [page.id, page]));
+        const changed = linked.state.pages.filter((page) => JSON.stringify(page) !== JSON.stringify(previousPages.get(page.id)));
         const local = changed.filter((page) => !sharedSessions.get(page.projectId));
         if (local.length) {
           const ids = new Set(local.map((page) => page.id));

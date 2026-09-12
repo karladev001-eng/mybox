@@ -1,3 +1,4 @@
+import { createEditorWriteQueue, createLatestRequest } from "./editor-async.js";
 import { PageOutline } from "./PageOutline.jsx";
 import { RecordGraph } from "./RecordGraph.jsx";
 import { LibraryToolbar, LibraryDetails } from "./LibraryControls.jsx";
@@ -707,11 +708,17 @@ function BlockRow({
   onDragEnterBlock,
   onDropBlock,
   onDragEnd,
+  onDraftChange,
 }) {
   const [editing, setEditing] = useState(Boolean(autoEdit && !readOnly));
   const [text, setText] = useState(block.text);
+  const pendingDraft = useRef(null);
   const [blockType, setBlockType] = useState(block.type);
   const [checked, setChecked] = useState(block.checked);
+  useEffect(() => {
+    onDraftChange?.(block.id, text !== block.text || blockType !== block.type || checked !== block.checked);
+  }, [block.id, block.text, block.type, block.checked, text, blockType, checked, onDraftChange]);
+  useEffect(() => () => onDraftChange?.(block.id, false), [block.id, onDraftChange]);
   const [activeOption, setActiveOption] = useState(0);
   const [dismissedMarker, setDismissedMarker] = useState(null);
   const [selectionRange, setSelectionRange] = useState({ start: 0, end: 0 });
@@ -773,6 +780,9 @@ function BlockRow({
 
   useEffect(() => {
     if (editing) return;
+    const draft = pendingDraft.current;
+    if (draft && (draft.text !== block.text || draft.blockType !== block.type || draft.checked !== block.checked)) return;
+    pendingDraft.current = null;
     setText(block.text);
     setBlockType(block.type);
     setChecked(block.checked);
@@ -806,13 +816,18 @@ function BlockRow({
     const nextType = override.blockType ?? blockType;
     const nextChecked = override.checked ?? checked;
     if (nextText === block.text && nextType === block.type && nextChecked === block.checked) return;
-    onCommit({
+    const draft = { text: nextText, blockType: nextType, checked: nextChecked };
+    pendingDraft.current = draft;
+    const attempt = onCommit({
       type: "block-update",
       blockId: block.id,
       text: nextText,
       blockType: nextType,
       checked: nextChecked,
     });
+    Promise.resolve(attempt).then(() => {
+      if (pendingDraft.current === draft) pendingDraft.current = null;
+    }, () => { /* Keep the failed draft visible for correction and resubmission. */ });
   };
 
   const changeText = (value) => {
@@ -983,7 +998,7 @@ function BlockRow({
     else applyPaste(clipboardText);
   };
 
-  const populatedListItems = splitListItems(block.text).filter((item) => item.trim());
+  const populatedListItems = splitListItems(text).filter((item) => item.trim());
   const listItems = populatedListItems.length ? populatedListItems : [""];
   const renderListItem = (item, index) => (
     <li key={`${block.id}-item-${index}`}>
@@ -993,15 +1008,15 @@ function BlockRow({
   const preview = blockType === "divider"
     ? <hr />
     : blockType === "code"
-      ? <pre>{block.text || "code"}</pre>
+      ? <pre>{text || "code"}</pre>
       : blockType === "math"
-        ? <InlineMath source={block.text} display />
+        ? <InlineMath source={text} display />
         : blockType === "url-embed"
-          ? (block.text
+          ? (text
             ? (
-              <button type="button" className="knowledge-url-embed" onClick={() => onOpenUrl(block.text)}>
+              <button type="button" className="knowledge-url-embed" onClick={() => onOpenUrl(text)}>
                 <ArrowSquareOut size={16} aria-hidden="true" />
-                <span><strong>{urlHost(block.text)}</strong><small>{block.text}</small></span>
+                <span><strong>{urlHost(text)}</strong><small>{text}</small></span>
               </button>
             )
             : <span className="knowledge-empty-copy">URLを入力</span>)
@@ -1029,8 +1044,8 @@ function BlockRow({
             ? <ol className="knowledge-structured-list">{listItems.map(renderListItem)}</ol>
       : (
         <div className="knowledge-block-preview-copy">
-          {blockType === "checklist" && <span className={`knowledge-check${block.checked ? " checked" : ""}`} aria-hidden="true">{block.checked && <Check size={13} weight="bold" />}</span>}
-          <span>{renderInlineText(block.text, block.links, onOpenPage)}</span>
+          {blockType === "checklist" && <span className={`knowledge-check${checked ? " checked" : ""}`} aria-hidden="true">{checked && <Check size={13} weight="bold" />}</span>}
+          <span>{renderInlineText(text, block.links, onOpenPage)}</span>
         </div>
       );
 
@@ -1407,6 +1422,7 @@ export function KnowledgeView({
     clientRef.current = createKnowledgeClient({ desktop, getProfileId: () => profileIdRef.current, appRuntime });
   }
   const client = clientRef.current;
+  const readImage = useCallback((resourceId) => client.readImage(resourceId), [client]);
   const activeProfile = useMemo(() => ({
     profileId,
     displayName: typeof profile?.displayName === "string" && profile.displayName.trim()
@@ -1416,8 +1432,32 @@ export function KnowledgeView({
   }), [profileId, profile?.displayName, profile?.avatarUrl]);
   const pageRef = useRef(null);
   const operationQueue = useRef(Promise.resolve());
+  const pageRequests = useRef(createLatestRequest());
+  const writeQueue = useRef(null);
+  const [saveFailed, setSaveFailed] = useState(false);
+  const [dirtyBlocks, setDirtyBlocks] = useState(() => new Set());
+  const onDraftChange = useCallback((id, dirty) => {
+    setDirtyBlocks((current) => {
+      if (current.has(id) === dirty) return current;
+      const next = new Set(current);
+      if (dirty) next.add(id); else next.delete(id);
+      return next;
+    });
+  }, []);
+  const failedWrites = useRef(new Set());
+  const [pageLoading, setPageLoading] = useState(false);
   const [projects, setProjects] = useState([]);
-  const [projectId, setProjectId] = useState("");
+  const [projectId, updateProjectId] = useState("");
+  const projectSelection = useRef("");
+  const setProjectId = (id) => {
+    if (projectSelection.current !== id) {
+      pageRequests.current.invalidate();
+      searchRequest.current++;
+      setPageLoading(false);
+      projectSelection.current = id;
+    }
+    updateProjectId(id);
+  };
   const [pages, setPages] = useState([]);
   const [linkCandidates, setLinkCandidates] = useState([]);
   const [tagCandidates, setTagCandidates] = useState([]);
@@ -1573,6 +1613,11 @@ export function KnowledgeView({
     { id: "all", label: "すべてのProject", description: "閲覧可能なProjectを横断" },
   ];
 
+  useEffect(() => () => {
+    pageRequests.current.invalidate();
+    searchRequest.current++;
+  }, [profileId]);
+
   const loadProjects = async (preferredId) => {
     const result = await client.listProjects();
     setProjects(result.projects);
@@ -1584,11 +1629,18 @@ export function KnowledgeView({
   };
 
   const loadPage = async (nextProjectId, pageId) => {
+    const isCurrent = pageRequests.current.begin();
+    setPageLoading(Boolean(nextProjectId && pageId));
     if (!nextProjectId || !pageId) {
       setPageData(null);
       return null;
     }
-    const result = await readPageWithRecordLinks(client, nextProjectId, pageId);
+    let result;
+    try { result = await readPageWithRecordLinks(client, nextProjectId, pageId); }
+    catch (error) { if (isCurrent()) { setPageLoading(false); throw error; } return null; }
+    if (!isCurrent()) return null;
+    setPageLoading(false);
+    pageRef.current = result.page;
     setPageData(result);
     setSelectedPageId(pageId);
     return result;
@@ -1602,6 +1654,7 @@ export function KnowledgeView({
       client.listPages(nextProjectId, true),
       client.listTags(nextProjectId),
     ]);
+    if (request !== searchRequest.current) return candidatesResult.pages;
     setLinkCandidates(candidatesResult.pages);
     setTagCandidates(tagsResult.tags);
     if (query.trim() || searchScope === "all") {
@@ -1621,8 +1674,7 @@ export function KnowledgeView({
         excerpt: item.excerpt,
       })));
     } else {
-      const result = await client.listPages(nextProjectId, includeTrash);
-      if (request === searchRequest.current) setPages(result.pages);
+      if (request === searchRequest.current) setPages(candidatesResult.pages.filter((page) => includeTrash || page.state === "active"));
     }
     if (request === searchRequest.current) setSettledSearch(JSON.stringify([query, searchScope, includeTrash, nextProjectId]));
     return candidatesResult.pages;
@@ -1692,6 +1744,7 @@ export function KnowledgeView({
 
   useEffect(() => {
     if (!persistenceReady || !viewStateReady || !projectId) return;
+    searchRequest.current++;
     const timer = window.setTimeout(() => {
       loadPageLists().catch((nextError) => setError(displayError(nextError)));
     }, query ? 160 : 0);
@@ -1708,9 +1761,14 @@ export function KnowledgeView({
   const reloadAfterExternalChangeRef = useRef(() => {});
   reloadAfterExternalChangeRef.current = async () => {
     const current = pageRef.current;
-    const loaded = await loadProjects(projectId);
-    await loadPageLists(loaded.projectId, loaded.projects);
-    if (current) await loadPage(current.projectId, current.id);
+    const scope = projectId;
+    const result = await client.listProjects();
+    if (projectSelection.current !== scope) return;
+    setProjects(result.projects);
+    await loadPageLists(scope, result.projects);
+    if (current && pageRef.current?.id === current.id && pageRef.current?.projectId === current.projectId) {
+      await loadPage(current.projectId, current.id);
+    }
   };
 
   /**
@@ -1724,16 +1782,14 @@ export function KnowledgeView({
   useEffect(() => {
     if (!persistenceReady) return undefined;
     let timer = null;
-    const onExternalChange = (envelope) => {
+    const onExternalChange = () => {
       if (sharedRef.current) return;
-      const { pageId, revision } = envelope.payload ?? {};
       window.clearTimeout(timer);
-      // Debounced so this View's own writes, which reload themselves, settle
-      // first and are then recognised as already-applied rather than redone.
+      // Coalesce record events, then update derived views after queued writes settle.
       timer = window.setTimeout(() => {
-        const current = pageRef.current;
-        if (current && pageId === current.id && revision === current.revision) return;
-        reloadAfterExternalChangeRef.current().catch((nextError) => setError(displayError(nextError)));
+        // Writes apply their saved Page immediately; refresh derived lists after the queue drains.
+        operationQueue.current.then(() => reloadAfterExternalChangeRef.current())
+          .catch((nextError) => setError(displayError(nextError)));
       }, 180);
     };
     const unsubscribes = [
@@ -1753,21 +1809,28 @@ export function KnowledgeView({
    * Operation now, so the editor no longer reaches past the Host to the
    * document — which is what left the assistant's writes invisible here.
    */
+  if (!writeQueue.current) writeQueue.current = createEditorWriteQueue({
+    update: (page, mutation) => client.updatePage(page.projectId, page.id, page.revision, mutation),
+    onPending: (count) => setSaving(count > 0),
+  });
   const runMutation = (mutation, successMessage) => {
-    setSaving(true);
+    const target = pageRef.current;
+    if (!target) return Promise.resolve(null);
     setError("");
-    const queued = operationQueue.current.then(async () => {
+    const failureKey = JSON.stringify([target.projectId, target.id, mutation.type, mutation.blockId ?? null]);
+    const queued = writeQueue.current.enqueue(target, mutation, (result) => {
       const current = pageRef.current;
-      if (!current) return null;
-      const result = await client.updatePage(current.projectId, current.id, current.revision, mutation);
-      await loadPage(current.projectId, result.page.id);
-      const loaded = await loadProjects(current.projectId);
-      await loadPageLists(current.projectId, loaded.projects);
+      if (current?.id === target.id && current.projectId === target.projectId) {
+        pageRequests.current.invalidate();
+        pageRef.current = result.page;
+        setPageData((data) => data?.page.id === target.id ? { ...data, page: result.page } : data);
+      }
+      failedWrites.current.delete(failureKey);
+      setSaveFailed(failedWrites.current.size > 0);
       if (successMessage) onToast(successMessage);
-      return result;
     });
-    operationQueue.current = queued.catch(() => {});
-    queued.catch((nextError) => setError(displayError(nextError))).finally(() => setSaving(false));
+    operationQueue.current = writeQueue.current.settled;
+    queued.catch((nextError) => { failedWrites.current.add(failureKey); setSaveFailed(true); setError(displayError(nextError)); });
     return queued;
   };
 
@@ -2098,11 +2161,9 @@ export function KnowledgeView({
   useEffect(() => {
     const shared = sharedRef.current;
     if (!shared || !sharedRevision) return;
-    const sharedPages = shared.listPages();
     setMemberProfiles(Object.fromEntries(shared.listMemberProfiles().map((item) => [item.profileId, item])));
-    setTagCandidates(shared.listTags());
-    setLinkCandidates(sharedPages);
-    setPages(sharedPages);
+    // Preserve search scope and filters when local or remote edits arrive.
+    loadPageLists().catch((nextError) => setError(displayError(nextError)));
     if (selectedPageId) {
       const next = shared.readPage(selectedPageId);
       if (next) setPageData(next);
@@ -2341,6 +2402,9 @@ export function KnowledgeView({
     setError("");
     try {
       if (nextProjectId !== projectId) setProjectId(nextProjectId);
+      pageRef.current = null;
+      setPageData(null);
+      setSelectedPageId(pageId);
       await loadPage(nextProjectId, pageId);
     } catch (nextError) {
       setError(displayError(nextError));
@@ -2585,7 +2649,7 @@ export function KnowledgeView({
             </div>
           )}
         </div>
-        <span className={`knowledge-save-state${saving ? " saving" : ""}`} role="status">{saving ? "保存中…" : "保存済み"}</span>
+        <span className={`knowledge-save-state${saving ? " saving" : saveFailed ? " failed" : dirtyBlocks.size ? " dirty" : ""}`} role="status">{saving ? "保存中…" : saveFailed ? "保存に失敗" : dirtyBlocks.size ? "未保存" : "保存済み"}</span>
         {/* One grid track holds every trailing control, so adding or removing an
             action never rewrites the topbar's responsive column lists. */}
         <div className="knowledge-topbar-actions">
@@ -2717,6 +2781,7 @@ export function KnowledgeView({
                 <div className="knowledge-page-meta">
                   <span>{currentProject?.name}</span><CaretRight size={13} aria-hidden="true" /><span>revision {pageData.page.revision}</span>
                   {pageData.page.updatedAt && <time className="knowledge-updated-at" dateTime={pageData.page.updatedAt}>最終更新 {formatDate(pageData.page.updatedAt)}</time>}
+                  <span className={`knowledge-save-state knowledge-save-state-inline${saving ? " saving" : saveFailed ? " failed" : dirtyBlocks.size ? " dirty" : ""}`} role="status">{saving ? "保存中…" : saveFailed ? "保存に失敗" : dirtyBlocks.size ? "未保存" : "保存済み"}</span>
                   {pageState === "trash" && <span className="knowledge-trash-badge">Trash</span>}
                 </div>
                 <div className="knowledge-page-actions">
@@ -2864,12 +2929,13 @@ export function KnowledgeView({
                     linkCandidates={linkCandidates}
                     readOnly={readOnly}
                     onCommit={runMutation}
+                    onDraftChange={onDraftChange}
                     onAddAfter={addBlockAfter}
                     onPasteBlocks={pasteBlocks}
                     onRemove={(blockId) => removeBlocks(selectedBlockIds.includes(blockId) ? selectedBlockIds : [blockId])}
                     onOpenPage={(targetId) => selectPage(projectId, targetId)}
                     onOpenUrl={(url) => client.openExternalUrl(url).catch((nextError) => setError(String(nextError?.message ?? nextError)))}
-                    onReadImage={(resourceId) => client.readImage(resourceId)}
+                    onReadImage={readImage}
                     onAutoEditHandled={() => setAutoEditBlockId(null)}
                     isSelected={selectedBlockIds.includes(block.id)}
                     onSelect={selectBlock}
@@ -2923,7 +2989,7 @@ export function KnowledgeView({
           </>
         ) : (
           <div className="knowledge-editor-empty">
-            <div><SidebarSimple size={42} weight="duotone" aria-hidden="true" /><h2>{selectedListPage?.title ?? "検索からPageを開く"}</h2><p>Ctrl + Pで検索・最近のPage。右上からPage作成・File取り込み。</p></div>
+            {pageLoading ? <div role="status"><span className="spinner" /><p>Pageを読み込み中…</p></div> : <div><SidebarSimple size={42} weight="duotone" aria-hidden="true" /><h2>{selectedListPage?.title ?? "検索からPageを開く"}</h2><p>Ctrl + Pで検索・最近のPage。右上からPage作成・File取り込み。</p></div>}
           </div>
         )}
       </main>

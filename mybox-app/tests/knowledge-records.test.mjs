@@ -477,3 +477,24 @@ test("outline preserves heading IDs, levels and duplicate titles without indexin
   const { pageHeadings } = await import("../src/knowledge/page-outline.js");
   assert.deepEqual(pageHeadings([{ id: "a", type: "heading-1", text: "同じ見出し" }, { id: "b", type: "code", text: "# not a heading" }, { id: "c", type: "heading-3", text: "同じ見出し" }]), [{ id: "a", level: 1, title: "同じ見出し" }, { id: "c", level: 3, title: "同じ見出し" }]);
 });
+
+
+test("aggregate projection reads one bulk snapshot and skips revoked sessions", () => {
+  const stored = { projects: [{ id: "bulk", members: [] }], pages: [], tags: [] };
+  let calls = 0;
+  let role = "owner";
+  const live = {
+    get role() { return role; },
+    readRecords() { calls++; return { pages: [{ id: "one", title: "One", projectId: "bulk", state: "active", blocks: [] }], tags: [] }; },
+    listPages() { throw Error("per-Page hydration must not run"); },
+    readPage() { throw Error("per-Page hydration must not run"); },
+    listTags() { throw Error("second scan must not run"); },
+  };
+  const sessions = new Map([["bulk", live]]);
+  assert.equal(withProjectSessions(stored, sessions, "user").pages.length, 1);
+  assert.equal(calls, 1);
+  assert.deepEqual(stored.pages, []);
+  role = null;
+  assert.equal(withProjectSessions(stored, sessions, "user").pages.length, 0);
+  assert.equal(calls, 1);
+});

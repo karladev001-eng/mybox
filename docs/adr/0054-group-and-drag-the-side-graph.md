@@ -40,3 +40,7 @@ Knowledge 1.26.5 removes the side-graph Page width/padding override. The Page in
 Knowledge 1.26.6 adds bilingual, width-normalized command-palette discovery
 including the existing graph command (ADR 0027). Ctrl+G remains an active-App
 shortcut; command search changes neither authorization nor execution.
+
+Interaction verification: refresh graph records on coalesced record events.
+Preserve existing node coordinates and camera during background refresh, and
+defer hidden graph reads until it is shown. Rename must update node labels.

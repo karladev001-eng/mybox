@@ -8,6 +8,7 @@ export function RecordGraph({ client, projectId, data, onOpen, visible = true, p
   const [resizing, setResizing] = useState(false);
   const resize = value => onPageWidthChange?.(Math.max(20, Math.min(80, value)));
   const [graph, setGraph] = useState(null), [error, setError] = useState("");
+  const fitted = useRef(false);
   const [query, setQuery] = useState(""), [refresh, setRefresh] = useState(0);
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
   const [hover, setHover] = useState(null); const [pixelScale,setPixelScale]=useState(1);
@@ -38,14 +39,26 @@ export function RecordGraph({ client, projectId, data, onOpen, visible = true, p
     setCamera({ x: 0, y: 0, zoom: 700 / extent });
   };
   useEffect(() => {
+    let timer;
+    const changed = () => { clearTimeout(timer); timer = setTimeout(() => setRefresh(value => value + 1), 200); };
+    const unsubscribe = ["knowledge.page.changed", "knowledge.page.purged", "knowledge.project.created", "knowledge.project.deleted"]
+      .map(id => client.subscribe(id, changed));
+    return () => { clearTimeout(timer); unsubscribe.forEach(stop => stop()); };
+  }, [client]);
+  useEffect(() => {
+    if (!visible) return;
     const controller = new AbortController();
-    setGraph(null); setError("");
+    setError("");
     readWorkspaceGraph(client, { signal: controller.signal }).then(result => layoutWorkspaceGraph(result, controller.signal)).then(result => {
       if (controller.signal.aborted) return;
-      setGraph(result); fit(result);
+      setGraph(previous => {
+        const positions = new Map(previous?.nodes.map(node => [node.key, node]) ?? []);
+        return { ...result, nodes: result.nodes.map(node => { const old = positions.get(node.key); return old ? { ...node, x: old.x, y: old.y } : node; }) };
+      });
+      if (!fitted.current) { fit(result); fitted.current = true; }
     }).catch(reason => { if (!controller.signal.aborted) setError(reason?.message || "グラフを読み込めませんでした"); });
     return () => controller.abort();
-  }, [client, refresh]);
+  }, [client, refresh, visible]);
   const byKey = useMemo(() => new Map(graph?.nodes.map(n => [n.key, n]) ?? []), [graph]);
   const current = graphKey(projectId, data.page.id);
   const matches = node => !query || `${node.title} ${node.projectName} ${kinds[node.kind]}`.normalize("NFKC").toLocaleLowerCase().includes(query.normalize("NFKC").toLocaleLowerCase());

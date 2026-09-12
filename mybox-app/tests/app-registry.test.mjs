@@ -15,7 +15,7 @@ test("registers the Note and Image module surfaces in the default installed cata
   assert.equal(knowledge.surface.kind, "module");
   assert.equal(knowledge.surface.exportName, "KnowledgeView");
   assert.equal(typeof knowledge.surface.load, "function");
-  assert.equal(knowledge.version, "1.26.7");
+  assert.equal(knowledge.version, "1.26.9");
   assert.deepEqual(knowledge.shortcuts.map(({ id, displayKeys }) => ({ id, displayKeys })), [
     { id: "toggle-graph", displayKeys: ["Ctrl", "G"] },
     { id: "new-page", displayKeys: ["Ctrl", "N"] },

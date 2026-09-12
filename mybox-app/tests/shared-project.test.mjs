@@ -308,3 +308,19 @@ test("surface handlers can detach and reattach without disposing the shared docu
   assert.equal(secondChanges.length, 1);
   assert.equal(shared.disposed, false);
 });
+
+
+test("bulk records match editor records and remain detached across mutations", () => {
+  const { shared } = session();
+  shared.adopt([PAGE, { ...PAGE, id: "page-2", title: "Trash", state: "trash", blocks: [] }]);
+  shared.mutate(PAGE.id, { type: "tags-set", labels: ["Shared"] }, "local-user");
+  const snapshot = shared.readRecords();
+  assert.deepEqual(snapshot.pages, shared.listPages(true).map((p) => shared.readPage(p.id).page));
+  assert.deepEqual(snapshot.tags, shared.listTags());
+  assert.equal(snapshot.tags[0].pageCount, 1);
+  snapshot.pages[0].blocks[0].text = "external mutation";
+  assert.equal(shared.readRecords().pages[0].blocks[0].text, "hello");
+  shared.mutate(PAGE.id, { type: "block-update", blockId: "block-1", text: "updated" });
+  assert.equal(shared.readRecords().pages[0].blocks[0].text, "updated");
+  shared.dispose();
+});

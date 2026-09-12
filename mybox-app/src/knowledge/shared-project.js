@@ -51,13 +51,16 @@ function newTagId(normalizedLabel) {
   return `tag-${encodeURIComponent(normalizedLabel)}`;
 }
 
-function projectTags(doc, projectId) {
-  const pages = listPageIds(doc).map((id) => readPage(doc, id)).filter(Boolean);
+function projectTags(doc, projectId, pages = listPageIds(doc).map((id) => readPage(doc, id)).filter(Boolean)) {
+  const counts = new Map();
+  for (const page of pages) {
+    for (const id of new Set(page.tagIds)) counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
   return listDocumentTags(doc)
     .map((tag) => ({
       ...tag,
       projectId,
-      pageCount: pages.filter((page) => page.tagIds.includes(tag.id)).length,
+      pageCount: counts.get(tag.id) ?? 0,
     }))
     .sort((left, right) => left.label.localeCompare(right.label, "ja"));
 }
@@ -276,6 +279,13 @@ export function createSharedProject({
           tagLabels: page.tagIds.map((tagId) => labelsById.get(tagId)).filter(Boolean),
           excerpt: page.blocks.find((block) => block.text.trim())?.text.slice(0, 120) ?? "",
         }));
+    },
+
+    /** Raw Project records for authorized aggregate Operations; no per-Page backlinks. */
+    readRecords() {
+      const pages = listPageIds(doc).map((id) => readPage(doc, id)).filter(Boolean)
+        .map((page) => ({ ...page, projectId, revision: 0 }));
+      return { pages, tags: projectTags(doc, projectId, pages) };
     },
 
     readPage(pageId) {

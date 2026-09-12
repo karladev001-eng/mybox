@@ -96,3 +96,26 @@ test("Project-store client retries a full state after a provider write failure",
   assert.ok(statuses.includes("offline"));
   client.disconnect();
 });
+
+
+test("reopening an update log notifies once and still persists subsequent edits", async () => {
+  const source = new Y.Doc();
+  const folder = memoryProjectStore();
+  source.on("update", (update) => folder.write("replay", Buffer.from(update).toString("base64")));
+  for (let i = 0; i < 100; i++) source.getMap("data").set(String(i), i);
+  const doc = new Y.Doc();
+  let notifications = 0;
+  doc.on("update", () => notifications++);
+  const client = createProjectStoreClient({ doc, projectId: "replay", readUpdates: folder.read, writeUpdate: folder.write, setTimer: () => 1, clearTimer() {} });
+  await client.connect();
+  assert.equal(notifications, 1);
+  assert.equal(doc.getMap("data").size, 100);
+  assert.equal(folder.updates.length, 101, "only the existing connect snapshot is written");
+  doc.getMap("data").set("local", "saved");
+  await client.flush();
+  const restored = new Y.Doc();
+  for (const item of folder.updates) Y.applyUpdate(restored, Buffer.from(item.update, "base64"));
+  assert.equal(restored.getMap("data").get("local"), "saved");
+  client.disconnect();
+  source.destroy(); doc.destroy(); restored.destroy();
+});

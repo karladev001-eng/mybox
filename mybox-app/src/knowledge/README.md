@@ -138,3 +138,8 @@ Ctrl+G toggles the graph while retaining its positions. Hidden graphs restore th
 
 `knowledge.image-record.list.v1` returns authorized Project-scoped Prompt and
 Generation metadata, including Trash, without per-Page hydration in Image.
+
+Aggregate Operations use the session bulk record snapshot to avoid deriving
+backlinks for every Page. Store replay batches notifications per pull (ADR 0055).
+
+`editor-async.js` preserves queued edit targets and guards against stale Page reads (ADR 0056).

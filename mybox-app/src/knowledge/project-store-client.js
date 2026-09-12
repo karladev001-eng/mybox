@@ -77,11 +77,14 @@ export function createProjectStoreClient({
 
   const pull = async () => {
     const updates = await readUpdates(projectId, [...seen]);
-    for (const item of updates) {
-      if (!item?.id || seen.has(item.id)) continue;
-      Y.applyUpdate(doc, fromBase64(item.update), STORE_REMOTE_ORIGIN);
-      seen.add(item.id);
-    }
+    // One observable document change per pull, even when reopening a long log.
+    doc.transact(() => {
+      for (const item of updates) {
+        if (!item?.id || seen.has(item.id)) continue;
+        Y.applyUpdate(doc, fromBase64(item.update), STORE_REMOTE_ORIGIN);
+        seen.add(item.id);
+      }
+    }, STORE_REMOTE_ORIGIN);
   };
 
   const schedule = () => {

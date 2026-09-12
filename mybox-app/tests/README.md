@@ -66,3 +66,10 @@ The Context preview also accepts `?workspace&library` for Folder and File UI che
 - `image-records.test.mjs`: Image record migration, original verification, restart, input-before-provider persistence and permissions.
 
 - `record-graph.test.mjs` checks cross-Project identity, direction, duplicate links, access denial, Trash, storage failure and multi-page neighborhoods.
+
+`editor-async.test.mjs` covers delayed writes, navigation intent, revision ordering and pending/error recovery.
+
+`interaction-preview.html` mounts the actual Knowledge view in an isolated in-memory
+runtime. Run the Vite dev server and open `/tests/interaction-preview.html` for
+manual delayed-save, failed-save, keyboard navigation and theme verification.
+This fixture never calls native providers or production storage.

@@ -139,8 +139,11 @@
 .knowledge-search-keys { margin-top: 5px; padding: 7px 7px 1px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 6px; color: var(--subtle); font-size: 10px; }
 .knowledge-search-keys kbd { min-width: 0; padding: 2px 5px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--muted); background: var(--surface); font-family: inherit; font-size: 9px; font-weight: 650; }
 
-.knowledge-save-state { color: var(--subtle); font-size: 11px; white-space: nowrap; }
+.knowledge-save-state { min-inline-size: 7em; color: var(--subtle); font-size: 11px; white-space: nowrap; }
 .knowledge-save-state::before { content: ""; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; display: inline-block; background: var(--accent); }
+.knowledge-save-state.failed { color: var(--danger); }
+.knowledge-save-state.failed::before { background: var(--danger); }
+.knowledge-save-state.dirty::before,
 .knowledge-save-state.saving::before { background: var(--tone-context); }
 .knowledge-assistant-toggle.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface-strong)); }
 .knowledge-close { justify-self: end; }
@@ -871,3 +874,8 @@ dialog.record-share-dialog { margin: auto; color: var(--text); background: var(-
 .knowledge-page-header { padding-bottom: 12px; }
 .context-notebook details > summary { border-left: 2px solid var(--tone-context); padding-left: 12px; }
 .knowledge-backlinks h2, .knowledge-record-links h2 { color: var(--accent); }
+
+.knowledge-save-state-inline { display: none; }
+@media (max-width: 1300px) {
+  .knowledge-page-meta .knowledge-save-state-inline { display: inline-block; }
+}

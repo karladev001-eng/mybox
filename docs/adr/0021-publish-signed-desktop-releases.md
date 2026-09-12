@@ -168,6 +168,12 @@ were checked before publication; the public latest endpoint returns 0.10.0.
 
 
 Release 0.10.1 prepares the Image history-loading fix in ADR 0051. Knowledge
-1.26.7 supplies authorized bulk image-record reads; Image 0.6.2 distinguishes
+1.26.9 supplies authorized bulk image-record reads; Image 0.6.2 distinguishes
 initial preparation from generation and prevents premature provider requests.
 The storage schema and sync protocol are unchanged.
+
+The 0.10.1 candidate also includes bounded Project reads/replay (ADR 0055),
+editor write ordering, stale-read protection, draft/save feedback and live graph
+refresh (ADR 0056 and ADR 0054). 224 core and 4 packaging tests pass; package
+build and browser interaction checks passed. Native IME and provider generation
+were not repeated for this patch. The existing large-chunk warning remains.

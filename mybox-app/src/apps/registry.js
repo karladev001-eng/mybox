@@ -125,7 +125,7 @@ export class AppRegistry {
 const builtInDefinitions = [
   {
     id: "knowledge",
-    version: "1.26.7",
+    version: "1.26.9",
     name: "Note",
     icon: "note",
     color: "#ff796f",
