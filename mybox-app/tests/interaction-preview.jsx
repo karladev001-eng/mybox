@@ -6,6 +6,14 @@ import '../src/styles.css';
 import '../src/knowledge/knowledge.css';
 const runtime=createSharedAppRuntime({enableWorkflows:false});
 const invoke=runtime.host.invoke.bind(runtime.host);
+if (new URLSearchParams(location.search).has('blocks')) {
+ const options={actor:{type:'user',id:'local-user'}};
+ const {projects}=await invoke('knowledge.project.list',{},options);
+ const projectId=projects[0].id;
+ let {page}=await invoke('knowledge.page.create',{projectId,title:'Block movement QA'},options);
+ ({page}=await invoke('knowledge.page.update',{projectId,pageId:page.id,expectedRevision:page.revision,mutation:{type:'markdown-set',mode:'replace',markdown:'Alpha\n\nBeta\n\nGamma\n\nDelta\n\nEpsilon'}},options));
+ await invoke('knowledge.view-state.update',{projectId,pageId:page.id},options);
+}
 const controls={delay:false,fail:false};
 runtime.host.invoke=async (id,input,options)=>{
  if(id==='knowledge.page.update') {

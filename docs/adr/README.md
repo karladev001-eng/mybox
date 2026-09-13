@@ -76,3 +76,7 @@ notes of the ADR it realizes.
 - [0056 — Preserve editor intent across async work](0056-preserve-editor-intent-across-async-work.md)
 
 - [0057 — Select Image generation count](0057-select-image-generation-count.md)
+
+- [0058 — Move selected Blocks atomically](0058-move-selected-blocks-atomically.md)
+
+- [0059 — Make Block editing direct and continuous](0059-edit-notes-as-continuous-documents.md)

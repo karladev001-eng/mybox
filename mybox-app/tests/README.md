@@ -7,6 +7,11 @@ server meet.
 
 Contains Node tests for framework behavior and Sites packaging.
 
+- `paper-editor.test.mjs`: canonical Block round-trips, text-range Undo/Redo,
+  stable paragraph IDs, formatting, conflict rejection, serial autosave recovery,
+  in-flight remote updates, Host persistence and Yjs peer convergence (ADR 0059).
+  Also covers inline Block conversion, grouped movement and last-Block deletion.
+
 - `context-preview.html` / `context-preview.jsx`: manual dark UI fixture served
   by Vite at `/tests/context-preview.html`. Exercises real in-memory Context
   Operations and a simulated sharing destination, without provider/network writes.
@@ -73,6 +78,8 @@ The Context preview also accepts `?workspace&library` for Folder and File UI che
 runtime. Run the Vite dev server and open `/tests/interaction-preview.html` for
 manual delayed-save, failed-save, keyboard navigation and theme verification.
 This fixture never calls native providers or production storage.
+Add `?blocks` to seed a disposable five-Block Note for movement, group selection,
+keyboard, delayed-save and failure checks.
 
 `image-history-preview.html` mounts the actual Image view to verify built-in
 sample shelves during a history failure and reopening a migrated history copy.

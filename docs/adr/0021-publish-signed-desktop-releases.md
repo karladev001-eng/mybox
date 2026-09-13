@@ -205,3 +205,13 @@ multi-image generation was not repeated; no provider protocol was changed.
 Release 0.10.3 was published on 2026-09-13 (JST) from 0992740 after CI run
 34730190447 succeeded. MSI/NSIS assets, updater URLs and signature-file
 correspondence were verified. The public latest updater endpoint returns 0.10.3.
+
+Release 0.11.0 includes Knowledge 1.28.0: direct Block editing, text-range
+selection and Undo/Redo, inline Block actions and grouped movement, Ctrl+Enter
+navigation, restored Markdown entry and conflict-aware serial autosave (ADRs
+0058–0059). Image remains 0.7.0; storage schemas and sync protocol are unchanged.
+All 246 core tests and 4 packaging tests pass, and the package build succeeds
+with the existing large-chunk warning. Browser interaction and isolated Windows
+menu/input checks passed; native synthetic handle dragging and full IME
+composition remain unverified as recorded in ADR 0059. The User reviewed the
+interactive candidate and requested distribution after the input fixes.

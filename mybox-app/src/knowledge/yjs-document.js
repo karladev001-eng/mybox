@@ -1,3 +1,5 @@
+import { planDocumentEdit } from "./document-edit.js";
+import { planBlockMove } from "./block-movement.js";
 import * as Y from "yjs";
 import { BLOCK_TYPES } from "./domain.js";
 import { splitPastedBlock } from "./editor-behavior.js";
@@ -315,18 +317,49 @@ export function applyPageMutation(doc, pageId, mutation, { actorId } = {}) {
         break;
       }
 
-      case "block-move": {
-        const index = blockIndex(blocks, mutation.blockId);
-        if (index < 0) throw new Error(`BLOCK_NOT_FOUND: ${mutation.blockId}`);
-        // Y.Array has no move, so the block is re-created at the destination.
-        // Its text stops being collaborative for that edit, which is why moving
-        // is a deliberate structural action rather than part of typing.
-        const snapshot = readPage(doc, pageId).blocks[index];
-        blocks.delete(index, 1);
-        const target = mutation.beforeBlockId === null || mutation.beforeBlockId === undefined
-          ? blocks.length
-          : Math.max(0, blockIndex(blocks, mutation.beforeBlockId));
-        blocks.insert(target, [newBlock(snapshot)]);
+      case "document-edit": {
+        if (page.get("state") !== "active") throw new Error("PAGE_IN_TRASH");
+        const planned = planDocumentEdit(readPage(doc, pageId).blocks, mutation.baseBlocks, mutation.documentBlocks, {
+          types: BLOCK_TYPES, actorId,
+          canLink: targetId => pagesOf(doc).get(targetId)?.get("state") === "active",
+        });
+        const ids = new Set(planned.map(block => block.id));
+        for (const [otherId, other] of pagesOf(doc)) {
+          if (otherId !== pageId && other.get("blocks")?.toArray().some(block => ids.has(block.get("id")))) throw new Error("INVALID_DOCUMENT_EDIT: Duplicate Block identity");
+        }
+        for (let i = blocks.length - 1; i >= 0; i--) if (!ids.has(blocks.get(i).get("id"))) blocks.delete(i, 1);
+        planned.forEach((snapshot, index) => {
+          const existingIndex = blockIndex(blocks, snapshot.id);
+          if (existingIndex !== index) {
+            if (existingIndex >= 0) blocks.delete(existingIndex, 1);
+            blocks.insert(index, [newBlock(snapshot)]);
+          } else {
+            const block = blocks.get(index);
+            for (const key of ["type", "checked", "revision", "updatedBy"]) if (snapshot[key] !== undefined && block.get(key) !== snapshot[key]) block.set(key, snapshot[key]);
+            applyText(block.get("text"), snapshot.text);
+            const links = block.get("links");
+            if (JSON.stringify(links.toArray()) !== JSON.stringify(snapshot.links)) {
+              links.delete(0, links.length); links.push(snapshot.links);
+            }
+          }
+        });
+        break;
+      }
+
+      case "block-move":
+      case "blocks-move": {
+        const snapshots = readPage(doc, pageId).blocks;
+        const plan = planBlockMove(snapshots, mutation);
+        if (!plan.changed) break;
+        const selected = new Set(plan.selectedIds);
+        const byId = new Map(snapshots.map(block => [block.id, block]));
+        // Validate the complete plan before deleting any integrated Yjs values.
+        for (let i = blocks.length - 1; i >= 0; i--) {
+          if (selected.has(blocks.get(i).get("id"))) blocks.delete(i, 1);
+        }
+        plan.order.forEach((id, index) => {
+          if (selected.has(id)) blocks.insert(index, [newBlock(byId.get(id))]);
+        });
         break;
       }
 

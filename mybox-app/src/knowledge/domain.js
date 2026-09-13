@@ -1,3 +1,5 @@
+import { planDocumentEdit } from "./document-edit.js";
+import { planBlockMove } from "./block-movement.js";
 import { LOCAL_PROFILE_ID } from "../core/account-identity.js";
 import { parseMarkdownBlocks, splitPastedBlock } from "./editor-behavior.js";
 import { authorColorFor, isAuthorColor } from "./author-color.js";
@@ -517,6 +519,17 @@ export function updatePage(state, {
       if (!previousTitle) throw new KnowledgeDomainError("INVALID_PAGE_TITLE", "Page title is required");
       break;
     }
+    case "document-edit": {
+      try {
+        const ids = new Set(mutation.documentBlocks?.map(block => block.id));
+        if (next.pages.some(other => other.id !== page.id && other.blocks.some(block => ids.has(block.id)))) throw new Error("INVALID_DOCUMENT_EDIT: Duplicate Block identity");
+        page.blocks = planDocumentEdit(page.blocks, mutation.baseBlocks, mutation.documentBlocks, {
+          types: BLOCK_TYPES, actorId,
+          canLink: targetId => next.pages.some(target => target.id === targetId && target.projectId === projectId && target.state === "active"),
+        });
+      } catch (error) { throw new KnowledgeDomainError(error.message.split(":")[0], error.message); }
+      break;
+    }
     case "block-update": {
       const block = findBlock(page, mutation.blockId);
       if (mutation.blockType !== undefined) {
@@ -647,29 +660,13 @@ export function updatePage(state, {
       }
       break;
     }
-    case "block-move": {
-      const index = page.blocks.findIndex((item) => item.id === mutation.blockId);
-      if (index < 0) throw new KnowledgeDomainError("BLOCK_NOT_FOUND", "Block was not found", { blockId: mutation.blockId });
-      if (mutation.beforeBlockId !== undefined) {
-        const [block] = page.blocks.splice(index, 1);
-        if (mutation.beforeBlockId === null) {
-          page.blocks.push(block);
-        } else {
-          const targetIndex = page.blocks.findIndex((item) => item.id === mutation.beforeBlockId);
-          if (targetIndex < 0) {
-            page.blocks.splice(index, 0, block);
-            throw new KnowledgeDomainError("BLOCK_NOT_FOUND", "Block was not found", { blockId: mutation.beforeBlockId });
-          }
-          page.blocks.splice(targetIndex, 0, block);
-        }
-      } else {
-        const offset = mutation.direction === "up" ? -1 : mutation.direction === "down" ? 1 : 0;
-        const target = index + offset;
-        if (offset && target >= 0 && target < page.blocks.length) {
-          const [block] = page.blocks.splice(index, 1);
-          page.blocks.splice(target, 0, block);
-        }
-      }
+    case "block-move":
+    case "blocks-move": {
+      let plan;
+      try { plan = planBlockMove(page.blocks, mutation); }
+      catch (error) { throw new KnowledgeDomainError(error.message.split(":")[0], error.message); }
+      const byId = new Map(page.blocks.map(block => [block.id, block]));
+      page.blocks = plan.order.map(id => byId.get(id));
       break;
     }
     case "link-add": {

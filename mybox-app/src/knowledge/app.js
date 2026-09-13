@@ -192,8 +192,16 @@ const pageMutationInput = {
   properties: {
     type: {
       type: "string",
-      enum: ["rename", "markdown-set", "block-add", "block-update", "block-paste", "block-remove", "blocks-remove", "blocks-restore", "block-move", "tags-set", "link-add"],
+      enum: ["rename", "markdown-set", "block-add", "block-update", "document-edit", "block-paste", "block-remove", "blocks-remove", "blocks-restore", "block-move", "blocks-move", "tags-set", "link-add"],
     },
+    baseBlocks: { type: "array", minItems: 1, maxItems: 10000, items: { type: "object", required: ["id", "type", "text"], properties: {
+      id: { type: "string", minLength: 1 }, type: { type: "string", enum: [...BLOCK_TYPES] }, text: { type: "string" }, checked: { type: "boolean" },
+      links: { type: "array", items: { type: "object", required: ["targetPageId", "token"], properties: { targetPageId: { type: "string" }, token: { type: "string" } } } },
+    } } },
+    documentBlocks: { type: "array", minItems: 1, maxItems: 10000, items: { type: "object", required: ["id", "type", "text"], properties: {
+      id: { type: "string", minLength: 1 }, type: { type: "string", enum: [...BLOCK_TYPES] }, text: { type: "string" }, checked: { type: "boolean" },
+      links: { type: "array", items: { type: "object", required: ["targetPageId", "token"], properties: { targetPageId: { type: "string" }, token: { type: "string" } } } },
+    } } },
     markdown: { type: "string" },
     mode: { type: "string", enum: ["append", "replace"] },
     title: { type: "string" },
@@ -250,6 +258,8 @@ const pageMutationInput = {
     "block-remove → blockId.",
     "blocks-remove → blockIds, used by the editor for one atomic multi-Block deletion.",
     "blocks-restore → blocks containing Block snapshots and beforeBlockId anchors; this is the editor's immediate undo payload.",
+    "document-edit → baseBlocks and documentBlocks; atomic document editing with conflict checks and stable Block IDs.",
+    "blocks-move → blockIds, direction (up/down) or beforeBlockId (null for end); source order is preserved.",
     "block-move → blockId, beforeBlockId (the Block to insert before, or null for the end).",
     "tags-set → labels, the complete replacement list.",
     "link-add → blockId, then either targetPageId for an existing Page or createTitle to create one.",
@@ -281,7 +291,7 @@ export function createKnowledgeApp({ sharedSessions = noSharedSessions, fileStor
       schemaVersion: APP_SCHEMA_VERSION,
       id: "knowledge",
       name: "Note",
-      version: "0.5.13",
+      version: "0.5.15",
       hostCapabilities: ["app-storage", "workflows"],
       operations: [
         ...recordOperations,

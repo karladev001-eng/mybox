@@ -14,6 +14,7 @@ export function createEditorWriteQueue({ update, onPending = () => {} }) {
   const pages = new Map();
   return {
     get settled() { return tail; },
+    get pending() { return pending; },
     enqueue(page, mutation, onSaved = () => {}) {
       const key = JSON.stringify([page.projectId, page.id]);
       const known = pages.get(key);

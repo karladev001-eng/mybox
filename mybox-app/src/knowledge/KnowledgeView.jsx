@@ -1,4 +1,7 @@
+import { PaperEditor } from "./PaperEditor.jsx";
+import { blockToPaper } from "./paper-document.js";
 import { createEditorWriteQueue, createLatestRequest } from "./editor-async.js";
+import { planBlockMove } from "./block-movement.js";
 import { PageOutline } from "./PageOutline.jsx";
 import { RecordGraph } from "./RecordGraph.jsx";
 import { LibraryToolbar, LibraryDetails } from "./LibraryControls.jsx";
@@ -8,6 +11,8 @@ import { RecordedMessageBody } from "../ChatView.jsx";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
+  ArrowUp,
+  ArrowDown,
   Brain,
   Graph,
   NotePencil,
@@ -58,7 +63,6 @@ import { projectMemberAccountName, visibleProjectMembers } from "./member-profil
 import {
   applyColorWrap,
   buildBlockRestoreEntries,
-  buildInlineNodes,
   groupedListEnter,
   indentTextSelection,
   isGroupedListType,
@@ -151,42 +155,26 @@ function InlineMath({ source, display = false }) {
 }
 
 function renderInlineText(text, links, onOpenPage) {
-  const nodes = buildInlineNodes(text, links);
-  if (!nodes.length) return <span className="knowledge-empty-copy">入力して書き始める</span>;
-  return nodes.map((node, index) => {
-    const key = `${node.type}-${index}`;
-    switch (node.type) {
-      case "link":
-        return (
-          <button
-            key={key}
-            type="button"
-            className="knowledge-inline-link"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenPage(node.targetPageId);
-            }}
-          >
-            <LinkIcon size={15} aria-hidden="true" />
-            {node.value}
-          </button>
-        );
-      case "bold":
-        return <strong key={key}>{node.value}</strong>;
-      case "italic":
-        return <em key={key}>{node.value}</em>;
-      case "underline":
-        return <u key={key}>{node.value}</u>;
-      case "strike":
-        return <s key={key}>{node.value}</s>;
-      case "color":
-        return <span key={key} style={{ color: node.color }}>{node.value}</span>;
-      case "math":
-        return <InlineMath key={key} source={node.value} />;
-      default:
-        return <span key={key}>{node.value}</span>;
+  const paragraph = blockToPaper({ id: null, type: "paragraph", text, links });
+  if (!paragraph.content.size) return <span className="knowledge-empty-copy">入力して書き始める</span>;
+  const rendered = [];
+  paragraph.forEach((node, offset, index) => {
+    if (node.type.name === "hard_break") { rendered.push(<br key={index} />); return; }
+    let content = node.text;
+    for (const mark of [...node.marks].reverse()) {
+      switch (mark.type.name) {
+        case "bold": content = <strong>{content}</strong>; break;
+        case "italic": content = <em>{content}</em>; break;
+        case "underline": content = <u>{content}</u>; break;
+        case "strike": content = <s>{content}</s>; break;
+        case "color": content = <span style={{ color: mark.attrs.color }}>{content}</span>; break;
+        case "inline_math": content = <InlineMath source={node.text} />; break;
+        case "page_link": content = <button type="button" className="knowledge-inline-link" onClick={event => { event.stopPropagation(); onOpenPage(mark.attrs.targetPageId); }}><LinkIcon size={15} aria-hidden="true" />{content}</button>; break;
+      }
     }
+    rendered.push(<span key={index}>{content}</span>);
   });
+  return rendered;
 }
 
 function ConfirmDialog({ title, description, actionLabel, onConfirm, onClose }) {
@@ -709,6 +697,8 @@ function BlockRow({
   onDropBlock,
   onDragEnd,
   onDraftChange,
+  onMove,
+  structuralBusy,
 }) {
   const [editing, setEditing] = useState(Boolean(autoEdit && !readOnly));
   const [text, setText] = useState(block.text);
@@ -1052,7 +1042,7 @@ function BlockRow({
   return (
     <article
       id={`record-${block.id}`}
-      className={`knowledge-block type-${blockType}${editing ? " editing" : ""}${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${showAuthor && block.updatedBy ? " authored" : ""}`}
+      className={`knowledge-block type-${blockType}${readOnly ? " read-only" : ""}${editing ? " editing" : ""}${isSelected ? " selected" : ""}${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}${showAuthor && block.updatedBy ? " authored" : ""}`}
       style={showAuthor && block.updatedBy ? { "--author-color": authorColor } : undefined}
       onDragOver={(event) => {
         // A real OS file drag also fires this on every Block underneath it; leave
@@ -1080,6 +1070,7 @@ function BlockRow({
             type="button"
             className="knowledge-block-select"
             aria-label={isSelected ? "Blockの選択を解除" : "Blockを選択"}
+            data-tooltip={isSelected ? "選択を解除" : "Blockを選択 · Shiftで範囲選択"}
             aria-pressed={isSelected}
             onClick={(event) => onSelect(block.id, {
               range: event.shiftKey,
@@ -1092,16 +1083,26 @@ function BlockRow({
             type="button"
             className="knowledge-drag-handle"
             aria-label={`Blockを移動（${blockIndex + 1}/${blockCount}）`}
-            draggable
+            data-tooltip="選択して移動 · Alt + ↑ / ↓"
+            disabled={structuralBusy}
+            draggable={!structuralBusy}
+            onClick={() => { if (!isSelected) onSelect(block.id, {}); }}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing || event.keyCode === 229 || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+              if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+              event.preventDefault();
+              onMove(block.id, event.key === "ArrowUp" ? "up" : "down");
+            }}
             onDragStart={(event) => {
               event.dataTransfer.effectAllowed = "move";
+              event.dataTransfer.setData("application/x-mybox-block", block.id);
               onDragStart?.(block.id);
             }}
             onDragEnd={() => onDragEnd?.()}
           >
             <DotsSixVertical size={16} />
           </button>
-          <button type="button" aria-label="Blockを削除" onClick={() => onRemove(block.id)}><X size={15} /></button>
+          <button type="button" aria-label="Blockを削除" data-tooltip="Blockを削除" onClick={() => onRemove(block.id)}><X size={15} /></button>
         </>}
       </div>
       {showAuthor && block.updatedBy && (
@@ -1508,6 +1509,8 @@ export function KnowledgeView({
   const [autoEditBlockId, setAutoEditBlockId] = useState(null);
   const [creationFocus, setCreationFocus] = useState(null);
   const handledShortcut = useRef(null);
+  const [paperFocus, setPaperFocus] = useState(0);
+  const paperSessions = useRef(new Map());
   const [selectedBlockIds, setSelectedBlockIds] = useState([]);
   const [selectionAnchorId, setSelectionAnchorId] = useState(null);
   const [blockUndoStack, setBlockUndoStack] = useState([]);
@@ -1521,6 +1524,7 @@ export function KnowledgeView({
   pageRef.current = pageData?.page ?? null;
   const currentProject = projects.find((project) => project.id === projectId) ?? null;
   const readOnly = currentProject?.role === "viewer" || pageData?.page.state === "trash";
+  const paperMode = (pageData?.page.kind ?? "note") === "note";
   const isCurrentProjectShared = Boolean(serverByProject[projectId]);
   const currentSync = serverByProject[projectId] ?? null;
   const profileNameFor = (actorId) => (
@@ -1813,8 +1817,8 @@ export function KnowledgeView({
     update: (page, mutation) => client.updatePage(page.projectId, page.id, page.revision, mutation),
     onPending: (count) => setSaving(count > 0),
   });
-  const runMutation = (mutation, successMessage) => {
-    const target = pageRef.current;
+  const runMutation = (mutation, successMessage, capturedTarget = pageRef.current) => {
+    const target = capturedTarget;
     if (!target) return Promise.resolve(null);
     setError("");
     const failureKey = JSON.stringify([target.projectId, target.id, mutation.type, mutation.blockId ?? null]);
@@ -1844,6 +1848,33 @@ export function KnowledgeView({
   const clearBlockSelection = () => {
     setSelectedBlockIds([]);
     setSelectionAnchorId(null);
+  };
+
+  const moveBlocks = async (requestedIds, destination) => {
+    const current = pageRef.current;
+    if (!current || readOnly || (current.kind ?? "note") !== "note" || writeQueue.current.pending) return;
+    const mutation = { type: "blocks-move", blockIds: requestedIds, ...destination };
+    const focus = document.activeElement;
+    try {
+      const plan = planBlockMove(current.blocks, mutation);
+      if (!plan.changed) return;
+      const result = await runMutation(mutation, `${plan.selectedIds.length}個のBlockを移動しました`);
+      if (!result || pageRef.current?.id !== current.id || pageRef.current?.projectId !== current.projectId) return;
+      setSelectedBlockIds(plan.selectedIds);
+      requestAnimationFrame(() => {
+        if (pageRef.current?.id !== current.id || pageRef.current?.projectId !== current.projectId) return;
+        if (focus?.isConnected && (document.activeElement === focus || document.activeElement === document.body)) focus.focus({ preventScroll: true });
+        document.getElementById(`record-${plan.selectedIds[0]}`)?.scrollIntoView({ block: "nearest" });
+      });
+    } catch (error) { setError(displayError(error)); }
+  };
+
+  const moveSelected = (blockId, direction) => moveBlocks(selectedBlockIds.includes(blockId) ? selectedBlockIds : [blockId], { direction });
+  const canMoveSelected = (direction) => {
+    const blocks = pageData?.page.blocks ?? [];
+    const ids = selectedBlockIds.filter(id => blocks.some(block => block.id === id));
+    return ids.length > 0 && !saving && !readOnly && (pageData?.page.kind ?? "note") === "note"
+      && planBlockMove(blocks, { type: "blocks-move", blockIds: ids, direction }).changed;
   };
 
   const removeBlocks = async (requestedIds) => {
@@ -1893,7 +1924,7 @@ export function KnowledgeView({
   };
 
   useEffect(() => {
-    if (!pageData?.page || readOnly) return undefined;
+    if (!pageData?.page || readOnly || paperMode) return undefined;
     const onKeyDown = (event) => {
       if (isNativeTextEditingTarget(event.target)) return;
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && event.key.toLocaleLowerCase() === "z" && blockUndoStack.length) {
@@ -1913,7 +1944,7 @@ export function KnowledgeView({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [blockUndoStack, pageData?.page, readOnly, selectedBlockIds]);
+  }, [blockUndoStack, pageData?.page, readOnly, selectedBlockIds, paperMode]);
 
   const createUntitledPage = async (requestedTitle) => {
     setError("");
@@ -1942,6 +1973,7 @@ export function KnowledgeView({
   }, [creationFocus, pageData?.page.id]);
 
   const beginBody = async () => {
+    if (paperMode) { setPaperFocus(value => value + 1); return; }
     if (readOnly || (pageRef.current?.kind ?? "note") !== "note") return;
     await operationQueue.current;
     let first = pageRef.current?.blocks.find((block) => !["image", "divider", "url-embed"].includes(block.type));
@@ -2324,8 +2356,8 @@ export function KnowledgeView({
     const blockId = dragBlockId;
     setDragBlockId(null);
     setDragOverBlockId(null);
-    if (!blockId || blockId === beforeBlockId) return;
-    runMutation({ type: "block-move", blockId, beforeBlockId });
+    if (!blockId) return;
+    moveBlocks(selectedBlockIds.includes(blockId) ? selectedBlockIds : [blockId], { beforeBlockId });
   };
 
   const createNewProject = async (event) => {
@@ -2835,7 +2867,14 @@ export function KnowledgeView({
 
               {pageState === "trash" && <div className="knowledge-trash-notice"><Trash size={19} aria-hidden="true" /><div><strong>このPageはTrashにあります</strong><p>内容は読み取り専用です。編集するには復元してください。</p></div></div>}
 
-              <div
+              {paperMode && <PaperEditor key={`${profileId}:${projectId}:${pageData.page.id}`} page={pageData.page} profileId={profileId} readOnly={readOnly}
+                sessions={paperSessions.current} focusRequest={paperFocus}
+                onAddImage={desktop ? addImageBlock : undefined}
+                onCommit={(mutation, target) => runMutation(mutation, undefined, target)}
+                onDirty={dirty => onDraftChange(`paper-${pageData.page.id}`, dirty)}
+                onReadImage={readImage} onOpenPage={id => selectPage(projectId, id)}
+                onOpenUrl={url => client.openExternalUrl(url).catch(error => setError(displayError(error)))} />}
+              {!paperMode && <div
                 className="knowledge-blocks"
                 aria-label={`${pageTitle}のBlocks`}
                 onDragOver={(event) => {
@@ -2867,13 +2906,22 @@ export function KnowledgeView({
                 }}
               >
                 {(selectedBlockIds.length > 0 || blockUndoStack.length > 0) && (
-                  <div className="knowledge-block-selection-bar" role="toolbar" aria-label="選択したBlockの操作">
+                  <div className="knowledge-block-selection-bar" role="toolbar" aria-label="選択したBlockの操作" onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing || event.keyCode === 229 || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || !selectedBlockIds.length) return;
+                    if (!["ArrowUp", "ArrowDown"].includes(event.key)) return;
+                    event.preventDefault();
+                    moveBlocks(selectedBlockIds, { direction: event.key === "ArrowUp" ? "up" : "down" });
+                  }}>
                     <span role="status">
                       {selectedBlockIds.length > 0 ? `${selectedBlockIds.length}個のBlockを選択中` : "Blockを削除しました"}
                     </span>
                     {selectedBlockIds.length > 0 && (
                       <button type="button" disabled={saving} onClick={clearBlockSelection}>選択解除</button>
                     )}
+                    {selectedBlockIds.length > 0 && <>
+                      <button type="button" aria-label="選択したBlockを上へ移動" data-tooltip="上へ移動 · Alt + ↑" disabled={!canMoveSelected("up")} onClick={() => moveBlocks(selectedBlockIds, { direction: "up" })}><ArrowUp size={16} aria-hidden="true" /></button>
+                      <button type="button" aria-label="選択したBlockを下へ移動" data-tooltip="下へ移動 · Alt + ↓" disabled={!canMoveSelected("down")} onClick={() => moveBlocks(selectedBlockIds, { direction: "down" })}><ArrowDown size={16} aria-hidden="true" /></button>
+                    </>}
                     {blockUndoStack.length > 0 && (
                       <button type="button" disabled={saving} onClick={undoBlockRemoval}>
                         <ArrowUDownLeft size={16} aria-hidden="true" />元に戻す <kbd>Ctrl Z</kbd>
@@ -2930,6 +2978,8 @@ export function KnowledgeView({
                     readOnly={readOnly}
                     onCommit={runMutation}
                     onDraftChange={onDraftChange}
+                    onMove={moveSelected}
+                    structuralBusy={saving}
                     onAddAfter={addBlockAfter}
                     onPasteBlocks={pasteBlocks}
                     onRemove={(blockId) => removeBlocks(selectedBlockIds.includes(blockId) ? selectedBlockIds : [blockId])}
@@ -2939,8 +2989,8 @@ export function KnowledgeView({
                     onAutoEditHandled={() => setAutoEditBlockId(null)}
                     isSelected={selectedBlockIds.includes(block.id)}
                     onSelect={selectBlock}
-                    isDragging={dragBlockId === block.id}
-                    isDragOver={dragOverBlockId === block.id && dragBlockId !== block.id}
+                    isDragging={dragBlockId && (selectedBlockIds.includes(dragBlockId) ? selectedBlockIds.includes(block.id) : dragBlockId === block.id)}
+                    isDragOver={dragOverBlockId === block.id && dragBlockId !== block.id && !(selectedBlockIds.includes(dragBlockId) && selectedBlockIds.includes(block.id))}
                     onDragStart={setDragBlockId}
                     onDragEnterBlock={setDragOverBlockId}
                     onDropBlock={dropBlock}
@@ -2971,7 +3021,7 @@ export function KnowledgeView({
                     <button type="button" className="knowledge-add-block" aria-label="画像を追加" data-tooltip={desktop ? "画像を追加" : "デスクトップ版で利用できます"} disabled={!desktop} onClick={addImageBlock}><ImageIcon size={17} /></button>
                   </div>
                 )}
-              </div>
+              </div>}
 
               {!!pageData.pageLinks?.length && <section className="knowledge-backlinks" aria-label="ページリンク">
                 <h2><LinkIcon size={18} aria-hidden="true" />ページリンク <span>{pageData.pageLinks.length}</span></h2>

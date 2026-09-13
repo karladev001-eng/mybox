@@ -50,6 +50,19 @@ Implements the mandatory Knowledge record foundation described in
   the visible action or `Ctrl+Z` while focus is outside a native text editor.
 - `search-behavior.js`: normalized Page candidate filtering and pure keyboard
   actions for the search combobox.
+- `PaperEditor.jsx` and `paper-editor.css`: directly editable Note Blocks,
+  cross-Block text selection, typing Undo/Redo, implicit paragraph creation and
+  trailing-whitespace input. Hover/focus handles expose Block actions in the same
+  surface; slash opens type choices and a text selection reveals formatting.
+  `block-editor-actions.js` applies typed Block edits and group movement to editor
+  transactions, preserving identity and Undo; Alt+Enter opens the current Block's
+  menu and Alt+ArrowUp/Down moves the selected Blocks.
+  Selection survives repeated moves; Ctrl+Enter exits the current list/code/text
+  Block, reusing the next Block or creating a paragraph at the document end.
+  `paper-document.js` projects canonical Blocks into the editor schema and back;
+  `paper-save.js` captures each Page's serial autosave and failed in-memory draft;
+  `document-edit.js` validates changes against their base without overwriting
+  unrelated edits. All writes use the existing Host client (ADR 0059).
 - `tag-behavior.js`: IME-safe half-width/full-width Space delimiter detection
   and live, used-only candidate filtering for the Tag combobox. Space keeps the
   combobox focused for sequential entry; Enter commits and exits the field.
@@ -61,6 +74,10 @@ Implements the mandatory Knowledge record foundation described in
   one list Block, matching how list items are stored as newline-separated text.
   Clipboard parsing additionally treats ordinary hard line breaks as Block
   boundaries and preserves the source Block text around the pasted selection.
+- `block-movement.js`: shared validated movement plans for one or multiple
+  Blocks. Selection buttons and Alt+ArrowUp/ArrowDown on a move handle or the
+  selection toolbar provide keyboard/pointer alternatives to group dragging
+  (ADR 0058). Both local and Yjs storage use the same atomic movement rules.
 - `yjs-document.js`: the shared representation of a Project. Applies the same
   mutation vocabulary as `domain.js` to a Yjs document and projects it back into
   the Page and Block shape, so a shared Project merges concurrent edits where a

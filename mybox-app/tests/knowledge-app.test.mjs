@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { planBlockMove } from "../src/knowledge/block-movement.js";
 import { LOCAL_PROFILE_ID } from "../src/core/account-identity.js";
 import { AppHost } from "../src/core/app-host.js";
 import { createProfilePreferencesStore } from "../src/core/profile-preferences.js";
@@ -46,7 +47,7 @@ function deterministicIds() {
 test("publishes Page title paths for Workflow command output mapping", () => {
   const app = createKnowledgeApp();
   const operation = app.manifest.operations.find((item) => item.id === "knowledge.page.list");
-  assert.equal(app.manifest.version, "0.5.13");
+  assert.equal(app.manifest.version, "0.5.15");
   assert.ok(workflowSchemaPaths(operation.outputSchema).includes("$.pages[*].title"));
 });
 
@@ -461,7 +462,7 @@ test("describes the Page mutation vocabulary to agents while still accepting the
   assert.deepEqual(mutation.required, ["type"]);
   assert.deepEqual(
     [...mutation.properties.type.enum].sort(),
-    ["block-add", "block-move", "block-paste", "block-remove", "block-update", "blocks-remove", "blocks-restore", "link-add", "markdown-set", "rename", "tags-set"],
+    ["block-add", "block-move", "block-paste", "block-remove", "block-update", "blocks-move", "blocks-remove", "blocks-restore", "document-edit", "link-add", "markdown-set", "rename", "tags-set"],
   );
   assert.ok(mutation.description.includes("block-add"));
   // Without these an agent writes a whole document into one paragraph Block,
@@ -1057,4 +1058,40 @@ test("writes a whole document through one markdown-set mutation", async () => {
     mutation: { type: "markdown-set", markdown: "書き直し", mode: "replace" },
   }, { actor });
   assert.deepEqual(replaced.page.blocks.map(({ text }) => text), ["書き直し"]);
+});
+
+test("multi-Block movement preserves source order, boundaries and noncontiguous runs", () => {
+  const ids = ['a', 'b', 'c', 'd', 'e'];
+  const move = (blockIds, destination) => planBlockMove(ids, {type:'blocks-move', blockIds, ...destination});
+  assert.deepEqual(move(['d','b'], {beforeBlockId:null}).order, ['a','c','e','b','d']);
+  assert.deepEqual(move(['b','d'], {direction:'up'}).order, ['b','a','d','c','e']);
+  assert.deepEqual(move(['b','c'], {direction:'down'}).order, ['a','d','b','c','e']);
+  assert.equal(move(['a','b'], {direction:'up'}).changed, false);
+  assert.equal(move(['d','e'], {direction:'down'}).changed, false);
+  assert.equal(move(['b','c'], {beforeBlockId:'c'}).changed, false);
+  assert.throws(() => move(['b','missing'], {beforeBlockId:null}), /BLOCK_NOT_FOUND/);
+  assert.throws(() => move(['b'], {beforeBlockId:'missing'}), /BLOCK_NOT_FOUND/);
+  assert.throws(() => move([], {direction:'up'}), /INVALID_PAGE_MUTATION/);
+});
+
+test("Host multi-Block movement persists one revision without changing content and rejects stale/invalid moves", async () => {
+  const driver = new MemoryStorageDriver();
+  const host = new AppHost({storageDriver:driver}); host.register(createKnowledgeApp());
+  const actor = {type:'user', id:LOCAL_PROFILE_ID};
+  const invoke = (id, input) => host.invoke(id,input,{actor});
+  const {projects} = await invoke('knowledge.project.list',{});
+  const projectId = projects[0].id;
+  let {page} = await invoke('knowledge.page.create',{projectId,title:'Move QA'});
+  const pageId=page.id;
+  ({page} = await invoke('knowledge.page.update',{projectId,pageId,expectedRevision:page.revision,mutation:{type:'markdown-set',mode:'replace',markdown:'Alpha\n\nBeta\n\nGamma\n\nDelta'}}));
+  const before=structuredClone(page), ids=page.blocks.map(b=>b.id);
+  ({page} = await invoke('knowledge.page.update',{projectId,pageId,expectedRevision:page.revision,mutation:{type:'blocks-move',blockIds:[ids[2],ids[0]],beforeBlockId:null}}));
+  assert.deepEqual(page.blocks.map(b=>b.id), [ids[1],ids[3],ids[0],ids[2]]);
+  assert.equal(page.revision,before.revision+1);
+  for(const block of page.blocks) assert.deepEqual(block,before.blocks.find(b=>b.id===block.id));
+  await assert.rejects(invoke('knowledge.page.update',{projectId,pageId,expectedRevision:before.revision,mutation:{type:'blocks-move',blockIds:[ids[0]],direction:'up'}}));
+  await assert.rejects(invoke('knowledge.page.update',{projectId,pageId,expectedRevision:page.revision,mutation:{type:'blocks-move',blockIds:[ids[0]],beforeBlockId:'missing'}}), /Block|BLOCK/);
+  const reloaded = new AppHost({storageDriver:driver}); reloaded.register(createKnowledgeApp());
+  const read=await reloaded.invoke('knowledge.page.read',{projectId,pageId},{actor});
+  assert.deepEqual(read.page.blocks,page.blocks);
 });

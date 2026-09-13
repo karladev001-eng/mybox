@@ -285,3 +285,26 @@ test("the encoded state is a Yjs update the library accepts", () => {
   Y.applyUpdate(plain, encodeState(doc));
   assert.equal(plain.getMap("pages").get(PAGE.id).get("title"), "Shared Page");
 });
+
+test("multi-Block moves validate before deletion, preserve metadata and converge", () => {
+  const {a,b,sync}=twoPeers();
+  for(let i=3;i<=5;i++) applyPageMutation(a,PAGE.id,{type:'block-add',blockId:`block-${i}`,blockType:'paragraph',text:`Text ${i}`});
+  sync();
+  const before=readPage(a,PAGE.id);
+  applyPageMutation(a,PAGE.id,{type:'blocks-move',blockIds:['block-4','block-2'],beforeBlockId:null});
+  sync();
+  const moved=readPage(a,PAGE.id);
+  assert.deepEqual(moved.blocks.map(block=>block.id),['block-1','block-3','block-5','block-2','block-4']);
+  assert.deepEqual(readPage(b,PAGE.id).blocks,moved.blocks);
+  for(const block of moved.blocks) assert.deepEqual(block,before.blocks.find(candidate=>candidate.id===block.id));
+  for(const mutation of [
+    {type:'blocks-move',blockIds:['block-2','missing'],beforeBlockId:null},
+    {type:'block-move',blockId:'block-2',beforeBlockId:'missing'},
+  ]) {
+    assert.throws(()=>applyPageMutation(a,PAGE.id,mutation),/BLOCK_NOT_FOUND/);
+    assert.deepEqual(readPage(a,PAGE.id),moved);
+  }
+  applyPageMutation(a,PAGE.id,{type:'block-move',blockId:'block-4',direction:'up'});
+  sync();
+  assert.deepEqual(readPage(b,PAGE.id).blocks.map(block=>block.id),['block-1','block-3','block-5','block-4','block-2']);
+});

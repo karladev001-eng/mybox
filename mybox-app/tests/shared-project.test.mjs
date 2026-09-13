@@ -324,3 +324,13 @@ test("bulk records match editor records and remain detached across mutations", (
   assert.equal(shared.readRecords().pages[0].blocks[0].text, "updated");
   shared.dispose();
 });
+
+test("shared sessions authorize multi-Block movement and reject Viewer writes", () => {
+  const initial={...PAGE,blocks:[...PAGE.blocks,{...PAGE.blocks[0],id:'block-2',text:'two'},{...PAGE.blocks[0],id:'block-3',text:'three'}]};
+  const {shared}=session(); shared.adopt([initial]);
+  shared.mutate(PAGE.id,{type:'blocks-move',blockIds:['block-2','block-3'],direction:'up'},'editor');
+  assert.deepEqual(shared.readPage(PAGE.id).page.blocks.map(b=>b.id),['block-2','block-3','block-1']);
+  const viewer=session({role:'viewer'}).shared; viewer.adopt([initial]);
+  assert.throws(()=>viewer.mutate(PAGE.id,{type:'blocks-move',blockIds:['block-1'],beforeBlockId:null},'viewer'),/Editor Project role/);
+  assert.deepEqual(viewer.readPage(PAGE.id).page.blocks.map(b=>b.id),initial.blocks.map(b=>b.id));
+});

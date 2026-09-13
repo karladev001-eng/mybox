@@ -296,6 +296,12 @@ _Avoid_: Note file, document
 Page. A Page's visible body is the composition of its Blocks.
 _Avoid_: Line, paragraph
 
+**Block editing** — The default Note interaction: directly editable typed Blocks,
+with handles for structural actions, cross-Block text selection and text-edit
+Undo/Redo. Typing and Enter create Blocks implicitly; no separate creation or
+document/structure mode is required. A slash in an empty Block opens type choices.
+_Avoid_: a second storage format, free-positioned canvas
+
 **Block selection** — The ephemeral ordered set of Blocks selected on the open
 Page for a structural action such as bulk deletion. It is scoped to that Page
 and is not stored or synchronized as Page content.
