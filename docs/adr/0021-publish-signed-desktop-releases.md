@@ -215,3 +215,8 @@ with the existing large-chunk warning. Browser interaction and isolated Windows
 menu/input checks passed; native synthetic handle dragging and full IME
 composition remain unverified as recorded in ADR 0059. The User reviewed the
 interactive candidate and requested distribution after the input fixes.
+
+Release 0.11.0 was published on 2026-09-13 (JST) from ce8728c after CI run
+34733876367 succeeded. Windows MSI/NSIS installers, updater URLs and attached
+signature correspondence were verified before publishing the non-prerelease.
+The public latest updater endpoint returns 0.11.0.
