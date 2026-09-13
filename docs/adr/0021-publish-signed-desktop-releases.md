@@ -194,3 +194,10 @@ Image history/sample checks passed; native provider generation was not repeated.
 Release 0.10.2 was published on 2026-09-13 (JST) from f531194 after CI run
 34702253647 succeeded. MSI/NSIS assets, updater URLs and signature-file
 correspondence were verified. The public latest updater endpoint returns 0.10.2.
+
+Release 0.10.3 includes Image 0.7.0 generation-count selection and sequential
+per-image preservation (ADR 0057), plus conversation migration metadata comparison
+hardening (ADR 0043). Knowledge advertises 1.26.11. Schemas and protocols are
+unchanged. All 228 core tests and 4 packaging tests pass, along with the package
+build and isolated Windows/browser Image interaction checks. Live-provider
+multi-image generation was not repeated; no provider protocol was changed.

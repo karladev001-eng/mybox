@@ -2,17 +2,32 @@
 
 This is the implementation and rollout checklist for ADRs 0040, 0043, 0044,
 0048, 0049 and 0051–0054, not a new architecture decision. Last reviewed:
-2026-09-12. Deployment and real-data results are independent of code completion.
+2026-09-13. Deployment and real-data results are independent of code completion.
 
 ## Released version
 
-- Host: 0.10.0; Knowledge: 1.26.6; Image: 0.6.1.
+- Host: 0.10.2; Knowledge: 1.26.10; Image: 0.6.3.
 - Knowledge schema/native manifest: 5. Sync record protocol: 4.
 - Real-provider image generation: user confirmed success on 2026-09-12.
-- Signed desktop release: [0.10.0](https://github.com/karladev001-eng/mybox/releases/tag/v0.10.0), published 2026-09-12.
+- Signed desktop release: [0.10.2](https://github.com/karladev001-eng/mybox/releases/tag/v0.10.2), published 2026-09-13 (JST).
 - Workspace-specific migration and endpoint rollout results are maintained privately.
   This public checklist does not contain instance-level record counts or configuration.
 - Native pointer-state, IME/DPI and dense real-workspace graph checks: not verified.
+
+## Acceptance follow-up — 2026-09-13
+
+Existing-data verification includes each registered Project store, including
+external storage, rather than treating the common JSON backup as current state.
+Missing backup-only Pages must be checked against Yjs deletion state before
+being considered lost; intentional deletions must never be reimported.
+Conversation acceptance compares mapped messages, nested metadata and original
+image bytes with the retained backup. Completed checkpoints, current manifests,
+retired Folder assignments and legacy Context inventory are checked separately.
+Workspace-specific findings remain in a private report, not this repository.
+
+The unreleased follow-up hardens conversation metadata verification against
+native JSON key reordering and adds Image generation count (ADR 0057). These
+changes require no new storage schema or sync-server rollout.
 
 ## Implemented migrations
 

@@ -63,3 +63,8 @@ when Image is opened first after MyBox starts, without importing Note storage.
 
 Image uses the shared workspace typography and restrained amber color tokens
 for selected history and template markers (ADR 0049).
+
+The count picker selects 1–4 images (ADR 0057). `generation-run.js` sequences the
+existing single-image Operations with a frozen final Prompt/reference snapshot.
+Each result is saved separately. Failure or leaving Image stops further requests;
+the stop control lets the current image finish before cancelling the remainder.

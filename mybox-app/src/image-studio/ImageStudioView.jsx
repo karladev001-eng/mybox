@@ -5,6 +5,7 @@ import { createImageStudioClient } from "./client.js";
 import { BUILT_IN_TEMPLATES, compilePrompt, MAX_PROMPT_LENGTH, normalizeFinalPrompt, RATIOS, resolveGenerationSelection, serializeTemplateMarkdown, TEMPLATE_CATEGORIES } from "./domain.js";
 import { filterNotePageChoices } from "./note-page-search.js";
 import { previewFrameLayout } from "./preview-layout.js";
+import { GENERATION_COUNTS, runImageGenerations } from "./generation-run.js";
 import templateSamples from "./template-samples.webp";
 import "./image-studio.css";
 
@@ -222,6 +223,11 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
   const [referencePreviews, setReferencePreviews] = useState({});
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [generationCount, setGenerationCount] = useState(1);
+  const [generationProgress, setGenerationProgress] = useState(null);
+  const [stopRequested, setStopRequested] = useState(false);
+  const generationRunRef = useRef(null);
+  useEffect(() => () => { if (generationRunRef.current) { generationRunRef.current.stopped = true; generationRunRef.current.detached = true; } }, [profileId]);
   const [error, setError] = useState("");
   const [includeTrash, setIncludeTrash] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -336,15 +342,31 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
 
   const generate = async () => {
     const customPrompt = promptOverride?.trim() ?? "";
-    if ((!subject.trim() && !customPrompt) || busy || !viewStateReady) return;
-    setBusy(true); setError("");
+    if ((!subject.trim() && !customPrompt) || generationRunRef.current || !viewStateReady) return;
+    const run = { stopped: false, profileId };
+    generationRunRef.current = run;
+    setBusy(true); setStopRequested(false); setError("");
     try {
-      const result = await client.generate({ ...(promptSource ? {promptSource} : {}), subject: subject.trim(), selections, ratio, references, referenceInstruction, extra, ...(promptOverride !== null ? { promptOverride: customPrompt } : {}) });
-      await refresh(); setSelectedId(result.generation.id);
-      if (["error", "unknown"].includes(result.generation.state)) setError(result.generation.error?.message ?? "生成に失敗しました");
-      else onToast("画像を生成しました");
-    } catch (next) { setError(String(next?.message ?? next)); } finally { setBusy(false); }
+      const result = await runImageGenerations({
+        count: generationCount,
+        input: { ...(promptSource ? {promptSource} : {}), subject: subject.trim(), selections, ratio, references, referenceInstruction, extra, promptOverride: promptPreview },
+        generate: input => client.generate(input),
+        stopped: () => run.stopped || profileRef.current !== run.profileId,
+        onProgress: setGenerationProgress,
+        onResult: async generation => {
+          if (run.detached || profileRef.current !== run.profileId) return;
+          setGenerations(items => [generation, ...items.filter(item => item.id !== generation.id)]);
+          setSelectedId(generation.id);
+        },
+      });
+      if (run.detached || profileRef.current !== run.profileId) return;
+      if (result.failed) setError(result.failed.error?.message ?? "生成に失敗しました");
+      else onToast(result.stopped ? `${result.generations.length}枚を保存し、残りの生成を中止しました` : `${result.generations.length}枚の画像を生成しました`);
+    } catch (next) { if (!run.detached && profileRef.current === run.profileId) setError(String(next?.message ?? next)); }
+    finally { generationRunRef.current = null; setBusy(false); setGenerationProgress(null); setStopRequested(false); }
   };
+
+  const stopRemaining = () => { if (generationRunRef.current) generationRunRef.current.stopped = true; setStopRequested(true); };
 
   const selectGeneration = (generation) => { setPromptSource(generation.input?.promptSource ?? null); setReferences(generation.input?.references ?? []); setReferenceInstruction(generation.input?.referenceInstruction ?? "");
     for (const reference of generation.input?.references ?? []) client.readResource(reference.resourceId).then((uri) => setReferencePreviews((items) => ({...items, [reference.resourceId]:uri}))).catch((error) => setError(error.message));
@@ -367,7 +389,7 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
     <main className="image-preview-pane">
       <div className="image-preview-frame" style={previewLayout}>
         {!viewStateReady && !error ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>履歴を準備しています</strong><p>初回は保存済みの画像を確認します。</p></div>
-          : busy ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>画像を生成しています</strong><p>ChatGPTが構図と画風を組み立てています。画面を閉じずにお待ちください。</p></div>
+          : busy ? <div className="image-progress" role="status" aria-live="polite"><span className="image-spinner" /><strong>{generationProgress ? `${generationProgress.current} / ${generationProgress.total}枚目を生成しています` : "画像を生成しています"}</strong><p>{stopRequested ? "現在の1枚を保存して終了します。" : "完成した画像から履歴に保存します。"}</p></div>
           : preview ? <button type="button" className="image-preview-zoom" aria-label="生成画像を拡大表示" aria-haspopup="dialog" onClick={() => setPreviewOpen(true)}><img src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} /><span aria-hidden="true"><MagnifyingGlassPlus size={20} /></span></button>
           : ["error", "unknown"].includes(selected?.state) ? <div className="image-preview-empty error"><ImageIcon size={46} /><strong>生成できませんでした</strong><p>{selected.error?.message}</p><button onClick={generate}><ArrowsClockwise size={18} />再試行</button></div>
           : <div className="image-preview-empty"><MagicWand size={48} weight="duotone" /><strong>イメージを形にする</strong></div>}
@@ -388,7 +410,8 @@ export function ImageStudioView({ onOpenPage, desktop = false, profileId = "loca
       {TEMPLATE_CATEGORIES.map((category) => <TemplateShelf key={category} category={category} items={templatesFor(category)} value={selections[category]} onChange={(value) => setSelections((items) => ({ ...items, [category]: value }))} />)}
       <RatioShelf value={ratio} onChange={setRatio} />
       <label htmlFor="image-extra">追加入力</label><textarea ref={extraInputRef} id="image-extra" className="image-extra" value={extra} onChange={(event) => setExtra(event.target.value)} placeholder="色、文字を入れない、余白など" maxLength={4000} />
-      <div className="image-generation-actions"><button type="button" className="image-prompt-refresh" aria-label="選択内容から全体Promptを更新" data-tooltip="Promptを更新" disabled={busy} onClick={rebuildPrompt}><ArrowsClockwise size={19} /></button><button className="image-generate" disabled={busy || !viewStateReady || (!subject.trim() && !promptOverride?.trim())} onClick={generate}>{busy ? <span className="image-spinner" /> : <MagicWand size={21} weight="fill" />}<span>{!viewStateReady ? (error ? "履歴を読み込めません" : "履歴を準備中…") : busy ? "生成中…" : references.length ? "参照画像からアレンジ" : "画像を生成"}</span></button></div>
+      <div className="image-generation-options"><div className="image-count-control"><span>生成枚数</span><ThemedSelect id="image-generation-count" label="生成枚数" options={GENERATION_COUNTS.map(count => ({id: String(count), label: count + "枚"}))} value={String(generationCount)} onChange={value => setGenerationCount(Number(value))} disabled={busy} compact /></div>{busy && generationProgress?.total > 1 && <button type="button" className="image-stop-remaining" disabled={stopRequested || generationProgress.current === generationProgress.total} onClick={stopRemaining}>{stopRequested ? "中止予約済み" : "残りを中止"}</button>}</div>
+      <div className="image-generation-actions"><button type="button" className="image-prompt-refresh" aria-label="選択内容から全体Promptを更新" data-tooltip="Promptを更新" disabled={busy} onClick={rebuildPrompt}><ArrowsClockwise size={19} /></button><button className="image-generate" disabled={busy || !viewStateReady || (!subject.trim() && !promptOverride?.trim())} onClick={generate}>{busy ? <span className="image-spinner" /> : <MagicWand size={21} weight="fill" />}<span>{!viewStateReady ? (error ? "履歴を読み込めません" : "履歴を準備中…") : busy ? `${generationProgress?.current ?? 1} / ${generationProgress?.total ?? generationCount}枚目…` : references.length ? "参照画像からアレンジ" : `${generationCount}枚生成`}</span></button></div>
     </aside>
     {previewOpen && preview && <ImagePreviewDialog src={preview} alt={selected?.input?.subject ? `生成画像：${selected.input.subject}` : "生成画像"} width={selected?.actual?.width} height={selected?.actual?.height} onClose={closePreview} />}
     {editor && <TemplateEditor template={editor.id ? editor : null} onClose={() => setEditor(null)} onSave={async (markdown) => { if (editor.id) await client.updateTemplate(editor.id, markdown); else await client.createTemplate(markdown); await refresh(); }} />}

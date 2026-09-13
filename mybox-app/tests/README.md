@@ -78,3 +78,8 @@ This fixture never calls native providers or production storage.
 sample shelves during a history failure and reopening a migrated history copy.
 An optional local JSON snapshot is read into browser memory only; record writes
 and provider calls are disabled. Never commit real snapshots or originals.
+
+`image-generation-preview.html` uses memory storage and a delayed synthetic
+provider to verify generation count, cancellation, failure, leaving the Surface,
+and themed picker states in a browser or isolated native QA window. It never
+calls an external provider or opens a real workspace.

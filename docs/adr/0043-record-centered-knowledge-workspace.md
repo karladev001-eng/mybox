@@ -71,3 +71,11 @@ checks are required for the affected surfaces.
   desktop interaction/state coverage and authenticated provider sends remain unverified.
 - No production data migration, endpoint redeployment or release was performed.
   Migration runs through the Host on the next desktop startup and retains its backup.
+
+### Native JSON migration verification
+
+Conversation migration compares nested message and session metadata by JSON value,
+independent of native property ordering, using the same comparator as Image.
+Array ordering and actual content differences still fail verification. This
+prevents a false incomplete checkpoint when an existing Yjs record and native
+backup contain equal metadata in different insertion orders.

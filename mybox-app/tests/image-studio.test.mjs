@@ -7,10 +7,49 @@ import { createImageStudioClient } from "../src/image-studio/client.js";
 import { BUILT_IN_TEMPLATES, compilePrompt, parseTemplateMarkdown, RATIOS, resolveGenerationSelection, serializeTemplateMarkdown } from "../src/image-studio/domain.js";
 import { filterNotePageChoices } from "../src/image-studio/note-page-search.js";
 import { previewFrameLayout } from "../src/image-studio/preview-layout.js";
+import { runImageGenerations } from "../src/image-studio/generation-run.js";
 import { createKnowledgeApp } from "../src/knowledge/app.js";
 
 const user = { type: "user", id: "local-user" };
 const reference = { appId: "image-studio", resourceId: "reference.png", mediaType: "image/png", revision: 1 };
+
+test("multiple images use frozen inputs, sequential authorized calls and durable individual histories", async () => {
+  const host = new AppHost({ storageDriver: new MemoryStorageDriver() });
+  let calls = 0, active = 0, maximum = 0;
+  const prompts = [], progress = [];
+  host.register(createImageStudioApp({ generator: { generate: async input => {
+    maximum = Math.max(maximum, ++active); calls++; prompts.push(input.prompt);
+    await new Promise(resolve => setTimeout(resolve, 5)); active--;
+    return { resource: { ...reference, resourceId: `result-${calls}.png` }, actual: {width:10,height:10} };
+  } } }));
+  const input = { ratio: "auto", promptOverride: "fixed prompt", references: [reference] };
+  const result = await runImageGenerations({ count: 3, input,
+    generate: request => host.invoke("image-studio.generation.create", request, { actor: user }),
+    onProgress: state => progress.push(state.current),
+    onResult: async () => { input.promptOverride = "changed draft"; input.references.length = 0; },
+  });
+  assert.equal(maximum, 1); assert.equal(calls, 3);
+  assert.deepEqual(progress, [1,2,3]); assert.deepEqual(prompts, ["fixed prompt","fixed prompt","fixed prompt"]);
+  assert.equal(new Set(result.generations.map(g => g.id)).size, 3);
+  const saved = await host.invoke("image-studio.generation.list", {}, {actor:user});
+  assert.equal(saved.generations.length, 3);
+  assert.ok(saved.generations.every(g => g.state === "complete" && g.input.references.length === 1));
+});
+
+test("count validation, cancellation and uncertain failure never launch additional attempts", async () => {
+  let calls=0, stop=false;
+  const generate=async()=>({generation:{id:String(++calls),state:"complete"}});
+  for (const count of [0,5,1.5,"2",NaN]) await assert.rejects(runImageGenerations({count,input:{},generate}),/生成枚数/);
+  assert.equal(calls,0);
+  const stopped=await runImageGenerations({count:4,input:{},generate,stopped:()=>stop,onResult:async()=>{stop=true;}});
+  assert.equal(calls,1); assert.equal(stopped.stopped,true); assert.equal(stopped.generations.length,1);
+  calls=0;
+  const failed=await runImageGenerations({count:4,input:{},generate:async()=>({generation:{id:String(++calls),state:calls===2?"unknown":"complete",error:{message:"uncertain"}}})});
+  assert.equal(calls,2); assert.equal(failed.failed.state,"unknown"); assert.equal(failed.generations.length,2);
+  calls=0;
+  await assert.rejects(runImageGenerations({count:4,input:{},generate:async()=>{calls++;throw Error("storage failure");}}),/storage failure/);
+  assert.equal(calls,1);
+});
 
 test("persists native string errors without losing the provider failure detail", async () => {
   const host = new AppHost({ workflows: { request: async () => ({ items: [] }) } });

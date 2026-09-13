@@ -1,3 +1,4 @@
+import { jsonValueEqual } from "./json-value.js";
 /** Host-owned migration/compatibility adapter. All content access uses Knowledge Operations. */
 export function createKnowledgeChatStore({ client, legacy, readLegacyImage, desktop = false }) {
   let checkpoint;
@@ -70,11 +71,8 @@ export function createKnowledgeChatStore({ client, legacy, readLegacyImage, desk
       await invoke("conversation.save.v1", { projectId: checkpoint.projectId, session, legacy: true });
       const saved = await readSession(checkpoint.projectId, session.id);
       const identityFields = new Set(["id", "projectId", "title", "messages", "revision", "createdAt", "updatedAt"]);
-      if (Object.keys(source).some((key) => !identityFields.has(key) && JSON.stringify(saved[key]) !== JSON.stringify(source[key]))) throw new Error("会話メタデータの移行検証に失敗しました。旧データは保持されています。");
-      if (JSON.stringify(saved.messages) !== JSON.stringify(session.messages)) {
-        // Compare values independent of object insertion order.
-        if (saved.messages.length !== session.messages.length || saved.messages.some((m, i) => Object.keys(session.messages[i]).some((key) => JSON.stringify(m[key]) !== JSON.stringify(session.messages[i][key])))) throw new Error("会話の移行検証に失敗しました。旧データは保持されています。");
-      }
+      if (Object.keys(source).some((key) => !identityFields.has(key) && !jsonValueEqual(saved[key], source[key]))) throw new Error("会話メタデータの移行検証に失敗しました。旧データは保持されています。");
+      if (saved.messages.length !== session.messages.length || saved.messages.some((m, i) => Object.keys(session.messages[i]).some((key) => !jsonValueEqual(m[key], session.messages[i][key])))) throw new Error("会話の移行検証に失敗しました。旧データは保持されています。");
       mapping.verified = true;
       await legacy.writeMigration(checkpoint);
     }

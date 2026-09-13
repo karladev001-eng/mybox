@@ -72,7 +72,7 @@ export function ThemedSelect({
         aria-expanded={open}
         aria-controls={`${id}-listbox`}
         disabled={disabled}
-        title={`${label}：${selected.label}`}
+        data-tooltip={`${label}：${selected.label}`}
         onClick={() => open ? closePicker() : openPicker()}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {

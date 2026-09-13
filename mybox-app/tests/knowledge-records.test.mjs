@@ -498,3 +498,25 @@ test("aggregate projection reads one bulk snapshot and skips revoked sessions", 
   assert.equal(withProjectSessions(stored, sessions, "user").pages.length, 0);
   assert.equal(calls, 1);
 });
+
+test("conversation migration tolerates nested native key reordering but rejects changed metadata", async () => {
+  const ordered = value => Array.isArray(value) ? value.map(ordered) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, ordered(value[key])])) : value;
+  for (const corrupt of [false, true]) {
+    const storage = createAppStorage("ai-chat", new MemoryStorageDriver());
+    const legacy = createChatHistoryStore(storage);
+    const raw = {version:2,sessions:[{id:"nested-metadata",title:"Migration",customMetadata:{z:1,a:2},messages:[{id:"nested-message",role:"assistant",content:"retained",usage:{z:10,a:20}}]}]};
+    await storage.writeJson("sessions/index", raw);
+    const client = createKnowledgeClient({appRuntime:{host:new AppHost({storageDriver:new MemoryStorageDriver()}),sharedSessions:new Map()}});
+    const wrapped = {...client,invoke:async(id,input)=>{
+      const result = await client.invoke(id,input);
+      if (id !== "knowledge.conversation.read.v1") return result;
+      const sorted = ordered(result);
+      if (corrupt) sorted.session.messages[0].usage.a = 21;
+      return sorted;
+    }};
+    const store = createKnowledgeChatStore({client:wrapped,legacy});
+    if (corrupt) { await assert.rejects(store.load(),/移行検証/); assert.equal((await legacy.readMigration()).phase,"pending"); }
+    else { assert.equal((await store.load()).sessions.length,1); assert.equal((await store.load()).sessions.length,1); assert.equal((await legacy.readMigration()).phase,"complete"); }
+    assert.deepEqual(await legacy.readBackup(),raw);
+  }
+});

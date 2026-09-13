@@ -74,3 +74,5 @@ notes of the ADR it realizes.
 - [0055 — Bound Project read and replay work](0055-bound-project-read-and-replay-work.md)
 
 - [0056 — Preserve editor intent across async work](0056-preserve-editor-intent-across-async-work.md)
+
+- [0057 — Select Image generation count](0057-select-image-generation-count.md)
