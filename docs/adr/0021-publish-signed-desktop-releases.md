@@ -201,3 +201,7 @@ hardening (ADR 0043). Knowledge advertises 1.26.11. Schemas and protocols are
 unchanged. All 228 core tests and 4 packaging tests pass, along with the package
 build and isolated Windows/browser Image interaction checks. Live-provider
 multi-image generation was not repeated; no provider protocol was changed.
+
+Release 0.10.3 was published on 2026-09-13 (JST) from 0992740 after CI run
+34730190447 succeeded. MSI/NSIS assets, updater URLs and signature-file
+correspondence were verified. The public latest updater endpoint returns 0.10.3.
